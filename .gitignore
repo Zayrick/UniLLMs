@@ -1,0 +1,60 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+
+# Xcode user and workspace state
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.xcuserdatad/
+
+# Xcode build products
+DerivedData/
+build/
+Build/
+*.ipa
+*.dSYM
+*.dSYM.zip
+*.hmap
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Dependency managers
+Pods/
+Carthage/Build/
+
+# Test and coverage output
+TestResults/
+*.xcresult
+coverage/
+*.profraw
+*.profdata
+
+# Fastlane generated output
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/
+fastlane/test_output/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+
+# Local editor and tool state
+.vscode/
+.idea/
+
+# Local secrets and environment overrides
+.env
+.env.*
+!.env.example
