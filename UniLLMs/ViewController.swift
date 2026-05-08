@@ -204,6 +204,8 @@ private final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate
             systemName: "arrow.up",
             withConfiguration: UIImage.SymbolConfiguration(pointSize: 15.0, weight: .bold)
         )
+        configuration.baseBackgroundColor = .systemBlue
+        configuration.baseForegroundColor = .white
         configuration.cornerStyle = .capsule
         configuration.contentInsets = .zero
         sendButton.configuration = configuration
