@@ -8,8 +8,18 @@
 import UIKit
 
 class ViewController: UIViewController {
+    private enum ComposerLayout {
+        static let keyboardHorizontalInset: CGFloat = 14.0
+        static let keyboardBottomSpacing: CGFloat = 8.0
+    }
+
     private let backgroundView = AppGradientBackgroundView()
     private let composerView = GlassComposerBarView()
+    private var composerLeadingConstraint: NSLayoutConstraint!
+    private var composerTrailingConstraint: NSLayoutConstraint!
+    private var composerBottomConstraint: NSLayoutConstraint!
+    private var keyboardObservation: NotificationCenter.ObservationToken?
+    private var isKeyboardVisible = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -20,17 +30,101 @@ class ViewController: UIViewController {
         view.insertSubview(backgroundView, at: 0)
 
         configureComposerView()
+        installKeyboardObserver()
+    }
+
+    deinit {
+        if let keyboardObservation {
+            NotificationCenter.default.removeObserver(keyboardObservation)
+        }
+    }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+
+        updateComposerLayout(animated: false)
     }
 
     private func configureComposerView() {
         composerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(composerView)
 
+        composerLeadingConstraint = composerView.leadingAnchor.constraint(
+            equalTo: view.safeAreaLayoutGuide.leadingAnchor,
+            constant: composerHorizontalInset
+        )
+        composerTrailingConstraint = composerView.trailingAnchor.constraint(
+            equalTo: view.safeAreaLayoutGuide.trailingAnchor,
+            constant: -composerHorizontalInset
+        )
+        composerBottomConstraint = composerView.bottomAnchor.constraint(
+            equalTo: view.keyboardLayoutGuide.topAnchor,
+            constant: composerBottomSpacing
+        )
+
         NSLayoutConstraint.activate([
-            composerView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 14.0),
-            composerView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -14.0),
-            composerView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -8.0)
+            composerLeadingConstraint,
+            composerTrailingConstraint,
+            composerBottomConstraint
         ])
+    }
+
+    private var composerHorizontalInset: CGFloat {
+        isKeyboardVisible ? ComposerLayout.keyboardHorizontalInset : view.safeAreaInsets.bottom
+    }
+
+    private var composerBottomSpacing: CGFloat {
+        isKeyboardVisible ? -ComposerLayout.keyboardBottomSpacing : 0.0
+    }
+
+    private func installKeyboardObserver() {
+        keyboardObservation = NotificationCenter.default.addObserver(
+            of: UIScreen.self,
+            for: .keyboardWillChangeFrame
+        ) { [weak self] message in
+            guard let self else {
+                return
+            }
+
+            self.isKeyboardVisible = message.endFrame.minY < message.screen.bounds.maxY
+            let options = UIView.AnimationOptions(rawValue: UInt(message.animationCurve.rawValue << 16))
+                .union(.beginFromCurrentState)
+            self.updateComposerLayout(
+                animated: true,
+                duration: message.animationDuration,
+                options: options
+            )
+        }
+    }
+
+    private func updateComposerLayout(
+        animated: Bool,
+        duration: TimeInterval = 0.0,
+        options: UIView.AnimationOptions = [.beginFromCurrentState]
+    ) {
+        guard composerLeadingConstraint != nil, composerTrailingConstraint != nil, composerBottomConstraint != nil else {
+            return
+        }
+
+        let inset = composerHorizontalInset
+        composerLeadingConstraint.constant = inset
+        composerTrailingConstraint.constant = -inset
+        composerBottomConstraint.constant = composerBottomSpacing
+
+        let layoutChanges = {
+            self.view.layoutIfNeeded()
+        }
+
+        if animated {
+            UIView.animate(
+                withDuration: duration,
+                delay: 0.0,
+                options: options,
+                animations: layoutChanges
+            )
+        } else {
+            layoutChanges()
+        }
     }
 }
 
