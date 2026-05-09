@@ -8,28 +8,62 @@
 import UIKit
 
 class ViewController: UIViewController {
+    private enum HeaderLayout {
+        static let buttonSize: CGFloat = 44.0
+        static let horizontalInset: CGFloat = 16.0
+        static let topSpacing: CGFloat = 10.0
+        static let iconPointSize: CGFloat = 18.0
+    }
+
     private enum ComposerLayout {
         static let keyboardHorizontalInset: CGFloat = 14.0
         static let keyboardBottomSpacing: CGFloat = 8.0
     }
 
+    private enum SideMenuLayout {
+        static let revealRatio: CGFloat = 0.8
+        static let pageOpacity: CGFloat = 0.72
+        static let animationDuration: TimeInterval = 0.44
+        static let animationDampingRatio: CGFloat = 0.86
+        static let shadowOpacity: Float = 0.18
+        static let shadowRadius: CGFloat = 28.0
+        static let shadowOffset = CGSize(width: -10.0, height: 0.0)
+    }
+
+    private let rootBackgroundView = AppGradientBackgroundView()
+    private let sideMenuView = SideMenuView()
+    private let sideMenuDismissControl = UIControl()
+    private let mainPageContainerView = UIView()
+    private let mainPageView = UIView()
     private let backgroundView = AppGradientBackgroundView()
+    private let leftHeaderButton = ViewController.makeHeaderButton(
+        systemName: "list.bullet",
+        accessibilityLabel: "Menu"
+    )
+    private let rightHeaderButton = ViewController.makeHeaderButton(
+        systemName: "app.dashed",
+        accessibilityLabel: "Layout"
+    )
     private let composerView = GlassComposerBarView()
     private var composerLeadingConstraint: NSLayoutConstraint!
     private var composerTrailingConstraint: NSLayoutConstraint!
-    private var composerBottomConstraint: NSLayoutConstraint!
+    private var composerKeyboardBottomConstraint: NSLayoutConstraint!
+    private var composerRestingBottomConstraint: NSLayoutConstraint!
     private var keyboardObservation: NotificationCenter.ObservationToken?
     private var isKeyboardVisible = false
+    private var isSideMenuOpen = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
 
         view.backgroundColor = .appBackgroundMiddle
-        backgroundView.frame = view.bounds
-        backgroundView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        view.insertSubview(backgroundView, at: 0)
 
+        configureRootBackground()
+        configureSideMenu()
+        configureMainPage()
+        configureHeaderButtons()
         configureComposerView()
+        configureSideMenuDismissControl()
         installKeyboardObserver()
     }
 
@@ -45,27 +79,148 @@ class ViewController: UIViewController {
         updateComposerLayout(animated: false)
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+
+        updateSideMenuLayout()
+        updateMainPageShadowPath()
+    }
+
+    private func configureRootBackground() {
+        rootBackgroundView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(rootBackgroundView)
+
+        NSLayoutConstraint.activate([
+            rootBackgroundView.topAnchor.constraint(equalTo: view.topAnchor),
+            rootBackgroundView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            rootBackgroundView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            rootBackgroundView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+    }
+
+    private func configureSideMenu() {
+        sideMenuView.translatesAutoresizingMaskIntoConstraints = false
+        sideMenuView.alpha = 0.0
+        sideMenuView.isUserInteractionEnabled = false
+        view.addSubview(sideMenuView)
+
+        NSLayoutConstraint.activate([
+            sideMenuView.topAnchor.constraint(equalTo: view.topAnchor),
+            sideMenuView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            sideMenuView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            sideMenuView.widthAnchor.constraint(
+                equalTo: view.widthAnchor,
+                multiplier: SideMenuLayout.revealRatio
+            )
+        ])
+    }
+
+    private func configureMainPage() {
+        mainPageContainerView.translatesAutoresizingMaskIntoConstraints = false
+        mainPageContainerView.clipsToBounds = false
+        mainPageContainerView.layer.shadowColor = UIColor.black.cgColor
+        mainPageContainerView.layer.shadowOpacity = 0.0
+        mainPageContainerView.layer.shadowRadius = SideMenuLayout.shadowRadius
+        mainPageContainerView.layer.shadowOffset = SideMenuLayout.shadowOffset
+        view.addSubview(mainPageContainerView)
+
+        mainPageView.translatesAutoresizingMaskIntoConstraints = false
+        mainPageView.backgroundColor = .appBackgroundMiddle
+        mainPageView.layer.cornerCurve = .continuous
+        mainPageContainerView.addSubview(mainPageView)
+
+        backgroundView.translatesAutoresizingMaskIntoConstraints = false
+        mainPageView.addSubview(backgroundView)
+
+        NSLayoutConstraint.activate([
+            mainPageContainerView.topAnchor.constraint(equalTo: view.topAnchor),
+            mainPageContainerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            mainPageContainerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            mainPageContainerView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            mainPageView.topAnchor.constraint(equalTo: mainPageContainerView.topAnchor),
+            mainPageView.leadingAnchor.constraint(equalTo: mainPageContainerView.leadingAnchor),
+            mainPageView.trailingAnchor.constraint(equalTo: mainPageContainerView.trailingAnchor),
+            mainPageView.bottomAnchor.constraint(equalTo: mainPageContainerView.bottomAnchor),
+
+            backgroundView.topAnchor.constraint(equalTo: mainPageView.topAnchor),
+            backgroundView.leadingAnchor.constraint(equalTo: mainPageView.leadingAnchor),
+            backgroundView.trailingAnchor.constraint(equalTo: mainPageView.trailingAnchor),
+            backgroundView.bottomAnchor.constraint(equalTo: mainPageView.bottomAnchor)
+        ])
+    }
+
+    private func configureHeaderButtons() {
+        [leftHeaderButton, rightHeaderButton].forEach { button in
+            button.translatesAutoresizingMaskIntoConstraints = false
+            mainPageView.addSubview(button)
+        }
+        leftHeaderButton.addTarget(self, action: #selector(toggleSideMenu), for: .touchUpInside)
+
+        NSLayoutConstraint.activate([
+            leftHeaderButton.topAnchor.constraint(
+                equalTo: mainPageView.safeAreaLayoutGuide.topAnchor,
+                constant: HeaderLayout.topSpacing
+            ),
+            leftHeaderButton.leadingAnchor.constraint(
+                equalTo: mainPageView.safeAreaLayoutGuide.leadingAnchor,
+                constant: HeaderLayout.horizontalInset
+            ),
+            leftHeaderButton.widthAnchor.constraint(equalToConstant: HeaderLayout.buttonSize),
+            leftHeaderButton.heightAnchor.constraint(equalToConstant: HeaderLayout.buttonSize),
+
+            rightHeaderButton.topAnchor.constraint(
+                equalTo: leftHeaderButton.topAnchor
+            ),
+            rightHeaderButton.trailingAnchor.constraint(
+                equalTo: mainPageView.safeAreaLayoutGuide.trailingAnchor,
+                constant: -HeaderLayout.horizontalInset
+            ),
+            rightHeaderButton.widthAnchor.constraint(equalToConstant: HeaderLayout.buttonSize),
+            rightHeaderButton.heightAnchor.constraint(equalToConstant: HeaderLayout.buttonSize)
+        ])
+    }
+
     private func configureComposerView() {
         composerView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(composerView)
+        mainPageView.addSubview(composerView)
 
         composerLeadingConstraint = composerView.leadingAnchor.constraint(
-            equalTo: view.safeAreaLayoutGuide.leadingAnchor,
+            equalTo: mainPageView.safeAreaLayoutGuide.leadingAnchor,
             constant: composerHorizontalInset
         )
         composerTrailingConstraint = composerView.trailingAnchor.constraint(
-            equalTo: view.safeAreaLayoutGuide.trailingAnchor,
+            equalTo: mainPageView.safeAreaLayoutGuide.trailingAnchor,
             constant: -composerHorizontalInset
         )
-        composerBottomConstraint = composerView.bottomAnchor.constraint(
+        composerKeyboardBottomConstraint = composerView.bottomAnchor.constraint(
             equalTo: view.keyboardLayoutGuide.topAnchor,
             constant: composerBottomSpacing
+        )
+        composerRestingBottomConstraint = composerView.bottomAnchor.constraint(
+            equalTo: mainPageView.safeAreaLayoutGuide.bottomAnchor
         )
 
         NSLayoutConstraint.activate([
             composerLeadingConstraint,
-            composerTrailingConstraint,
-            composerBottomConstraint
+            composerTrailingConstraint
+        ])
+        updateComposerBottomConstraint()
+    }
+
+    private func configureSideMenuDismissControl() {
+        sideMenuDismissControl.translatesAutoresizingMaskIntoConstraints = false
+        sideMenuDismissControl.backgroundColor = .clear
+        sideMenuDismissControl.alpha = 0.0
+        sideMenuDismissControl.isHidden = true
+        sideMenuDismissControl.addTarget(self, action: #selector(closeSideMenu), for: .touchUpInside)
+        view.addSubview(sideMenuDismissControl)
+
+        NSLayoutConstraint.activate([
+            sideMenuDismissControl.topAnchor.constraint(equalTo: view.topAnchor),
+            sideMenuDismissControl.leadingAnchor.constraint(equalTo: sideMenuView.trailingAnchor),
+            sideMenuDismissControl.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            sideMenuDismissControl.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
     }
 
@@ -102,14 +257,18 @@ class ViewController: UIViewController {
         duration: TimeInterval = 0.0,
         options: UIView.AnimationOptions = [.beginFromCurrentState]
     ) {
-        guard composerLeadingConstraint != nil, composerTrailingConstraint != nil, composerBottomConstraint != nil else {
+        guard composerLeadingConstraint != nil,
+              composerTrailingConstraint != nil,
+              composerKeyboardBottomConstraint != nil,
+              composerRestingBottomConstraint != nil else {
             return
         }
 
         let inset = composerHorizontalInset
         composerLeadingConstraint.constant = inset
         composerTrailingConstraint.constant = -inset
-        composerBottomConstraint.constant = composerBottomSpacing
+        composerKeyboardBottomConstraint.constant = composerBottomSpacing
+        updateComposerBottomConstraint()
 
         let layoutChanges = {
             self.view.layoutIfNeeded()
@@ -125,6 +284,326 @@ class ViewController: UIViewController {
         } else {
             layoutChanges()
         }
+    }
+
+    @objc private func toggleSideMenu() {
+        setSideMenuOpen(!isSideMenuOpen, animated: true)
+    }
+
+    @objc private func closeSideMenu() {
+        setSideMenuOpen(false, animated: true)
+    }
+
+    private func setSideMenuOpen(_ isOpen: Bool, animated: Bool) {
+        guard isSideMenuOpen != isOpen else {
+            return
+        }
+
+        isSideMenuOpen = isOpen
+        if isOpen {
+            view.endEditing(true)
+            sideMenuView.alpha = 0.0
+            sideMenuView.isHidden = false
+            sideMenuView.isUserInteractionEnabled = true
+            sideMenuDismissControl.isHidden = false
+        } else {
+            sideMenuView.resignSearchFocus()
+            view.endEditing(true)
+        }
+
+        let animations = {
+            self.updateSideMenuLayout()
+            self.updateComposerLayout(animated: false)
+            self.view.layoutIfNeeded()
+        }
+        let completion: (UIViewAnimatingPosition) -> Void = { _ in
+            guard !self.isSideMenuOpen else {
+                return
+            }
+
+            self.sideMenuView.isUserInteractionEnabled = false
+            self.sideMenuDismissControl.isHidden = true
+        }
+
+        if animated {
+            let animator = UIViewPropertyAnimator(
+                duration: SideMenuLayout.animationDuration,
+                dampingRatio: SideMenuLayout.animationDampingRatio,
+                animations: animations
+            )
+            animator.addCompletion(completion)
+            animator.startAnimation()
+        } else {
+            animations()
+            completion(.end)
+        }
+    }
+
+    private func updateSideMenuLayout() {
+        let revealWidth = view.bounds.width * SideMenuLayout.revealRatio
+        let pageCornerRadius = currentPageCornerRadius
+
+        mainPageContainerView.transform = isSideMenuOpen
+            ? CGAffineTransform(translationX: revealWidth, y: 0.0)
+            : .identity
+        mainPageContainerView.layer.shadowOpacity = isSideMenuOpen
+            ? SideMenuLayout.shadowOpacity
+            : 0.0
+        mainPageView.alpha = isSideMenuOpen ? SideMenuLayout.pageOpacity : 1.0
+        mainPageView.layer.cornerRadius = isSideMenuOpen ? pageCornerRadius : 0.0
+        mainPageView.layer.masksToBounds = isSideMenuOpen
+        sideMenuView.alpha = isSideMenuOpen ? 1.0 : 0.0
+        sideMenuDismissControl.alpha = isSideMenuOpen ? 1.0 : 0.0
+        updateMainPageShadowPath(cornerRadius: isSideMenuOpen ? pageCornerRadius : 0.0)
+    }
+
+    private func updateComposerBottomConstraint() {
+        let shouldTrackKeyboard = !isSideMenuOpen
+        composerKeyboardBottomConstraint.isActive = shouldTrackKeyboard
+        composerRestingBottomConstraint.isActive = !shouldTrackKeyboard
+    }
+
+    private func updateMainPageShadowPath(cornerRadius: CGFloat? = nil) {
+        let radius = cornerRadius ?? mainPageView.layer.cornerRadius
+        mainPageContainerView.layer.shadowPath = UIBezierPath(
+            roundedRect: mainPageContainerView.bounds,
+            cornerRadius: radius
+        ).cgPath
+    }
+
+    private var currentPageCornerRadius: CGFloat {
+        view.window?.windowScene?.screen.displayCornerRadius ?? 0.0
+    }
+
+    private static func makeHeaderButton(systemName: String, accessibilityLabel: String) -> UIButton {
+        var configuration = UIButton.Configuration.clearGlass()
+        configuration.image = UIImage(
+            systemName: systemName,
+            withConfiguration: UIImage.SymbolConfiguration(
+                pointSize: HeaderLayout.iconPointSize,
+                weight: .semibold
+            )
+        )
+        configuration.baseForegroundColor = .label
+        configuration.cornerStyle = .capsule
+        configuration.contentInsets = .zero
+
+        let button = UIButton(configuration: configuration)
+        button.accessibilityLabel = accessibilityLabel
+        return button
+    }
+}
+
+private final class SideMenuView: UIView {
+    private enum Metrics {
+        static let horizontalInset: CGFloat = 16.0
+        static let titleTopSpacing: CGFloat = 18.0
+        static let bottomSpacing: CGFloat = 10.0
+        static let controlHeight: CGFloat = 48.0
+        static let controlSpacing: CGFloat = 10.0
+        static let searchHorizontalInset: CGFloat = 16.0
+        static let searchIconSize: CGFloat = 17.0
+        static let settingsButtonSize: CGFloat = 48.0
+        static let settingsIconSize: CGFloat = 20.0
+    }
+
+    private let titleLabel = UILabel()
+    private let bottomGlassContainerView = UIVisualEffectView(effect: SideMenuView.makeContainerEffect())
+    private let bottomStackView = UIStackView()
+    private let searchGlassView = UIVisualEffectView(effect: SideMenuView.makeGlassEffect())
+    private let searchRowView = UIStackView()
+    private let searchIconView = UIImageView()
+    private let searchTextField = UITextField()
+    private let settingsGlassView = UIVisualEffectView(effect: SideMenuView.makeGlassEffect())
+    private let settingsButton = UIButton(type: .system)
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        configure()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configure()
+    }
+
+    func resignSearchFocus() {
+        searchTextField.resignFirstResponder()
+    }
+
+    private func configure() {
+        isOpaque = false
+        backgroundColor = .clear
+
+        configureTitle()
+        configureBottomBar()
+        configureSearchField()
+        configureSettingsButton()
+    }
+
+    private func configureTitle() {
+        titleLabel.text = "UniLLMs"
+        titleLabel.font = .systemFont(ofSize: 28.0, weight: .semibold)
+        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.textColor = .label
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(titleLabel)
+
+        NSLayoutConstraint.activate([
+            titleLabel.topAnchor.constraint(
+                equalTo: safeAreaLayoutGuide.topAnchor,
+                constant: Metrics.titleTopSpacing
+            ),
+            titleLabel.leadingAnchor.constraint(
+                equalTo: safeAreaLayoutGuide.leadingAnchor,
+                constant: Metrics.horizontalInset
+            ),
+            titleLabel.trailingAnchor.constraint(
+                lessThanOrEqualTo: trailingAnchor,
+                constant: -Metrics.horizontalInset
+            )
+        ])
+    }
+
+    private func configureBottomBar() {
+        bottomGlassContainerView.translatesAutoresizingMaskIntoConstraints = false
+        bottomGlassContainerView.backgroundColor = .clear
+        addSubview(bottomGlassContainerView)
+
+        bottomStackView.axis = .horizontal
+        bottomStackView.alignment = .bottom
+        bottomStackView.spacing = Metrics.controlSpacing
+        bottomStackView.translatesAutoresizingMaskIntoConstraints = false
+        bottomGlassContainerView.contentView.addSubview(bottomStackView)
+
+        bottomStackView.addArrangedSubview(searchGlassView)
+        bottomStackView.addArrangedSubview(settingsGlassView)
+
+        searchGlassView.translatesAutoresizingMaskIntoConstraints = false
+        searchGlassView.cornerConfiguration = .corners(
+            radius: .fixed(Double(Metrics.controlHeight * 0.5))
+        )
+        searchGlassView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        searchGlassView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        settingsGlassView.translatesAutoresizingMaskIntoConstraints = false
+        settingsGlassView.cornerConfiguration = .capsule()
+        settingsGlassView.setContentHuggingPriority(.required, for: .horizontal)
+        settingsGlassView.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        NSLayoutConstraint.activate([
+            bottomGlassContainerView.leadingAnchor.constraint(
+                equalTo: safeAreaLayoutGuide.leadingAnchor,
+                constant: Metrics.horizontalInset
+            ),
+            bottomGlassContainerView.trailingAnchor.constraint(
+                equalTo: trailingAnchor,
+                constant: -Metrics.horizontalInset
+            ),
+            bottomGlassContainerView.bottomAnchor.constraint(
+                equalTo: keyboardLayoutGuide.topAnchor,
+                constant: -Metrics.bottomSpacing
+            ),
+
+            bottomStackView.topAnchor.constraint(equalTo: bottomGlassContainerView.contentView.topAnchor),
+            bottomStackView.leadingAnchor.constraint(equalTo: bottomGlassContainerView.contentView.leadingAnchor),
+            bottomStackView.trailingAnchor.constraint(equalTo: bottomGlassContainerView.contentView.trailingAnchor),
+            bottomStackView.bottomAnchor.constraint(equalTo: bottomGlassContainerView.contentView.bottomAnchor),
+
+            bottomGlassContainerView.heightAnchor.constraint(greaterThanOrEqualToConstant: Metrics.controlHeight),
+            searchGlassView.heightAnchor.constraint(greaterThanOrEqualToConstant: Metrics.controlHeight),
+            settingsGlassView.widthAnchor.constraint(equalToConstant: Metrics.settingsButtonSize),
+            settingsGlassView.heightAnchor.constraint(equalToConstant: Metrics.settingsButtonSize)
+        ])
+    }
+
+    private func configureSearchField() {
+        searchRowView.axis = .horizontal
+        searchRowView.alignment = .center
+        searchRowView.spacing = 8.0
+        searchRowView.translatesAutoresizingMaskIntoConstraints = false
+        searchGlassView.contentView.addSubview(searchRowView)
+
+        searchIconView.image = UIImage(
+            systemName: "magnifyingglass",
+            withConfiguration: UIImage.SymbolConfiguration(
+                pointSize: Metrics.searchIconSize,
+                weight: .medium
+            )
+        )
+        searchIconView.tintColor = .secondaryLabel
+        searchIconView.contentMode = .scaleAspectFit
+        searchIconView.setContentHuggingPriority(.required, for: .horizontal)
+
+        searchTextField.placeholder = "Search"
+        searchTextField.borderStyle = .none
+        searchTextField.backgroundColor = .clear
+        searchTextField.clearButtonMode = .whileEditing
+        searchTextField.returnKeyType = .search
+        searchTextField.textColor = .label
+        searchTextField.tintColor = .systemBlue
+        searchTextField.font = .preferredFont(forTextStyle: .body)
+        searchTextField.adjustsFontForContentSizeCategory = true
+        searchTextField.accessibilityLabel = "Search"
+
+        searchRowView.addArrangedSubview(searchIconView)
+        searchRowView.addArrangedSubview(searchTextField)
+
+        NSLayoutConstraint.activate([
+            searchRowView.leadingAnchor.constraint(
+                equalTo: searchGlassView.contentView.leadingAnchor,
+                constant: Metrics.searchHorizontalInset
+            ),
+            searchRowView.trailingAnchor.constraint(
+                equalTo: searchGlassView.contentView.trailingAnchor,
+                constant: -Metrics.searchHorizontalInset
+            ),
+            searchRowView.centerYAnchor.constraint(equalTo: searchGlassView.contentView.centerYAnchor),
+            searchRowView.topAnchor.constraint(
+                greaterThanOrEqualTo: searchGlassView.contentView.topAnchor,
+                constant: 6.0
+            ),
+            searchRowView.bottomAnchor.constraint(
+                lessThanOrEqualTo: searchGlassView.contentView.bottomAnchor,
+                constant: -6.0
+            )
+        ])
+    }
+
+    private func configureSettingsButton() {
+        settingsButton.tintColor = .label
+        settingsButton.setImage(
+            UIImage(
+                systemName: "gearshape",
+                withConfiguration: UIImage.SymbolConfiguration(
+                    pointSize: Metrics.settingsIconSize,
+                    weight: .regular
+                )
+            ),
+            for: .normal
+        )
+        settingsButton.accessibilityLabel = "Settings"
+        settingsButton.translatesAutoresizingMaskIntoConstraints = false
+        settingsGlassView.contentView.addSubview(settingsButton)
+
+        NSLayoutConstraint.activate([
+            settingsButton.topAnchor.constraint(equalTo: settingsGlassView.contentView.topAnchor),
+            settingsButton.leadingAnchor.constraint(equalTo: settingsGlassView.contentView.leadingAnchor),
+            settingsButton.trailingAnchor.constraint(equalTo: settingsGlassView.contentView.trailingAnchor),
+            settingsButton.bottomAnchor.constraint(equalTo: settingsGlassView.contentView.bottomAnchor)
+        ])
+    }
+
+    private static func makeContainerEffect() -> UIGlassContainerEffect {
+        let effect = UIGlassContainerEffect()
+        effect.spacing = Metrics.controlSpacing
+        return effect
+    }
+
+    private static func makeGlassEffect() -> UIGlassEffect {
+        let effect = UIGlassEffect(style: .regular)
+        effect.isInteractive = true
+        return effect
     }
 }
 
@@ -392,5 +871,11 @@ private final class AppGradientBackgroundView: UIView {
             UIColor.appBackgroundMiddle,
             UIColor.appBackgroundEnd
         ].map { $0.resolvedColor(with: traitCollection).cgColor }
+    }
+}
+
+private extension UIScreen {
+    var displayCornerRadius: CGFloat {
+        CGFloat(truncating: value(forKey: "_displayCornerRadius") as! NSNumber)
     }
 }
