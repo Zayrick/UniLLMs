@@ -52,7 +52,6 @@ class ViewController: UIViewController {
     private var keyboardObservation: NotificationCenter.ObservationToken?
     private var isKeyboardVisible = false
     private var isSideMenuOpen = false
-    private var isSettingsPresentationPending = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -297,38 +296,16 @@ class ViewController: UIViewController {
     }
 
     @objc private func presentSettings() {
-        guard !isSettingsPresentationPending,
-              presentedViewController == nil else {
+        guard presentedViewController == nil else {
             return
         }
 
-        isSettingsPresentationPending = true
         view.endEditing(true)
 
-        let presentSheet = { [weak self] in
-            guard let self else {
-                return
-            }
-
-            self.isSettingsPresentationPending = false
-            guard self.presentedViewController == nil else {
-                return
-            }
-
-            let settingsViewController = SettingsViewController()
-            let navigationController = UINavigationController(rootViewController: settingsViewController)
-            navigationController.modalPresentationStyle = .pageSheet
-            navigationController.navigationBar.prefersLargeTitles = false
-
-            if let sheetPresentationController = navigationController.sheetPresentationController {
-                sheetPresentationController.detents = [.large()]
-                sheetPresentationController.prefersGrabberVisible = false
-            }
-
-            self.present(navigationController, animated: true)
-        }
-
-        presentSheet()
+        let settingsViewController = SettingsViewController(style: .insetGrouped)
+        let navigationController = UINavigationController(rootViewController: settingsViewController)
+        navigationController.modalPresentationStyle = .pageSheet
+        present(navigationController, animated: true)
     }
 
     private func setSideMenuOpen(_ isOpen: Bool, animated: Bool) {
@@ -649,36 +626,6 @@ private final class SideMenuView: UIView {
 }
 
 private final class SettingsViewController: UITableViewController {
-    private enum Section: Int, CaseIterable {
-        case config
-
-        var title: String {
-            switch self {
-            case .config:
-                return "config"
-            }
-        }
-    }
-
-    private enum ConfigRow: Int, CaseIterable {
-        case llmsProvider
-
-        var title: String {
-            switch self {
-            case .llmsProvider:
-                return "LLMs Provider"
-            }
-        }
-    }
-
-    init() {
-        super.init(style: .insetGrouped)
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-    }
-
     override func viewDidLoad() {
         super.viewDidLoad()
 
@@ -688,11 +635,6 @@ private final class SettingsViewController: UITableViewController {
             target: self,
             action: #selector(close)
         )
-        navigationItem.largeTitleDisplayMode = .never
-        navigationItem.backButtonDisplayMode = .minimal
-
-        tableView.backgroundColor = .systemGroupedBackground
-        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "SettingsCell")
     }
 
     @objc private func close() {
@@ -700,57 +642,30 @@ private final class SettingsViewController: UITableViewController {
     }
 
     override func numberOfSections(in tableView: UITableView) -> Int {
-        Section.allCases.count
+        1
     }
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        guard let section = Section(rawValue: section) else {
-            return 0
-        }
-
-        switch section {
-        case .config:
-            return ConfigRow.allCases.count
-        }
+        1
     }
 
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        Section(rawValue: section)?.title
+        "config"
     }
 
     override func tableView(
         _ tableView: UITableView,
         cellForRowAt indexPath: IndexPath
     ) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: "SettingsCell", for: indexPath)
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+        cell.textLabel?.text = "LLMs Provider"
         cell.accessoryType = .disclosureIndicator
-        cell.selectionStyle = .default
-
-        var content = cell.defaultContentConfiguration()
-        content.text = configRow(at: indexPath)?.title
-        content.textProperties.color = .label
-        cell.contentConfiguration = content
-
         return cell
     }
 
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-
-        switch configRow(at: indexPath) {
-        case .llmsProvider:
-            navigationController?.pushViewController(LLMsProviderViewController(), animated: true)
-        case nil:
-            break
-        }
-    }
-
-    private func configRow(at indexPath: IndexPath) -> ConfigRow? {
-        guard Section(rawValue: indexPath.section) == .config else {
-            return nil
-        }
-
-        return ConfigRow(rawValue: indexPath.row)
+        navigationController?.pushViewController(LLMsProviderViewController(), animated: true)
     }
 }
 
@@ -760,15 +675,11 @@ private final class LLMsProviderViewController: UIViewController {
 
         title = "LLMs Provider"
         view.backgroundColor = .systemGroupedBackground
-        navigationItem.largeTitleDisplayMode = .never
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             barButtonSystemItem: .add,
-            target: self,
-            action: #selector(addProvider)
+            target: nil,
+            action: nil
         )
-    }
-
-    @objc private func addProvider() {
     }
 }
 
