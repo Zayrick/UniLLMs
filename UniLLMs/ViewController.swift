@@ -11,8 +11,10 @@ class ViewController: UIViewController {
     private enum HeaderLayout {
         static let buttonSize: CGFloat = 44.0
         static let horizontalInset: CGFloat = 16.0
+        static let itemSpacing: CGFloat = 8.0
         static let topSpacing: CGFloat = 10.0
         static let iconPointSize: CGFloat = 18.0
+        static let modulePillHorizontalInset: CGFloat = 16.0
     }
 
     private enum ComposerLayout {
@@ -36,9 +38,16 @@ class ViewController: UIViewController {
     private let mainPageContainerView = UIView()
     private let mainPageView = UIView()
     private let backgroundView = AppGradientBackgroundView()
-    private let leftHeaderButton = ViewController.makeHeaderButton(
+    private let headerGlassContainerView = UIVisualEffectView(effect: ViewController.makeHeaderContainerEffect())
+    private let headerStackView = UIStackView()
+    private let leftHeaderGlassView = UIVisualEffectView(effect: ViewController.makeHeaderGlassEffect())
+    private let moduleSelectionPillGlassView = UIVisualEffectView(effect: ViewController.makeHeaderGlassEffect())
+    private let leftHeaderButton = ViewController.makeHeaderContentButton(
         systemName: "list.bullet",
         accessibilityLabel: "Menu"
+    )
+    private let moduleSelectionPillButton = ViewController.makeHeaderPill(
+        title: "Select Module"
     )
     private let rightHeaderButton = ViewController.makeHeaderButton(
         systemName: "app.dashed",
@@ -152,26 +161,80 @@ class ViewController: UIViewController {
     }
 
     private func configureHeaderButtons() {
-        [leftHeaderButton, rightHeaderButton].forEach { button in
-            button.translatesAutoresizingMaskIntoConstraints = false
-            mainPageView.addSubview(button)
+        headerGlassContainerView.translatesAutoresizingMaskIntoConstraints = false
+        headerGlassContainerView.backgroundColor = .clear
+        mainPageView.addSubview(headerGlassContainerView)
+
+        headerStackView.axis = .horizontal
+        headerStackView.alignment = .center
+        headerStackView.spacing = HeaderLayout.itemSpacing
+        headerStackView.translatesAutoresizingMaskIntoConstraints = false
+        headerGlassContainerView.contentView.addSubview(headerStackView)
+
+        headerStackView.addArrangedSubview(leftHeaderGlassView)
+        headerStackView.addArrangedSubview(moduleSelectionPillGlassView)
+
+        leftHeaderGlassView.translatesAutoresizingMaskIntoConstraints = false
+        leftHeaderGlassView.cornerConfiguration = .capsule()
+        leftHeaderGlassView.setContentHuggingPriority(.required, for: .horizontal)
+        leftHeaderGlassView.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        moduleSelectionPillGlassView.translatesAutoresizingMaskIntoConstraints = false
+        moduleSelectionPillGlassView.cornerConfiguration = .capsule()
+        moduleSelectionPillGlassView.setContentHuggingPriority(.required, for: .horizontal)
+        moduleSelectionPillGlassView.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        [leftHeaderButton, moduleSelectionPillButton, rightHeaderButton].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
         }
+        leftHeaderGlassView.contentView.addSubview(leftHeaderButton)
+        moduleSelectionPillGlassView.contentView.addSubview(moduleSelectionPillButton)
+        mainPageView.addSubview(rightHeaderButton)
+
         leftHeaderButton.addTarget(self, action: #selector(toggleSideMenu), for: .touchUpInside)
 
         NSLayoutConstraint.activate([
-            leftHeaderButton.topAnchor.constraint(
+            headerGlassContainerView.topAnchor.constraint(
                 equalTo: mainPageView.safeAreaLayoutGuide.topAnchor,
                 constant: HeaderLayout.topSpacing
             ),
-            leftHeaderButton.leadingAnchor.constraint(
+            headerGlassContainerView.leadingAnchor.constraint(
                 equalTo: mainPageView.safeAreaLayoutGuide.leadingAnchor,
                 constant: HeaderLayout.horizontalInset
             ),
-            leftHeaderButton.widthAnchor.constraint(equalToConstant: HeaderLayout.buttonSize),
-            leftHeaderButton.heightAnchor.constraint(equalToConstant: HeaderLayout.buttonSize),
+            headerGlassContainerView.trailingAnchor.constraint(
+                lessThanOrEqualTo: rightHeaderButton.leadingAnchor,
+                constant: -HeaderLayout.itemSpacing
+            ),
+
+            headerStackView.topAnchor.constraint(equalTo: headerGlassContainerView.contentView.topAnchor),
+            headerStackView.leadingAnchor.constraint(equalTo: headerGlassContainerView.contentView.leadingAnchor),
+            headerStackView.trailingAnchor.constraint(equalTo: headerGlassContainerView.contentView.trailingAnchor),
+            headerStackView.bottomAnchor.constraint(equalTo: headerGlassContainerView.contentView.bottomAnchor),
+
+            leftHeaderGlassView.widthAnchor.constraint(equalToConstant: HeaderLayout.buttonSize),
+            leftHeaderGlassView.heightAnchor.constraint(equalToConstant: HeaderLayout.buttonSize),
+            leftHeaderButton.topAnchor.constraint(equalTo: leftHeaderGlassView.contentView.topAnchor),
+            leftHeaderButton.leadingAnchor.constraint(equalTo: leftHeaderGlassView.contentView.leadingAnchor),
+            leftHeaderButton.trailingAnchor.constraint(equalTo: leftHeaderGlassView.contentView.trailingAnchor),
+            leftHeaderButton.bottomAnchor.constraint(equalTo: leftHeaderGlassView.contentView.bottomAnchor),
+
+            moduleSelectionPillButton.topAnchor.constraint(
+                equalTo: moduleSelectionPillGlassView.contentView.topAnchor
+            ),
+            moduleSelectionPillButton.leadingAnchor.constraint(
+                equalTo: moduleSelectionPillGlassView.contentView.leadingAnchor
+            ),
+            moduleSelectionPillButton.trailingAnchor.constraint(
+                equalTo: moduleSelectionPillGlassView.contentView.trailingAnchor
+            ),
+            moduleSelectionPillButton.bottomAnchor.constraint(
+                equalTo: moduleSelectionPillGlassView.contentView.bottomAnchor
+            ),
+            moduleSelectionPillGlassView.heightAnchor.constraint(equalToConstant: HeaderLayout.buttonSize),
 
             rightHeaderButton.topAnchor.constraint(
-                equalTo: leftHeaderButton.topAnchor
+                equalTo: headerGlassContainerView.topAnchor
             ),
             rightHeaderButton.trailingAnchor.constraint(
                 equalTo: mainPageView.safeAreaLayoutGuide.trailingAnchor,
@@ -405,6 +468,56 @@ class ViewController: UIViewController {
         let button = UIButton(configuration: configuration)
         button.accessibilityLabel = accessibilityLabel
         return button
+    }
+
+    private static func makeHeaderPill(title: String) -> UIButton {
+        var configuration = UIButton.Configuration.plain()
+        configuration.title = title
+        configuration.baseForegroundColor = .label
+        configuration.contentInsets = NSDirectionalEdgeInsets(
+            top: 0.0,
+            leading: HeaderLayout.modulePillHorizontalInset,
+            bottom: 0.0,
+            trailing: HeaderLayout.modulePillHorizontalInset
+        )
+
+        let button = UIButton(configuration: configuration)
+        button.accessibilityLabel = title
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        button.setContentCompressionResistancePriority(.required, for: .horizontal)
+        return button
+    }
+
+    private static func makeHeaderContentButton(
+        systemName: String,
+        accessibilityLabel: String
+    ) -> UIButton {
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = UIImage(
+            systemName: systemName,
+            withConfiguration: UIImage.SymbolConfiguration(
+                pointSize: HeaderLayout.iconPointSize,
+                weight: .semibold
+            )
+        )
+        configuration.baseForegroundColor = .label
+        configuration.contentInsets = .zero
+
+        let button = UIButton(configuration: configuration)
+        button.accessibilityLabel = accessibilityLabel
+        return button
+    }
+
+    private static func makeHeaderContainerEffect() -> UIGlassContainerEffect {
+        let effect = UIGlassContainerEffect()
+        effect.spacing = HeaderLayout.itemSpacing
+        return effect
+    }
+
+    private static func makeHeaderGlassEffect() -> UIGlassEffect {
+        let effect = UIGlassEffect(style: .regular)
+        effect.isInteractive = true
+        return effect
     }
 }
 
