@@ -52,6 +52,7 @@ class ViewController: UIViewController {
     private var keyboardObservation: NotificationCenter.ObservationToken?
     private var isKeyboardVisible = false
     private var isSideMenuOpen = false
+    private var isSettingsPresentationPending = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -102,6 +103,7 @@ class ViewController: UIViewController {
         sideMenuView.translatesAutoresizingMaskIntoConstraints = false
         sideMenuView.alpha = 0.0
         sideMenuView.isUserInteractionEnabled = false
+        sideMenuView.addSettingsTarget(self, action: #selector(presentSettings))
         view.addSubview(sideMenuView)
 
         NSLayoutConstraint.activate([
@@ -294,6 +296,41 @@ class ViewController: UIViewController {
         setSideMenuOpen(false, animated: true)
     }
 
+    @objc private func presentSettings() {
+        guard !isSettingsPresentationPending,
+              presentedViewController == nil else {
+            return
+        }
+
+        isSettingsPresentationPending = true
+        view.endEditing(true)
+
+        let presentSheet = { [weak self] in
+            guard let self else {
+                return
+            }
+
+            self.isSettingsPresentationPending = false
+            guard self.presentedViewController == nil else {
+                return
+            }
+
+            let settingsViewController = SettingsViewController()
+            let navigationController = UINavigationController(rootViewController: settingsViewController)
+            navigationController.modalPresentationStyle = .pageSheet
+            navigationController.navigationBar.prefersLargeTitles = false
+
+            if let sheetPresentationController = navigationController.sheetPresentationController {
+                sheetPresentationController.detents = [.large()]
+                sheetPresentationController.prefersGrabberVisible = false
+            }
+
+            self.present(navigationController, animated: true)
+        }
+
+        presentSheet()
+    }
+
     private func setSideMenuOpen(_ isOpen: Bool, animated: Bool) {
         guard isSideMenuOpen != isOpen else {
             return
@@ -316,7 +353,7 @@ class ViewController: UIViewController {
             self.updateComposerLayout(animated: false)
             self.view.layoutIfNeeded()
         }
-        let completion: (UIViewAnimatingPosition) -> Void = { _ in
+        let animatorCompletion: (UIViewAnimatingPosition) -> Void = { _ in
             guard !self.isSideMenuOpen else {
                 return
             }
@@ -331,11 +368,11 @@ class ViewController: UIViewController {
                 dampingRatio: SideMenuLayout.animationDampingRatio,
                 animations: animations
             )
-            animator.addCompletion(completion)
+            animator.addCompletion(animatorCompletion)
             animator.startAnimation()
         } else {
             animations()
-            completion(.end)
+            animatorCompletion(.end)
         }
     }
 
@@ -429,6 +466,10 @@ private final class SideMenuView: UIView {
 
     func resignSearchFocus() {
         searchTextField.resignFirstResponder()
+    }
+
+    func addSettingsTarget(_ target: Any?, action: Selector) {
+        settingsButton.addTarget(target, action: action, for: .touchUpInside)
     }
 
     private func configure() {
@@ -604,6 +645,39 @@ private final class SideMenuView: UIView {
         let effect = UIGlassEffect(style: .regular)
         effect.isInteractive = true
         return effect
+    }
+}
+
+private final class SettingsViewController: UITableViewController {
+    init() {
+        super.init(style: .insetGrouped)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+
+        title = "Setting"
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            barButtonSystemItem: .close,
+            target: self,
+            action: #selector(close)
+        )
+        navigationItem.largeTitleDisplayMode = .never
+
+        tableView.backgroundColor = .systemGroupedBackground
+        tableView.separatorStyle = .none
+    }
+
+    @objc private func close() {
+        dismiss(animated: true)
+    }
+
+    override func numberOfSections(in tableView: UITableView) -> Int {
+        0
     }
 }
 
