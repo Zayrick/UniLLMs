@@ -8,7 +8,7 @@ Provider configuration and model metadata are handled by `LLMProviderStore.swift
 
 ## Agent-Specific Instructions
 
-AI agents must not compile, build, archive, launch the app, or run tests for this repository unless the user explicitly asks for it. Do not run `xcodebuild build`, `xcodebuild test`, Xcode build actions, simulator launches, or equivalent compile/test commands. It is acceptable to inspect source files, storyboards, assets, and Xcode project metadata by reading files. Only run `xcodebuild -list` when the user explicitly asks for Xcode-reported project metadata.
+AI agents must not compile, build, archive, or launch the app for this repository unless the user explicitly asks for it. Do not run `xcodebuild build`, `xcodebuild test`, Xcode build actions, simulator launches, or equivalent commands that compile, build, install, or launch the app. It is acceptable to inspect, add, and edit unit tests or UI tests, as long as the agent does not run commands that trigger compilation or app launch. It is acceptable to inspect source files, storyboards, assets, and Xcode project metadata by reading files. Only run `xcodebuild -list` when the user explicitly asks for Xcode-reported project metadata.
 
 AI agents may run read-only `git` commands for inspection. Do not perform Git operations that modify repository state unless the user explicitly asks for that specific action. 
 
@@ -43,7 +43,7 @@ For persistence changes, keep `LLMProviderRecord` and `LLMProviderModel` Codable
 
 XCTest targets already exist. Add focused unit tests in `UniLLMsTests/` for model, store, parsing, and non-UI behavior; name new files after the subject under test, for example `LLMProviderStoreTests.swift`. Use clear XCTest names such as `testAddingProviderAssignsUniqueName()` or `test_<behavior>_<expectedResult>()`, and keep test data isolated with dedicated `UserDefaults` suites when persistence is involved.
 
-Use `UniLLMsUITests/` for launch and interaction coverage that genuinely needs the app process. For visible UIKit changes, manually verify common iPhone and iPad sizes, light/dark appearances if supported, Dynamic Type behavior, keyboard interactions, and safe-area layout. Agents should describe any tests they would run, but must not run them unless explicitly asked.
+Use `UniLLMsUITests/` for launch and interaction coverage that genuinely needs the app process. For visible UIKit changes, manually verify common iPhone and iPad sizes, light/dark appearances if supported, Dynamic Type behavior, keyboard interactions, and safe-area layout. Agents may add or edit unit and UI test coverage, but should not run test commands that compile, build, install, or launch the app unless explicitly asked.
 
 ## Commit & Pull Request Guidelines
 
