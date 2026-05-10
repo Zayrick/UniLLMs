@@ -7,14 +7,29 @@
 
 import UIKit
 
+private struct LLMModelSelection: Equatable {
+    var providerID: UUID
+    var providerName: String
+    var modelID: String
+    var modelName: String
+
+    var displayName: String {
+        modelName.isEmpty ? modelID : modelName
+    }
+}
+
 class ViewController: UIViewController {
     private enum HeaderLayout {
+        static let defaultModuleSelectionTitle = "Select Model"
         static let buttonSize: CGFloat = 44.0
         static let horizontalInset: CGFloat = 16.0
         static let itemSpacing: CGFloat = 8.0
         static let topSpacing: CGFloat = 10.0
         static let iconPointSize: CGFloat = 18.0
         static let modulePillHorizontalInset: CGFloat = 16.0
+        static let moduleSelectionAnimationDuration: TimeInterval = 0.32
+        static let moduleSelectionTextAnimationDuration: TimeInterval = 0.18
+        static let moduleSelectionAnimationDampingRatio: CGFloat = 0.84
     }
 
     private enum ComposerLayout {
@@ -47,7 +62,7 @@ class ViewController: UIViewController {
         accessibilityLabel: "Menu"
     )
     private let moduleSelectionPillButton = ViewController.makeHeaderPill(
-        title: "Select Module"
+        title: HeaderLayout.defaultModuleSelectionTitle
     )
     private let rightHeaderButton = ViewController.makeHeaderButton(
         systemName: "app.dashed",
@@ -61,6 +76,7 @@ class ViewController: UIViewController {
     private var keyboardObservation: NotificationCenter.ObservationToken?
     private var isKeyboardVisible = false
     private var isSideMenuOpen = false
+    private var selectedModelSelection: LLMModelSelection?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -182,7 +198,7 @@ class ViewController: UIViewController {
         moduleSelectionPillGlassView.translatesAutoresizingMaskIntoConstraints = false
         moduleSelectionPillGlassView.cornerConfiguration = .capsule()
         moduleSelectionPillGlassView.setContentHuggingPriority(.required, for: .horizontal)
-        moduleSelectionPillGlassView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        moduleSelectionPillGlassView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         [leftHeaderButton, moduleSelectionPillButton, rightHeaderButton].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
@@ -192,12 +208,14 @@ class ViewController: UIViewController {
         mainPageView.addSubview(rightHeaderButton)
 
         leftHeaderButton.addTarget(self, action: #selector(toggleSideMenu), for: .touchUpInside)
+        moduleSelectionPillButton.addTarget(self, action: #selector(presentModelSelection), for: .touchUpInside)
 
         NSLayoutConstraint.activate([
             headerGlassContainerView.topAnchor.constraint(
                 equalTo: mainPageView.safeAreaLayoutGuide.topAnchor,
                 constant: HeaderLayout.topSpacing
             ),
+            headerGlassContainerView.heightAnchor.constraint(equalToConstant: HeaderLayout.buttonSize),
             headerGlassContainerView.leadingAnchor.constraint(
                 equalTo: mainPageView.safeAreaLayoutGuide.leadingAnchor,
                 constant: HeaderLayout.horizontalInset
@@ -358,6 +376,24 @@ class ViewController: UIViewController {
         setSideMenuOpen(false, animated: true)
     }
 
+    @objc private func presentModelSelection() {
+        guard presentedViewController == nil else {
+            return
+        }
+
+        view.endEditing(true)
+
+        let modelSelectionViewController = ModelSelectionViewController(
+            selectedModelSelection: selectedModelSelection
+        ) { [weak self] selection in
+            self?.selectedModelSelection = selection
+            self?.updateModuleSelectionTitle(animated: true)
+        }
+        let navigationController = UINavigationController(rootViewController: modelSelectionViewController)
+        navigationController.modalPresentationStyle = .pageSheet
+        present(navigationController, animated: true)
+    }
+
     @objc private func presentSettings() {
         guard presentedViewController == nil else {
             return
@@ -452,6 +488,47 @@ class ViewController: UIViewController {
         view.window?.windowScene?.screen.displayCornerRadius ?? 0.0
     }
 
+    private func updateModuleSelectionTitle(animated: Bool) {
+        let title = selectedModelSelection?.displayName ?? HeaderLayout.defaultModuleSelectionTitle
+
+        guard animated,
+              view.window != nil,
+              !UIAccessibility.isReduceMotionEnabled else {
+            setModuleSelectionTitle(title)
+            mainPageView.layoutIfNeeded()
+            return
+        }
+
+        mainPageView.layoutIfNeeded()
+
+        UIView.transition(
+            with: moduleSelectionPillButton,
+            duration: HeaderLayout.moduleSelectionTextAnimationDuration,
+            options: [.transitionCrossDissolve, .beginFromCurrentState, .allowUserInteraction, .allowAnimatedContent]
+        ) {
+            self.setModuleSelectionTitle(title)
+        }
+
+        let animator = UIViewPropertyAnimator(
+            duration: HeaderLayout.moduleSelectionAnimationDuration,
+            dampingRatio: HeaderLayout.moduleSelectionAnimationDampingRatio
+        ) {
+            self.mainPageView.layoutIfNeeded()
+        }
+        animator.startAnimation()
+    }
+
+    private func setModuleSelectionTitle(_ title: String) {
+        var configuration = moduleSelectionPillButton.configuration
+        configuration?.title = title
+        moduleSelectionPillButton.configuration = configuration
+        moduleSelectionPillButton.accessibilityLabel = title
+        moduleSelectionPillButton.invalidateIntrinsicContentSize()
+        moduleSelectionPillGlassView.invalidateIntrinsicContentSize()
+        headerStackView.invalidateIntrinsicContentSize()
+        headerGlassContainerView.invalidateIntrinsicContentSize()
+    }
+
     private static func makeHeaderButton(systemName: String, accessibilityLabel: String) -> UIButton {
         var configuration = UIButton.Configuration.clearGlass()
         configuration.image = UIImage(
@@ -484,7 +561,7 @@ class ViewController: UIViewController {
         let button = UIButton(configuration: configuration)
         button.accessibilityLabel = title
         button.setContentHuggingPriority(.required, for: .horizontal)
-        button.setContentCompressionResistancePriority(.required, for: .horizontal)
+        button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return button
     }
 
@@ -779,6 +856,160 @@ private final class SettingsViewController: UITableViewController {
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         navigationController?.pushViewController(LLMsProviderViewController(), animated: true)
+    }
+}
+
+private final class ModelSelectionViewController: UITableViewController {
+    private let store: LLMProviderStore
+    private var providers: [LLMProviderRecord] = []
+    private var selectedModelSelection: LLMModelSelection?
+    private let onSelect: (LLMModelSelection) -> Void
+
+    init(
+        store: LLMProviderStore = .shared,
+        selectedModelSelection: LLMModelSelection?,
+        onSelect: @escaping (LLMModelSelection) -> Void
+    ) {
+        self.store = store
+        self.selectedModelSelection = selectedModelSelection
+        self.onSelect = onSelect
+        super.init(style: .insetGrouped)
+    }
+
+    required init?(coder: NSCoder) {
+        store = .shared
+        selectedModelSelection = nil
+        onSelect = { _ in }
+        super.init(coder: coder)
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+
+        title = "Select Model"
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            barButtonSystemItem: .close,
+            target: self,
+            action: #selector(close)
+        )
+        reloadProviders()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+
+        reloadProviders()
+    }
+
+    @objc private func close() {
+        dismiss(animated: true)
+    }
+
+    private func reloadProviders() {
+        providers = store.fetchProviders()
+        tableView.reloadData()
+    }
+
+    override func numberOfSections(in tableView: UITableView) -> Int {
+        providers.isEmpty ? 1 : providers.count
+    }
+
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        guard !providers.isEmpty else {
+            return 1
+        }
+
+        return max(providers[section].models.count, 1)
+    }
+
+    override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        guard !providers.isEmpty else {
+            return "Providers"
+        }
+
+        return providerDisplayName(providers[section])
+    }
+
+    override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
+        nil
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        cellForRowAt indexPath: IndexPath
+    ) -> UITableViewCell {
+        guard !providers.isEmpty else {
+            return unavailableCell(
+                title: "No LLMs Provider",
+                detail: "Add providers in Settings before selecting a model."
+            )
+        }
+
+        let provider = providers[indexPath.section]
+        guard !provider.models.isEmpty else {
+            return unavailableCell(
+                title: "No Models",
+                detail: "Refresh the model list for this provider in Settings."
+            )
+        }
+
+        let model = provider.models[indexPath.row]
+        let modelTitle = model.name.isEmpty ? model.id : model.name
+        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        var contentConfiguration = UIListContentConfiguration.subtitleCell()
+        contentConfiguration.text = modelTitle
+        contentConfiguration.secondaryText = model.name.isEmpty ? nil : model.id
+        contentConfiguration.image = UIImage(systemName: "cpu")
+        contentConfiguration.imageProperties.tintColor = .secondaryLabel
+        cell.contentConfiguration = contentConfiguration
+        cell.accessoryType = isSelected(model: model, provider: provider) ? .checkmark : .none
+        return cell
+    }
+
+    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+
+        guard !providers.isEmpty else {
+            return
+        }
+
+        let provider = providers[indexPath.section]
+        guard !provider.models.isEmpty else {
+            return
+        }
+
+        let model = provider.models[indexPath.row]
+        let selection = LLMModelSelection(
+            providerID: provider.id,
+            providerName: providerDisplayName(provider),
+            modelID: model.id,
+            modelName: model.name
+        )
+        selectedModelSelection = selection
+        onSelect(selection)
+        dismiss(animated: true)
+    }
+
+    private func unavailableCell(title: String, detail: String) -> UITableViewCell {
+        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        var contentConfiguration = UIListContentConfiguration.subtitleCell()
+        contentConfiguration.text = title
+        contentConfiguration.secondaryText = detail
+        contentConfiguration.image = UIImage(systemName: "exclamationmark.circle")
+        contentConfiguration.imageProperties.tintColor = .secondaryLabel
+        cell.contentConfiguration = contentConfiguration
+        cell.selectionStyle = .none
+        return cell
+    }
+
+    private func isSelected(model: LLMProviderModel, provider: LLMProviderRecord) -> Bool {
+        selectedModelSelection?.providerID == provider.id
+            && selectedModelSelection?.modelID == model.id
+    }
+
+    private func providerDisplayName(_ provider: LLMProviderRecord) -> String {
+        let trimmedName = provider.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedName.isEmpty ? LLMProviderRecord.openRouterDisplayName : trimmedName
     }
 }
 
