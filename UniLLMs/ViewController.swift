@@ -1570,23 +1570,39 @@ private final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate
     private enum Metrics {
         static let controlHeight: CGFloat = 44.0
         static let spacing: CGFloat = 8.0
+        static let fusionSpacing: CGFloat = 24.0
         static let capsuleHorizontalInset: CGFloat = 12.0
-        static let capsuleVerticalInset: CGFloat = 6.0
+        static let capsuleComposingTrailingInset: CGFloat = 5.0
+        static let capsuleVerticalInset: CGFloat = 5.0
+        static let capsuleContentSpacing: CGFloat = 6.0
         static let textMinHeight: CGFloat = 32.0
         static let textMaxHeight: CGFloat = 118.0
         static let sendButtonSize: CGFloat = 34.0
+        static let iconPointSize: CGFloat = 18.0
+        static let transitionDuration: TimeInterval = 0.24
     }
 
     private let stackView = UIStackView()
     private let plusGlassView = UIVisualEffectView(effect: GlassComposerBarView.makeGlassEffect())
     private let capsuleGlassView = UIVisualEffectView(effect: GlassComposerBarView.makeGlassEffect())
+    private let waveformGlassView = UIVisualEffectView(effect: GlassComposerBarView.makeGlassEffect())
+    private let capsuleContentStackView = UIStackView()
     private let plusButton = UIButton(type: .system)
+    private let waveformButton = UIButton(type: .system)
     private let textView = UITextView()
     private let placeholderLabel = UILabel()
     private let sendButton = UIButton(type: .system)
 
+    private var capsuleContentLeadingConstraint: NSLayoutConstraint!
+    private var capsuleContentTrailingConstraint: NSLayoutConstraint!
+    private var waveformWidthConstraint: NSLayoutConstraint!
     private var textHeightConstraint: NSLayoutConstraint!
     private var lastMeasuredTextWidth: CGFloat = 0.0
+    private var isShowingSendControl = false
+
+    private var containerGlassEffect: UIGlassContainerEffect? {
+        effect as? UIGlassContainerEffect
+    }
 
     init() {
         super.init(effect: GlassComposerBarView.makeContainerEffect())
@@ -1610,7 +1626,9 @@ private final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate
     }
 
     func textViewDidChange(_ textView: UITextView) {
-        placeholderLabel.isHidden = !textView.text.isEmpty
+        let hasText = !textView.text.isEmpty
+        placeholderLabel.isHidden = hasText
+        updateInputMode(hasText: hasText, animated: true)
         updateTextHeight(animated: true)
     }
 
@@ -1620,7 +1638,9 @@ private final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate
 
         configureStackView()
         configurePlusButton()
+        configureWaveformButton()
         configureCapsule()
+        updateInputMode(hasText: false, animated: false)
     }
 
     private func configureStackView() {
@@ -1639,6 +1659,7 @@ private final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate
 
         stackView.addArrangedSubview(plusGlassView)
         stackView.addArrangedSubview(capsuleGlassView)
+        stackView.addArrangedSubview(waveformGlassView)
 
         plusGlassView.translatesAutoresizingMaskIntoConstraints = false
         plusGlassView.cornerConfiguration = .capsule()
@@ -1649,11 +1670,21 @@ private final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate
         capsuleGlassView.cornerConfiguration = .corners(
             radius: .fixed(Double(Metrics.controlHeight * 0.5))
         )
+        capsuleGlassView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        capsuleGlassView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        waveformGlassView.translatesAutoresizingMaskIntoConstraints = false
+        waveformGlassView.cornerConfiguration = .capsule()
+        waveformGlassView.setContentHuggingPriority(.required, for: .horizontal)
+        waveformGlassView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        waveformWidthConstraint = waveformGlassView.widthAnchor.constraint(equalToConstant: Metrics.controlHeight)
 
         NSLayoutConstraint.activate([
             plusGlassView.widthAnchor.constraint(equalToConstant: Metrics.controlHeight),
             plusGlassView.heightAnchor.constraint(equalToConstant: Metrics.controlHeight),
-            capsuleGlassView.heightAnchor.constraint(greaterThanOrEqualToConstant: Metrics.controlHeight)
+            capsuleGlassView.heightAnchor.constraint(greaterThanOrEqualToConstant: Metrics.controlHeight),
+            waveformWidthConstraint,
+            waveformGlassView.heightAnchor.constraint(equalToConstant: Metrics.controlHeight)
         ])
     }
 
@@ -1662,7 +1693,7 @@ private final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate
         plusButton.setImage(
             UIImage(
                 systemName: "plus",
-                withConfiguration: UIImage.SymbolConfiguration(pointSize: 18.0, weight: .semibold)
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: Metrics.iconPointSize, weight: .semibold)
             ),
             for: .normal
         )
@@ -1678,26 +1709,75 @@ private final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate
         ])
     }
 
+    private func configureWaveformButton() {
+        waveformButton.tintColor = .label
+        waveformButton.setImage(
+            UIImage(
+                systemName: "waveform",
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: Metrics.iconPointSize, weight: .semibold)
+            ),
+            for: .normal
+        )
+        waveformButton.accessibilityLabel = "Waveform"
+        waveformButton.translatesAutoresizingMaskIntoConstraints = false
+        waveformGlassView.contentView.addSubview(waveformButton)
+
+        NSLayoutConstraint.activate([
+            waveformButton.topAnchor.constraint(equalTo: waveformGlassView.contentView.topAnchor),
+            waveformButton.leadingAnchor.constraint(equalTo: waveformGlassView.contentView.leadingAnchor),
+            waveformButton.trailingAnchor.constraint(equalTo: waveformGlassView.contentView.trailingAnchor),
+            waveformButton.bottomAnchor.constraint(equalTo: waveformGlassView.contentView.bottomAnchor)
+        ])
+    }
+
     private func configureCapsule() {
         configureTextView()
         configureSendButton()
 
+        capsuleContentStackView.axis = .horizontal
+        capsuleContentStackView.alignment = .bottom
+        capsuleContentStackView.spacing = Metrics.capsuleContentSpacing
+        capsuleContentStackView.translatesAutoresizingMaskIntoConstraints = false
         textView.translatesAutoresizingMaskIntoConstraints = false
         sendButton.translatesAutoresizingMaskIntoConstraints = false
-        capsuleGlassView.contentView.addSubview(textView)
+        capsuleGlassView.contentView.addSubview(capsuleContentStackView)
+        capsuleContentStackView.addArrangedSubview(textView)
         capsuleGlassView.contentView.addSubview(sendButton)
 
+        sendButton.setContentHuggingPriority(.required, for: .horizontal)
+        sendButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+
         textHeightConstraint = textView.heightAnchor.constraint(equalToConstant: Metrics.textMinHeight)
+        capsuleContentLeadingConstraint = capsuleContentStackView.leadingAnchor.constraint(
+            equalTo: capsuleGlassView.contentView.leadingAnchor,
+            constant: Metrics.capsuleHorizontalInset
+        )
+        capsuleContentTrailingConstraint = capsuleContentStackView.trailingAnchor.constraint(
+            equalTo: capsuleGlassView.contentView.trailingAnchor,
+            constant: -Metrics.capsuleHorizontalInset
+        )
 
         NSLayoutConstraint.activate([
-            textView.topAnchor.constraint(equalTo: capsuleGlassView.contentView.topAnchor, constant: Metrics.capsuleVerticalInset),
-            textView.leadingAnchor.constraint(equalTo: capsuleGlassView.contentView.leadingAnchor, constant: Metrics.capsuleHorizontalInset),
-            textView.trailingAnchor.constraint(equalTo: sendButton.leadingAnchor, constant: -8.0),
-            textView.bottomAnchor.constraint(equalTo: capsuleGlassView.contentView.bottomAnchor, constant: -Metrics.capsuleVerticalInset),
+            capsuleContentStackView.topAnchor.constraint(
+                equalTo: capsuleGlassView.contentView.topAnchor,
+                constant: Metrics.capsuleVerticalInset
+            ),
+            capsuleContentLeadingConstraint,
+            capsuleContentTrailingConstraint,
+            capsuleContentStackView.bottomAnchor.constraint(
+                equalTo: capsuleGlassView.contentView.bottomAnchor,
+                constant: -Metrics.capsuleVerticalInset
+            ),
             textHeightConstraint,
 
-            sendButton.trailingAnchor.constraint(equalTo: capsuleGlassView.contentView.trailingAnchor, constant: -5.0),
-            sendButton.bottomAnchor.constraint(equalTo: capsuleGlassView.contentView.bottomAnchor, constant: -5.0),
+            sendButton.trailingAnchor.constraint(
+                equalTo: capsuleGlassView.contentView.trailingAnchor,
+                constant: -Metrics.capsuleComposingTrailingInset
+            ),
+            sendButton.bottomAnchor.constraint(
+                equalTo: capsuleGlassView.contentView.bottomAnchor,
+                constant: -Metrics.capsuleVerticalInset
+            ),
             sendButton.widthAnchor.constraint(equalToConstant: Metrics.sendButtonSize),
             sendButton.heightAnchor.constraint(equalToConstant: Metrics.sendButtonSize)
         ])
@@ -1742,6 +1822,62 @@ private final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate
         configuration.contentInsets = .zero
         sendButton.configuration = configuration
         sendButton.accessibilityLabel = "Send"
+    }
+
+    private func updateInputMode(hasText: Bool, animated: Bool) {
+        let stateChanged = hasText != isShowingSendControl
+        isShowingSendControl = hasText
+
+        guard stateChanged || !animated else {
+            return
+        }
+
+        let applyTargetState = { [self] in
+            self.capsuleContentLeadingConstraint.constant = Metrics.capsuleHorizontalInset
+            self.capsuleContentTrailingConstraint.constant = hasText
+                ? -(Metrics.capsuleComposingTrailingInset + Metrics.sendButtonSize + Metrics.capsuleContentSpacing)
+                : -Metrics.capsuleHorizontalInset
+            self.waveformWidthConstraint.constant = hasText ? 0.0 : Metrics.controlHeight
+            self.stackView.setCustomSpacing(hasText ? 0.0 : Metrics.spacing, after: self.capsuleGlassView)
+            self.sendButton.alpha = hasText ? 1.0 : 0.0
+            self.waveformGlassView.alpha = hasText ? 0.0 : 1.0
+            self.superview?.layoutIfNeeded()
+            self.layoutIfNeeded()
+        }
+
+        if animated {
+            sendButton.isHidden = false
+            waveformGlassView.isHidden = false
+            sendButton.isUserInteractionEnabled = hasText
+            waveformButton.isUserInteractionEnabled = !hasText
+            if hasText {
+                sendButton.alpha = 0.0
+            }
+
+            containerGlassEffect?.spacing = Metrics.fusionSpacing
+            UIView.animate(
+                withDuration: Metrics.transitionDuration,
+                delay: 0.0,
+                options: [.beginFromCurrentState, .curveEaseOut],
+                animations: {
+                    applyTargetState()
+                },
+                completion: { _ in
+                    guard self.isShowingSendControl == hasText else {
+                        return
+                    }
+
+                    self.containerGlassEffect?.spacing = Metrics.spacing
+                    self.sendButton.isHidden = !hasText
+                    self.waveformGlassView.isHidden = hasText
+                }
+            )
+        } else {
+            containerGlassEffect?.spacing = Metrics.spacing
+            applyTargetState()
+            sendButton.isHidden = !hasText
+            waveformGlassView.isHidden = hasText
+        }
     }
 
     private func updateTextHeight(animated: Bool) {
