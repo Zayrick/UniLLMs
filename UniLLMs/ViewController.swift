@@ -37,6 +37,18 @@ class ViewController: UIViewController {
         static let keyboardBottomSpacing: CGFloat = 8.0
     }
 
+    private enum MessagesLayout {
+        static let horizontalInset: CGFloat = 16.0
+        static let topSpacing: CGFloat = 16.0
+        static let bottomSpacing: CGFloat = 12.0
+        static let verticalInset: CGFloat = 8.0
+        static let itemSpacing: CGFloat = 8.0
+        static let maximumBubbleWidthRatio: CGFloat = 0.82
+        static let sendAnimationDuration: TimeInterval = 0.46
+        static let sendAnimationDampingRatio: CGFloat = 0.88
+        static let existingMessageShiftVisibilityMargin: CGFloat = 80.0
+    }
+
     private enum SideMenuLayout {
         static let revealRatio: CGFloat = 0.8
         static let pageOpacity: CGFloat = 0.72
@@ -68,6 +80,9 @@ class ViewController: UIViewController {
         systemName: "app.dashed",
         accessibilityLabel: "Layout"
     )
+    private let messagesScrollView = UIScrollView()
+    private let messagesContentView = UIView()
+    private let messagesStackView = UIStackView()
     private let composerView = GlassComposerBarView()
     private var composerLeadingConstraint: NSLayoutConstraint!
     private var composerTrailingConstraint: NSLayoutConstraint!
@@ -88,6 +103,7 @@ class ViewController: UIViewController {
         configureMainPage()
         configureHeaderButtons()
         configureComposerView()
+        configureMessagesView()
         configureSideMenuDismissControl()
         installKeyboardObserver()
     }
@@ -265,6 +281,9 @@ class ViewController: UIViewController {
 
     private func configureComposerView() {
         composerView.translatesAutoresizingMaskIntoConstraints = false
+        composerView.onSend = { [weak self] transition in
+            self?.appendSentMessage(using: transition)
+        }
         mainPageView.addSubview(composerView)
 
         composerLeadingConstraint = composerView.leadingAnchor.constraint(
@@ -288,6 +307,73 @@ class ViewController: UIViewController {
             composerTrailingConstraint
         ])
         updateComposerBottomConstraint()
+    }
+
+    private func configureMessagesView() {
+        messagesScrollView.translatesAutoresizingMaskIntoConstraints = false
+        messagesScrollView.backgroundColor = .clear
+        messagesScrollView.clipsToBounds = false
+        messagesScrollView.showsVerticalScrollIndicator = false
+        messagesScrollView.showsHorizontalScrollIndicator = false
+        messagesScrollView.alwaysBounceVertical = true
+        messagesScrollView.keyboardDismissMode = .interactive
+        messagesScrollView.contentInsetAdjustmentBehavior = .never
+        mainPageView.insertSubview(messagesScrollView, aboveSubview: backgroundView)
+
+        messagesContentView.translatesAutoresizingMaskIntoConstraints = false
+        messagesScrollView.addSubview(messagesContentView)
+
+        messagesStackView.axis = .vertical
+        messagesStackView.alignment = .trailing
+        messagesStackView.distribution = .fill
+        messagesStackView.spacing = MessagesLayout.itemSpacing
+        messagesStackView.setContentHuggingPriority(.required, for: .vertical)
+        messagesStackView.setContentCompressionResistancePriority(.required, for: .vertical)
+        messagesStackView.translatesAutoresizingMaskIntoConstraints = false
+        messagesContentView.addSubview(messagesStackView)
+
+        NSLayoutConstraint.activate([
+            messagesScrollView.topAnchor.constraint(
+                equalTo: headerGlassContainerView.bottomAnchor,
+                constant: MessagesLayout.topSpacing
+            ),
+            messagesScrollView.leadingAnchor.constraint(
+                equalTo: mainPageView.safeAreaLayoutGuide.leadingAnchor,
+                constant: MessagesLayout.horizontalInset
+            ),
+            messagesScrollView.trailingAnchor.constraint(
+                equalTo: mainPageView.safeAreaLayoutGuide.trailingAnchor,
+                constant: -MessagesLayout.horizontalInset
+            ),
+            messagesScrollView.bottomAnchor.constraint(
+                equalTo: composerView.topAnchor,
+                constant: -MessagesLayout.bottomSpacing
+            ),
+
+            messagesContentView.topAnchor.constraint(equalTo: messagesScrollView.contentLayoutGuide.topAnchor),
+            messagesContentView.leadingAnchor.constraint(equalTo: messagesScrollView.contentLayoutGuide.leadingAnchor),
+            messagesContentView.trailingAnchor.constraint(equalTo: messagesScrollView.contentLayoutGuide.trailingAnchor),
+            messagesContentView.bottomAnchor.constraint(equalTo: messagesScrollView.contentLayoutGuide.bottomAnchor),
+            messagesContentView.widthAnchor.constraint(equalTo: messagesScrollView.frameLayoutGuide.widthAnchor),
+            messagesContentView.heightAnchor.constraint(
+                greaterThanOrEqualTo: messagesScrollView.frameLayoutGuide.heightAnchor
+            ),
+
+            messagesStackView.leadingAnchor.constraint(equalTo: messagesContentView.leadingAnchor),
+            messagesStackView.trailingAnchor.constraint(equalTo: messagesContentView.trailingAnchor),
+            messagesStackView.bottomAnchor.constraint(
+                equalTo: messagesContentView.bottomAnchor,
+                constant: -MessagesLayout.verticalInset
+            ),
+            messagesStackView.topAnchor.constraint(
+                greaterThanOrEqualTo: messagesContentView.topAnchor,
+                constant: MessagesLayout.verticalInset
+            )
+        ])
+
+        mainPageView.bringSubviewToFront(headerGlassContainerView)
+        mainPageView.bringSubviewToFront(rightHeaderButton)
+        mainPageView.bringSubviewToFront(composerView)
     }
 
     private func configureSideMenuDismissControl() {
@@ -476,6 +562,141 @@ class ViewController: UIViewController {
         composerRestingBottomConstraint.isActive = !shouldTrackKeyboard
     }
 
+    private func appendSentMessage(using transition: GlassComposerBarView.SendTransition) {
+        mainPageView.layoutIfNeeded()
+        let existingMessageFrames = visibleMessageFrames()
+
+        let bubbleView = SentMessageBubbleView(text: transition.text)
+        bubbleView.translatesAutoresizingMaskIntoConstraints = false
+        bubbleView.alpha = 0.0
+        bubbleView.setContentHuggingPriority(.required, for: .vertical)
+        bubbleView.setContentCompressionResistancePriority(.required, for: .vertical)
+
+        messagesStackView.addArrangedSubview(bubbleView)
+        bubbleView.widthAnchor.constraint(
+            lessThanOrEqualTo: messagesScrollView.frameLayoutGuide.widthAnchor,
+            multiplier: MessagesLayout.maximumBubbleWidthRatio
+        ).isActive = true
+
+        mainPageView.layoutIfNeeded()
+        scrollMessagesToBottom(animated: false)
+        mainPageView.layoutIfNeeded()
+
+        animateExistingMessages(from: existingMessageFrames)
+        animateSentMessage(bubbleView, from: transition)
+    }
+
+    private func visibleMessageFrames() -> [(view: UIView, frame: CGRect)] {
+        let visibleFrame = messagesScrollView.convert(
+            messagesScrollView.bounds.insetBy(
+                dx: 0.0,
+                dy: -MessagesLayout.existingMessageShiftVisibilityMargin
+            ),
+            to: mainPageView
+        )
+
+        return messagesStackView.arrangedSubviews.compactMap { messageView in
+            let frame = messageView.convert(messageView.bounds, to: mainPageView)
+            guard frame.intersects(visibleFrame) else {
+                return nil
+            }
+
+            return (messageView, frame)
+        }
+    }
+
+    private func animateExistingMessages(from previousFrames: [(view: UIView, frame: CGRect)]) {
+        guard view.window != nil,
+              !UIAccessibility.isReduceMotionEnabled else {
+            return
+        }
+
+        let shiftedViews = previousFrames.compactMap { snapshot -> UIView? in
+            guard snapshot.view.superview != nil else {
+                return nil
+            }
+
+            let currentFrame = snapshot.view.convert(snapshot.view.bounds, to: mainPageView)
+            let deltaY = snapshot.frame.minY - currentFrame.minY
+            guard abs(deltaY) > 0.5 else {
+                return nil
+            }
+
+            snapshot.view.transform = CGAffineTransform(translationX: 0.0, y: deltaY)
+            return snapshot.view
+        }
+
+        guard !shiftedViews.isEmpty else {
+            return
+        }
+
+        let animator = UIViewPropertyAnimator(
+            duration: MessagesLayout.sendAnimationDuration,
+            dampingRatio: MessagesLayout.sendAnimationDampingRatio
+        ) {
+            shiftedViews.forEach { messageView in
+                messageView.transform = .identity
+            }
+        }
+        animator.isInterruptible = true
+        animator.isUserInteractionEnabled = true
+        animator.addCompletion { _ in
+            shiftedViews.forEach { messageView in
+                messageView.transform = .identity
+            }
+        }
+        animator.startAnimation()
+    }
+
+    private func scrollMessagesToBottom(animated: Bool) {
+        messagesScrollView.layoutIfNeeded()
+
+        let adjustedInsets = messagesScrollView.adjustedContentInset
+        let visibleHeight = messagesScrollView.bounds.height - adjustedInsets.top - adjustedInsets.bottom
+        let targetOffsetY = max(
+            -adjustedInsets.top,
+            messagesScrollView.contentSize.height - visibleHeight + adjustedInsets.bottom
+        )
+        messagesScrollView.setContentOffset(CGPoint(x: 0.0, y: targetOffsetY), animated: animated)
+    }
+
+    private func animateSentMessage(
+        _ bubbleView: SentMessageBubbleView,
+        from transition: GlassComposerBarView.SendTransition
+    ) {
+        guard view.window != nil,
+              !UIAccessibility.isReduceMotionEnabled else {
+            bubbleView.alpha = 1.0
+            return
+        }
+
+        let sourceBackgroundFrame = mainPageView.convert(transition.backgroundGlobalFrame, from: nil)
+        let targetBubbleFrame = bubbleView.convert(bubbleView.bounds, to: mainPageView)
+
+        let animatedBubbleView = SentMessageBubbleView(text: transition.text)
+        animatedBubbleView.frame = sourceBackgroundFrame
+        animatedBubbleView.isUserInteractionEnabled = false
+        animatedBubbleView.layoutIfNeeded()
+        mainPageView.addSubview(animatedBubbleView)
+
+        let animator = UIViewPropertyAnimator(
+            duration: MessagesLayout.sendAnimationDuration,
+            dampingRatio: MessagesLayout.sendAnimationDampingRatio
+        ) {
+            animatedBubbleView.frame = targetBubbleFrame
+            animatedBubbleView.layoutIfNeeded()
+        }
+        animator.isInterruptible = true
+        animator.isUserInteractionEnabled = true
+        animator.addCompletion { _ in
+            UIView.performWithoutAnimation {
+                animatedBubbleView.removeFromSuperview()
+                bubbleView.alpha = 1.0
+            }
+        }
+        animator.startAnimation()
+    }
+
     private func updateMainPageShadowPath(cornerRadius: CGFloat? = nil) {
         let radius = cornerRadius ?? mainPageView.layer.cornerRadius
         mainPageContainerView.layer.shadowPath = UIBezierPath(
@@ -596,6 +817,7 @@ class ViewController: UIViewController {
         effect.isInteractive = true
         return effect
     }
+
 }
 
 private final class SideMenuView: UIView {
@@ -1566,7 +1788,126 @@ private final class ProviderTextFieldCell: UITableViewCell {
     }
 }
 
+private final class SentMessageBubbleView: UIView {
+    private enum Metrics {
+        static let controlHeight: CGFloat = 44.0
+        static let horizontalInset: CGFloat = 12.0
+        static let verticalInset: CGFloat = 8.0
+        static let multilineCornerRadius: CGFloat = 22.0
+    }
+
+    private let messageText: String
+    private let glassView = UIVisualEffectView(effect: SentMessageBubbleView.makeGlassEffect())
+    private let label = UILabel()
+
+    var currentCornerRadius: CGFloat {
+        isSingleLineLayout ? bounds.height * 0.5 : Metrics.multilineCornerRadius
+    }
+
+    init(text: String) {
+        messageText = text
+        super.init(frame: .zero)
+        configure()
+    }
+
+    required init?(coder: NSCoder) {
+        messageText = ""
+        super.init(coder: coder)
+        configure()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+
+        label.preferredMaxLayoutWidth = label.bounds.width
+        updateCornerConfiguration()
+    }
+
+    private func configure() {
+        isOpaque = false
+        backgroundColor = .clear
+        setContentHuggingPriority(.required, for: .vertical)
+        setContentCompressionResistancePriority(.required, for: .vertical)
+
+        glassView.backgroundColor = .clear
+        glassView.isUserInteractionEnabled = false
+        glassView.cornerConfiguration = .capsule()
+        glassView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(glassView)
+
+        label.text = messageText
+        label.font = .preferredFont(forTextStyle: .body)
+        label.adjustsFontForContentSizeCategory = true
+        label.textColor = .label
+        label.numberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        label.setContentHuggingPriority(.defaultLow, for: .vertical)
+        label.setContentCompressionResistancePriority(.required, for: .vertical)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        glassView.contentView.addSubview(label)
+
+        NSLayoutConstraint.activate([
+            glassView.topAnchor.constraint(equalTo: topAnchor),
+            glassView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            glassView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            glassView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            heightAnchor.constraint(greaterThanOrEqualToConstant: Metrics.controlHeight),
+            label.leadingAnchor.constraint(
+                equalTo: leadingAnchor,
+                constant: Metrics.horizontalInset
+            ),
+            label.trailingAnchor.constraint(
+                equalTo: trailingAnchor,
+                constant: -Metrics.horizontalInset
+            ),
+            label.topAnchor.constraint(
+                equalTo: topAnchor,
+                constant: Metrics.verticalInset
+            ),
+            label.bottomAnchor.constraint(
+                equalTo: bottomAnchor,
+                constant: -Metrics.verticalInset
+            )
+        ])
+    }
+
+    private func updateCornerConfiguration() {
+        if isSingleLineLayout {
+            glassView.cornerConfiguration = .capsule()
+        } else {
+            glassView.cornerConfiguration = .corners(
+                radius: .fixed(Double(Metrics.multilineCornerRadius))
+            )
+        }
+    }
+
+    private var isSingleLineLayout: Bool {
+        guard !messageText.contains("\n"),
+              label.bounds.width > 0.0,
+              let font = label.font else {
+            return false
+        }
+
+        let fittingSize = label.sizeThatFits(
+            CGSize(width: label.bounds.width, height: CGFloat.greatestFiniteMagnitude)
+        )
+        return fittingSize.height <= ceil(font.lineHeight * 1.25)
+    }
+
+    private static func makeGlassEffect() -> UIGlassEffect {
+        let effect = UIGlassEffect(style: .regular)
+        effect.isInteractive = false
+        return effect
+    }
+}
+
 private final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
+    struct SendTransition {
+        let text: String
+        let backgroundGlobalFrame: CGRect
+    }
+
     private enum Metrics {
         static let controlHeight: CGFloat = 44.0
         static let spacing: CGFloat = 8.0
@@ -1599,6 +1940,8 @@ private final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate
     private var textHeightConstraint: NSLayoutConstraint!
     private var lastMeasuredTextWidth: CGFloat = 0.0
     private var isShowingSendControl = false
+
+    var onSend: ((SendTransition) -> Void)?
 
     private var containerGlassEffect: UIGlassContainerEffect? {
         effect as? UIGlassContainerEffect
@@ -1822,6 +2165,68 @@ private final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate
         configuration.contentInsets = .zero
         sendButton.configuration = configuration
         sendButton.accessibilityLabel = "Send"
+        sendButton.addTarget(self, action: #selector(sendButtonPressed), for: .touchUpInside)
+    }
+
+    @objc private func sendButtonPressed() {
+        let messageText = textView.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !messageText.isEmpty else {
+            return
+        }
+
+        layoutIfNeeded()
+        textView.layoutIfNeeded()
+
+        let sourceTextBounds = currentTextBounds()
+        let sourceBackgroundBounds = sourceBubbleBounds(around: sourceTextBounds)
+        let transition = SendTransition(
+            text: messageText,
+            backgroundGlobalFrame: textView.convert(sourceBackgroundBounds, to: nil)
+        )
+
+        textView.text = ""
+        placeholderLabel.isHidden = false
+        updateInputMode(hasText: false, animated: true)
+        updateTextHeight(animated: true)
+
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        onSend?(transition)
+    }
+
+    private func currentTextBounds() -> CGRect {
+        textView.layoutManager.ensureLayout(for: textView.textContainer)
+
+        let usedRect = textView.layoutManager.usedRect(for: textView.textContainer)
+        let textBounds = CGRect(
+            x: usedRect.minX + textView.textContainerInset.left,
+            y: usedRect.minY + textView.textContainerInset.top,
+            width: usedRect.width,
+            height: usedRect.height
+        ).insetBy(dx: -1.0, dy: -1.0)
+
+        let visibleTextBounds = textBounds.integral.intersection(textView.bounds)
+        guard !visibleTextBounds.isNull,
+              visibleTextBounds.width > 0.0,
+              visibleTextBounds.height > 0.0 else {
+            return textView.bounds
+        }
+
+        return visibleTextBounds
+    }
+
+    private func sourceBubbleBounds(around textBounds: CGRect) -> CGRect {
+        var bubbleBounds = textBounds.insetBy(
+            dx: -Metrics.capsuleHorizontalInset,
+            dy: -Metrics.capsuleVerticalInset
+        )
+
+        if bubbleBounds.height < Metrics.controlHeight {
+            let heightDelta = Metrics.controlHeight - bubbleBounds.height
+            bubbleBounds.origin.y -= heightDelta * 0.5
+            bubbleBounds.size.height = Metrics.controlHeight
+        }
+
+        return bubbleBounds.integral
     }
 
     private func updateInputMode(hasText: Bool, animated: Bool) {
@@ -1876,7 +2281,9 @@ private final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate
             containerGlassEffect?.spacing = Metrics.spacing
             applyTargetState()
             sendButton.isHidden = !hasText
+            sendButton.isUserInteractionEnabled = hasText
             waveformGlassView.isHidden = hasText
+            waveformButton.isUserInteractionEnabled = !hasText
         }
     }
 
