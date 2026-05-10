@@ -83,6 +83,7 @@ class ViewController: UIViewController {
     private let messagesScrollView = UIScrollView()
     private let messagesContentView = UIView()
     private let messagesStackView = UIStackView()
+    private var messagesContentMinimumHeightConstraint: NSLayoutConstraint!
     private let composerView = GlassComposerBarView()
     private var composerLeadingConstraint: NSLayoutConstraint!
     private var composerTrailingConstraint: NSLayoutConstraint!
@@ -126,6 +127,8 @@ class ViewController: UIViewController {
 
         updateSideMenuLayout()
         updateMessagesContentInsets()
+        messagesScrollView.layoutIfNeeded()
+        clampMessagesContentOffsetIfNeeded()
         updateMainPageShadowPath()
     }
 
@@ -339,6 +342,10 @@ class ViewController: UIViewController {
         messagesStackView.translatesAutoresizingMaskIntoConstraints = false
         messagesContentView.addSubview(messagesStackView)
 
+        messagesContentMinimumHeightConstraint = messagesContentView.heightAnchor.constraint(
+            greaterThanOrEqualTo: messagesScrollView.frameLayoutGuide.heightAnchor
+        )
+
         NSLayoutConstraint.activate([
             messagesScrollView.topAnchor.constraint(
                 equalTo: mainPageView.topAnchor
@@ -360,9 +367,7 @@ class ViewController: UIViewController {
             messagesContentView.trailingAnchor.constraint(equalTo: messagesScrollView.contentLayoutGuide.trailingAnchor),
             messagesContentView.bottomAnchor.constraint(equalTo: messagesScrollView.contentLayoutGuide.bottomAnchor),
             messagesContentView.widthAnchor.constraint(equalTo: messagesScrollView.frameLayoutGuide.widthAnchor),
-            messagesContentView.heightAnchor.constraint(
-                greaterThanOrEqualTo: messagesScrollView.frameLayoutGuide.heightAnchor
-            ),
+            messagesContentMinimumHeightConstraint,
 
             messagesStackView.leadingAnchor.constraint(equalTo: messagesContentView.leadingAnchor),
             messagesStackView.trailingAnchor.constraint(equalTo: messagesContentView.trailingAnchor),
@@ -403,13 +408,17 @@ class ViewController: UIViewController {
             mainPageView.bounds.maxY - composerView.frame.minY + MessagesLayout.bottomSpacing
         )
         let contentInsets = UIEdgeInsets(top: topInset, left: 0.0, bottom: bottomInset, right: 0.0)
+        let visibleHeight = max(0.0, messagesScrollView.bounds.height - topInset - bottomInset)
+        let minimumHeightConstant = visibleHeight - messagesScrollView.bounds.height
 
-        guard messagesScrollView.contentInset != contentInsets else {
-            return
+        if abs(messagesContentMinimumHeightConstraint.constant - minimumHeightConstant) > CGFloat.ulpOfOne {
+            messagesContentMinimumHeightConstraint.constant = minimumHeightConstant
         }
 
-        messagesScrollView.contentInset = contentInsets
-        messagesScrollView.scrollIndicatorInsets = contentInsets
+        if messagesScrollView.contentInset != contentInsets {
+            messagesScrollView.contentInset = contentInsets
+            messagesScrollView.scrollIndicatorInsets = contentInsets
+        }
     }
 
     private func configureSideMenuDismissControl() {
@@ -477,6 +486,8 @@ class ViewController: UIViewController {
         let layoutChanges = {
             self.view.layoutIfNeeded()
             self.updateMessagesContentInsets()
+            self.messagesScrollView.layoutIfNeeded()
+            self.clampMessagesContentOffsetIfNeeded()
         }
 
         if animated {
@@ -688,13 +699,41 @@ class ViewController: UIViewController {
     private func scrollMessagesToBottom(animated: Bool) {
         messagesScrollView.layoutIfNeeded()
         updateMessagesContentInsets()
+        messagesScrollView.layoutIfNeeded()
 
+        let targetOffsetY = messagesBottomContentOffsetY()
+        messagesScrollView.setContentOffset(CGPoint(x: 0.0, y: targetOffsetY), animated: animated)
+    }
+
+    private func messagesBottomContentOffsetY() -> CGFloat {
+        messagesContentOffsetBounds().maximum
+    }
+
+    private func messagesContentOffsetBounds() -> (minimum: CGFloat, maximum: CGFloat) {
         let adjustedInsets = messagesScrollView.adjustedContentInset
-        let targetOffsetY = max(
-            -adjustedInsets.top,
+        let minimumOffsetY = -adjustedInsets.top
+        let maximumOffsetY = max(
+            minimumOffsetY,
             messagesScrollView.contentSize.height - messagesScrollView.bounds.height + adjustedInsets.bottom
         )
-        messagesScrollView.setContentOffset(CGPoint(x: 0.0, y: targetOffsetY), animated: animated)
+
+        return (minimumOffsetY, maximumOffsetY)
+    }
+
+    private func clampMessagesContentOffsetIfNeeded() {
+        guard !messagesScrollView.isDragging,
+              !messagesScrollView.isDecelerating else {
+            return
+        }
+
+        let bounds = messagesContentOffsetBounds()
+        let currentOffsetY = messagesScrollView.contentOffset.y
+        let clampedOffsetY = min(max(currentOffsetY, bounds.minimum), bounds.maximum)
+        guard abs(currentOffsetY - clampedOffsetY) > CGFloat.ulpOfOne else {
+            return
+        }
+
+        messagesScrollView.setContentOffset(CGPoint(x: 0.0, y: clampedOffsetY), animated: false)
     }
 
     private func animateSentMessage(
