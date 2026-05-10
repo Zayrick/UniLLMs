@@ -118,12 +118,14 @@ class ViewController: UIViewController {
         super.viewSafeAreaInsetsDidChange()
 
         updateComposerLayout(animated: false)
+        updateMessagesContentInsets()
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
 
         updateSideMenuLayout()
+        updateMessagesContentInsets()
         updateMainPageShadowPath()
     }
 
@@ -284,6 +286,9 @@ class ViewController: UIViewController {
         composerView.onSend = { [weak self] transition in
             self?.appendSentMessage(using: transition)
         }
+        composerView.onLayoutChange = { [weak self] in
+            self?.updateMessagesContentInsets()
+        }
         mainPageView.addSubview(composerView)
 
         composerLeadingConstraint = composerView.leadingAnchor.constraint(
@@ -318,6 +323,8 @@ class ViewController: UIViewController {
         messagesScrollView.alwaysBounceVertical = true
         messagesScrollView.keyboardDismissMode = .interactive
         messagesScrollView.contentInsetAdjustmentBehavior = .never
+        messagesScrollView.topEdgeEffect.style = .soft
+        messagesScrollView.bottomEdgeEffect.style = .soft
         mainPageView.insertSubview(messagesScrollView, aboveSubview: backgroundView)
 
         messagesContentView.translatesAutoresizingMaskIntoConstraints = false
@@ -334,8 +341,7 @@ class ViewController: UIViewController {
 
         NSLayoutConstraint.activate([
             messagesScrollView.topAnchor.constraint(
-                equalTo: headerGlassContainerView.bottomAnchor,
-                constant: MessagesLayout.topSpacing
+                equalTo: mainPageView.topAnchor
             ),
             messagesScrollView.leadingAnchor.constraint(
                 equalTo: mainPageView.safeAreaLayoutGuide.leadingAnchor,
@@ -346,8 +352,7 @@ class ViewController: UIViewController {
                 constant: -MessagesLayout.horizontalInset
             ),
             messagesScrollView.bottomAnchor.constraint(
-                equalTo: composerView.topAnchor,
-                constant: -MessagesLayout.bottomSpacing
+                equalTo: mainPageView.bottomAnchor
             ),
 
             messagesContentView.topAnchor.constraint(equalTo: messagesScrollView.contentLayoutGuide.topAnchor),
@@ -374,6 +379,37 @@ class ViewController: UIViewController {
         mainPageView.bringSubviewToFront(headerGlassContainerView)
         mainPageView.bringSubviewToFront(rightHeaderButton)
         mainPageView.bringSubviewToFront(composerView)
+        addScrollEdgeInteraction(to: headerGlassContainerView, edge: .top)
+        addScrollEdgeInteraction(to: rightHeaderButton, edge: .top)
+        addScrollEdgeInteraction(to: composerView, edge: .bottom)
+    }
+
+    private func addScrollEdgeInteraction(to view: UIView, edge: UIRectEdge) {
+        let interaction = UIScrollEdgeElementContainerInteraction()
+        interaction.scrollView = messagesScrollView
+        interaction.edge = edge
+        view.addInteraction(interaction)
+    }
+
+    private func updateMessagesContentInsets() {
+        guard messagesScrollView.superview != nil else {
+            return
+        }
+
+        let headerBottom = max(headerGlassContainerView.frame.maxY, rightHeaderButton.frame.maxY)
+        let topInset = headerBottom + MessagesLayout.topSpacing
+        let bottomInset = max(
+            0.0,
+            mainPageView.bounds.maxY - composerView.frame.minY + MessagesLayout.bottomSpacing
+        )
+        let contentInsets = UIEdgeInsets(top: topInset, left: 0.0, bottom: bottomInset, right: 0.0)
+
+        guard messagesScrollView.contentInset != contentInsets else {
+            return
+        }
+
+        messagesScrollView.contentInset = contentInsets
+        messagesScrollView.scrollIndicatorInsets = contentInsets
     }
 
     private func configureSideMenuDismissControl() {
@@ -440,6 +476,7 @@ class ViewController: UIViewController {
 
         let layoutChanges = {
             self.view.layoutIfNeeded()
+            self.updateMessagesContentInsets()
         }
 
         if animated {
@@ -650,12 +687,12 @@ class ViewController: UIViewController {
 
     private func scrollMessagesToBottom(animated: Bool) {
         messagesScrollView.layoutIfNeeded()
+        updateMessagesContentInsets()
 
         let adjustedInsets = messagesScrollView.adjustedContentInset
-        let visibleHeight = messagesScrollView.bounds.height - adjustedInsets.top - adjustedInsets.bottom
         let targetOffsetY = max(
             -adjustedInsets.top,
-            messagesScrollView.contentSize.height - visibleHeight + adjustedInsets.bottom
+            messagesScrollView.contentSize.height - messagesScrollView.bounds.height + adjustedInsets.bottom
         )
         messagesScrollView.setContentOffset(CGPoint(x: 0.0, y: targetOffsetY), animated: animated)
     }
@@ -1942,6 +1979,7 @@ private final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate
     private var isShowingSendControl = false
 
     var onSend: ((SendTransition) -> Void)?
+    var onLayoutChange: (() -> Void)?
 
     private var containerGlassEffect: UIGlassContainerEffect? {
         effect as? UIGlassContainerEffect
@@ -2304,6 +2342,7 @@ private final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate
 
         let layoutChanges = {
             self.superview?.layoutIfNeeded()
+            self.onLayoutChange?()
             return
         }
 
