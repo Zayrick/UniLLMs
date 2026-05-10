@@ -120,6 +120,18 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertEqual(providers.map(\.id), [second.id])
     }
 
+    func testFetchingProviderByIDReturnsMatchingProvider() throws {
+        _ = store.addOpenRouterProvider()
+        let second = store.addOpenRouterProvider()
+
+        let fetched = try XCTUnwrap(store.fetchProvider(id: second.id))
+        let missingID = try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-000000000000"))
+
+        XCTAssertEqual(fetched.id, second.id)
+        XCTAssertEqual(fetched.name, second.name)
+        XCTAssertNil(store.fetchProvider(id: missingID))
+    }
+
     func testSelectedModelSelectionPersistsByProviderUUIDAndModelID() throws {
         var provider = store.addOpenRouterProvider()
         provider.name = "Work Router"
@@ -215,6 +227,76 @@ final class UniLLMsTests: XCTestCase {
 
         let selection = try XCTUnwrap(store.fetchSelectedModelSelection())
         XCTAssertEqual(selection.modelName, "GPT-4.1 Latest")
+    }
+
+    func testOpenRouterStreamParserDecodesContentDelta() throws {
+        let delta = try XCTUnwrap(
+            OpenRouterAPIClient.streamDelta(
+                fromServerSentEventLine: #"data: {"choices":[{"delta":{"content":"Hello"}}]}"#
+            )
+        )
+
+        XCTAssertEqual(delta.content, "Hello")
+        XCTAssertEqual(delta.reasoning, "")
+    }
+
+    func testOpenRouterStreamParserDecodesReasoningDelta() throws {
+        let delta = try XCTUnwrap(
+            OpenRouterAPIClient.streamDelta(
+                fromServerSentEventLine: #"data: {"choices":[{"delta":{"reasoning":"Thinking"}}]}"#
+            )
+        )
+
+        XCTAssertEqual(delta.content, "")
+        XCTAssertEqual(delta.reasoning, "Thinking")
+    }
+
+    func testOpenRouterStreamParserDecodesReasoningDetailsDelta() throws {
+        let delta = try XCTUnwrap(
+            OpenRouterAPIClient.streamDelta(
+                fromServerSentEventLine: #"data: {"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.text","text":"Step "},{"type":"reasoning.summary","summary":"summary"}]}}]}"#
+            )
+        )
+
+        XCTAssertEqual(delta.content, "")
+        XCTAssertEqual(delta.reasoning, "Step summary")
+    }
+
+    func testOpenRouterStreamParserIgnoresCommentsAndDoneEvents() throws {
+        XCTAssertNil(try OpenRouterAPIClient.streamDelta(fromServerSentEventLine: ": OPENROUTER PROCESSING"))
+        XCTAssertNil(try OpenRouterAPIClient.streamDelta(fromServerSentEventLine: "data: [DONE]"))
+    }
+
+    func testOpenRouterStreamParserThrowsMidStreamError() throws {
+        XCTAssertThrowsError(
+            try OpenRouterAPIClient.streamDelta(
+                fromServerSentEventLine: #"data: {"error":{"message":"Provider disconnected unexpectedly"},"choices":[{"delta":{"content":""},"finish_reason":"error"}]}"#
+            )
+        ) { error in
+            XCTAssertEqual(error.localizedDescription, "Provider disconnected unexpectedly")
+        }
+    }
+
+    func testOpenRouterClientRejectsRelativeAPIBase() async {
+        let client = OpenRouterAPIClient()
+
+        do {
+            _ = try await client.fetchModels(apiBase: "not-a-url", apiKey: "")
+            XCTFail("Expected invalid API base error.")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, "Invalid API Base: not-a-url")
+        }
+    }
+
+    func testOpenRouterClientRejectsAPIBaseWithQuery() async {
+        let client = OpenRouterAPIClient()
+
+        do {
+            _ = try await client.fetchModels(apiBase: "https://example.com/api?debug=true", apiKey: "")
+            XCTFail("Expected invalid API base error.")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, "Invalid API Base: https://example.com/api?debug=true")
+        }
     }
 
 }

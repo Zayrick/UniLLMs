@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct LLMModelSelection: Equatable {
+nonisolated struct LLMModelSelection: Equatable {
     var providerID: UUID
     var providerName: String
     var modelID: String
@@ -18,13 +18,13 @@ struct LLMModelSelection: Equatable {
     }
 }
 
-struct LLMProviderModel: Codable, Equatable, Hashable {
+nonisolated struct LLMProviderModel: Codable, Equatable, Hashable {
     var id: String
     var name: String
     var contextLength: Int?
 }
 
-struct LLMProviderRecord: Codable, Equatable, Identifiable {
+nonisolated struct LLMProviderRecord: Codable, Equatable, Identifiable {
     enum Kind: String, Codable {
         case openRouter
     }
@@ -77,6 +77,10 @@ final class LLMProviderStore {
         }
 
         return (try? decoder.decode([LLMProviderRecord].self, from: data)) ?? []
+    }
+
+    func fetchProvider(id: UUID) -> LLMProviderRecord? {
+        fetchProviders().first { $0.id == id }
     }
 
     func makeOpenRouterProviderDraft() -> LLMProviderRecord {

@@ -50,6 +50,7 @@ class ViewController: UIViewController {
 
     private let rootBackgroundView = AppGradientBackgroundView()
     private let providerStore = LLMProviderStore.shared
+    private let apiClient = OpenRouterAPIClient()
     private let sideMenuView = SideMenuView()
     private let sideMenuDismissControl = UIControl()
     private let mainPageContainerView = UIView()
@@ -84,6 +85,9 @@ class ViewController: UIViewController {
     private var isKeyboardVisible = false
     private var isSideMenuOpen = false
     private var selectedModelSelection: LLMModelSelection?
+    private var conversationMessages: [OpenRouterChatMessage] = []
+    private var activeResponseTask: Task<Void, Never>?
+    private weak var activeResponseView: AssistantResponseTextView?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -103,6 +107,7 @@ class ViewController: UIViewController {
     }
 
     deinit {
+        activeResponseTask?.cancel()
         if let keyboardObservation {
             NotificationCenter.default.removeObserver(keyboardObservation)
         }
@@ -290,6 +295,9 @@ class ViewController: UIViewController {
         composerView.translatesAutoresizingMaskIntoConstraints = false
         composerView.onSend = { [weak self] transition in
             self?.appendSentMessage(using: transition)
+        }
+        composerView.onStop = { [weak self] in
+            self?.cancelAssistantResponseStream()
         }
         composerView.onLayoutChange = { [weak self] in
             self?.updateMessagesContentInsets()
@@ -628,18 +636,36 @@ class ViewController: UIViewController {
         bubbleView.setContentHuggingPriority(.required, for: .vertical)
         bubbleView.setContentCompressionResistancePriority(.required, for: .vertical)
 
+        let responseView = AssistantResponseTextView()
+        responseView.translatesAutoresizingMaskIntoConstraints = false
+        responseView.isHidden = true
+        responseView.setContentHuggingPriority(.required, for: .vertical)
+        responseView.setContentCompressionResistancePriority(.required, for: .vertical)
+
         messagesStackView.addArrangedSubview(bubbleView)
         bubbleView.widthAnchor.constraint(
             lessThanOrEqualTo: messagesScrollView.frameLayoutGuide.widthAnchor,
             multiplier: MessagesLayout.maximumBubbleWidthRatio
+        ).isActive = true
+        messagesStackView.addArrangedSubview(responseView)
+        responseView.widthAnchor.constraint(
+            equalTo: messagesScrollView.frameLayoutGuide.widthAnchor
         ).isActive = true
 
         mainPageView.layoutIfNeeded()
         scrollMessagesToBottom(animated: false)
         mainPageView.layoutIfNeeded()
 
+        startAssistantResponseStream(for: transition.text, responseView: responseView)
         animateExistingMessages(from: existingMessageFrames)
-        animateSentMessage(bubbleView, from: transition)
+        animateSentMessage(bubbleView, from: transition) { [weak self, weak responseView] in
+            guard let self,
+                  let responseView else {
+                return
+            }
+
+            self.showAssistantLoadingIfNeeded(in: responseView)
+        }
     }
 
     private func visibleMessageFrames() -> [(view: UIView, frame: CGRect)] {
@@ -746,11 +772,13 @@ class ViewController: UIViewController {
 
     private func animateSentMessage(
         _ bubbleView: SentMessageBubbleView,
-        from transition: GlassComposerBarView.SendTransition
+        from transition: GlassComposerBarView.SendTransition,
+        completion: (() -> Void)? = nil
     ) {
         guard view.window != nil,
               !UIAccessibility.isReduceMotionEnabled else {
             bubbleView.alpha = 1.0
+            completion?()
             return
         }
 
@@ -777,8 +805,195 @@ class ViewController: UIViewController {
                 animatedBubbleView.removeFromSuperview()
                 bubbleView.alpha = 1.0
             }
+            completion?()
         }
         animator.startAnimation()
+    }
+
+    private func startAssistantResponseStream(
+        for prompt: String,
+        responseView: AssistantResponseTextView
+    ) {
+        guard activeResponseTask == nil else {
+            setAssistantResponseError("Wait for the current response to finish.", in: responseView)
+            return
+        }
+
+        guard let selectedModelSelection else {
+            setAssistantResponseError("Select a model first.", in: responseView)
+            return
+        }
+
+        guard let provider = providerStore.fetchProvider(id: selectedModelSelection.providerID) else {
+            setAssistantResponseError("The selected provider is no longer available.", in: responseView)
+            return
+        }
+
+        guard !provider.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            setAssistantResponseError("Add an OpenRouter API key in Settings first.", in: responseView)
+            return
+        }
+
+        let userMessage = OpenRouterChatMessage(role: .user, content: prompt)
+        let requestMessages = conversationMessages + [userMessage]
+        conversationMessages.append(userMessage)
+        activeResponseView = responseView
+        composerView.isSendingEnabled = false
+        composerView.setStreamingResponseActive(true, animated: true)
+
+        let apiClient = self.apiClient
+        let modelID = selectedModelSelection.modelID
+        let apiBase = provider.apiBase
+        let apiKey = provider.apiKey
+
+        activeResponseTask = Task { [weak self, weak responseView] in
+            var assistantContent = ""
+
+            do {
+                let stream = apiClient.streamChatCompletion(
+                    apiBase: apiBase,
+                    apiKey: apiKey,
+                    model: modelID,
+                    messages: requestMessages
+                )
+
+                for try await delta in stream {
+                    try Task.checkCancellation()
+                    assistantContent += delta.content
+
+                    await MainActor.run {
+                        guard let self,
+                              let responseView else {
+                            return
+                        }
+
+                        self.appendStreamingResponseDelta(delta, to: responseView)
+                    }
+                }
+
+                await MainActor.run {
+                    guard let self else {
+                        return
+                    }
+
+                    if !assistantContent.isEmpty {
+                        self.conversationMessages.append(
+                            OpenRouterChatMessage(role: .assistant, content: assistantContent)
+                        )
+                    }
+                    self.finishAssistantResponseStream()
+                }
+            } catch is CancellationError {
+                await MainActor.run {
+                    guard let self else {
+                        return
+                    }
+
+                    if !assistantContent.isEmpty {
+                        self.conversationMessages.append(
+                            OpenRouterChatMessage(role: .assistant, content: assistantContent)
+                        )
+                    }
+                    self.finishAssistantResponseStream()
+                }
+            } catch {
+                await MainActor.run {
+                    guard let self else {
+                        return
+                    }
+
+                    if let responseView {
+                        self.setAssistantResponseError(error.localizedDescription, in: responseView)
+                    }
+                    if !assistantContent.isEmpty {
+                        self.conversationMessages.append(
+                            OpenRouterChatMessage(role: .assistant, content: assistantContent)
+                        )
+                    } else if self.conversationMessages.last == userMessage {
+                        self.conversationMessages.removeLast()
+                    }
+                    self.finishAssistantResponseStream()
+                }
+            }
+        }
+    }
+
+    private func cancelAssistantResponseStream() {
+        guard let activeResponseTask else {
+            return
+        }
+
+        if let activeResponseView {
+            applyAssistantResponseChange(to: activeResponseView) {
+                activeResponseView.setLoadingVisible(false)
+            }
+        }
+        activeResponseTask.cancel()
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    private func appendStreamingResponseDelta(
+        _ delta: OpenRouterChatStreamDelta,
+        to responseView: AssistantResponseTextView
+    ) {
+        guard !delta.isEmpty else {
+            return
+        }
+
+        applyAssistantResponseChange(to: responseView) {
+            responseView.append(content: delta.content, reasoning: delta.reasoning)
+        }
+    }
+
+    private func showAssistantLoadingIfNeeded(in responseView: AssistantResponseTextView) {
+        guard activeResponseView === responseView else {
+            return
+        }
+
+        applyAssistantResponseChange(to: responseView) {
+            responseView.showLoadingIfNeeded()
+        }
+    }
+
+    private func setAssistantResponseError(
+        _ message: String,
+        in responseView: AssistantResponseTextView
+    ) {
+        applyAssistantResponseChange(to: responseView) {
+            responseView.setError(message)
+        }
+    }
+
+    private func applyAssistantResponseChange(
+        to responseView: AssistantResponseTextView,
+        update: () -> Void
+    ) {
+        mainPageView.layoutIfNeeded()
+        let previousFrames = visibleMessageFrames()
+        let previousHeight = responseView.isHidden ? 0.0 : responseView.bounds.height
+
+        update()
+
+        mainPageView.layoutIfNeeded()
+        scrollMessagesToBottom(animated: false)
+        mainPageView.layoutIfNeeded()
+
+        let didGrow = responseView.bounds.height - previousHeight > 0.5
+        if didGrow {
+            animateExistingMessages(from: previousFrames)
+        }
+    }
+
+    private func finishAssistantResponseStream() {
+        if let activeResponseView {
+            applyAssistantResponseChange(to: activeResponseView) {
+                activeResponseView.setLoadingVisible(false)
+            }
+        }
+        activeResponseView = nil
+        activeResponseTask = nil
+        composerView.isSendingEnabled = true
+        composerView.setStreamingResponseActive(false, animated: true)
     }
 
     private func updateMainPageShadowPath(cornerRadius: CGFloat? = nil) {
@@ -1898,6 +2113,273 @@ private final class ProviderTextFieldCell: UITableViewCell {
     }
 }
 
+private final class AssistantResponseTextView: UIView {
+    private enum Metrics {
+        static let horizontalInset: CGFloat = 2.0
+        static let verticalInset: CGFloat = 2.0
+        static let sectionSpacing: CGFloat = 8.0
+        static let loadingSpacing: CGFloat = 7.0
+    }
+
+    private let stackView = UIStackView()
+    private let loadingView = UIStackView()
+    private let loadingIndicatorView = UIActivityIndicatorView(style: .medium)
+    private let loadingLabel = UILabel()
+    private let reasoningTextView = StreamingTextView()
+    private let contentTextView = StreamingTextView()
+    private let errorLabel = UILabel()
+    private var reasoningHeightConstraint: NSLayoutConstraint!
+    private var contentHeightConstraint: NSLayoutConstraint!
+    private var hasReasoningText = false
+    private var hasContentText = false
+    private var isLoading = false
+    private var lastMeasuredTextWidth: CGFloat = 0.0
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        configure()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configure()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateTextViewHeightsIfNeeded()
+    }
+
+    func append(content contentDelta: String, reasoning reasoningDelta: String) {
+        guard !contentDelta.isEmpty || !reasoningDelta.isEmpty else {
+            return
+        }
+
+        isLoading = false
+        errorLabel.text = nil
+
+        if !reasoningDelta.isEmpty {
+            hasReasoningText = true
+            reasoningTextView.append(reasoningDelta, attributes: reasoningAttributes)
+        }
+        if !contentDelta.isEmpty {
+            hasContentText = true
+            contentTextView.append(contentDelta, attributes: contentAttributes)
+        }
+
+        updateVisibility()
+    }
+
+    func setError(_ message: String) {
+        isLoading = false
+        errorLabel.text = message
+        updateVisibility()
+    }
+
+    func showLoadingIfNeeded() {
+        guard !hasReasoningText,
+              !hasContentText,
+              (errorLabel.text ?? "").isEmpty else {
+            return
+        }
+
+        isLoading = true
+        updateVisibility()
+    }
+
+    func setLoadingVisible(_ isVisible: Bool) {
+        guard isLoading != isVisible else {
+            return
+        }
+
+        isLoading = isVisible
+        updateVisibility()
+    }
+
+    private func configure() {
+        backgroundColor = .clear
+        isOpaque = false
+        isAccessibilityElement = false
+
+        stackView.axis = .vertical
+        stackView.alignment = .fill
+        stackView.spacing = Metrics.sectionSpacing
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stackView)
+
+        configureLoadingView()
+
+        configureTextView(reasoningTextView, textStyle: .callout, color: .secondaryLabel)
+        configureTextView(contentTextView, textStyle: .body, color: .label)
+        configureLabel(errorLabel, textStyle: .callout, color: .systemRed)
+
+        stackView.addArrangedSubview(loadingView)
+        stackView.addArrangedSubview(reasoningTextView)
+        stackView.addArrangedSubview(contentTextView)
+        stackView.addArrangedSubview(errorLabel)
+
+        reasoningHeightConstraint = reasoningTextView.heightAnchor.constraint(equalToConstant: 0.0)
+        contentHeightConstraint = contentTextView.heightAnchor.constraint(equalToConstant: 0.0)
+
+        NSLayoutConstraint.activate([
+            stackView.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.verticalInset),
+            stackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.horizontalInset),
+            stackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.horizontalInset),
+            stackView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Metrics.verticalInset),
+            reasoningHeightConstraint,
+            contentHeightConstraint
+        ])
+
+        updateVisibility()
+    }
+
+    private func configureLoadingView() {
+        loadingView.axis = .horizontal
+        loadingView.alignment = .center
+        loadingView.spacing = Metrics.loadingSpacing
+        loadingView.isAccessibilityElement = true
+        loadingView.accessibilityLabel = "Generating response"
+        loadingView.accessibilityTraits = .updatesFrequently
+        loadingView.translatesAutoresizingMaskIntoConstraints = false
+
+        loadingIndicatorView.color = .secondaryLabel
+        loadingIndicatorView.hidesWhenStopped = true
+        loadingIndicatorView.isAccessibilityElement = false
+        loadingIndicatorView.setContentHuggingPriority(.required, for: .horizontal)
+        loadingIndicatorView.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        loadingLabel.text = "Generating response"
+        configureLabel(loadingLabel, textStyle: .callout, color: .secondaryLabel)
+        loadingLabel.isAccessibilityElement = false
+
+        loadingView.addArrangedSubview(loadingIndicatorView)
+        loadingView.addArrangedSubview(loadingLabel)
+    }
+
+    private func configureTextView(
+        _ textView: UITextView,
+        textStyle: UIFont.TextStyle,
+        color: UIColor
+    ) {
+        textView.backgroundColor = .clear
+        textView.isOpaque = false
+        textView.isEditable = false
+        textView.isSelectable = false
+        textView.isScrollEnabled = false
+        textView.font = .preferredFont(forTextStyle: textStyle)
+        textView.adjustsFontForContentSizeCategory = true
+        textView.textColor = color
+        textView.textContainerInset = .zero
+        textView.textContainer.lineFragmentPadding = 0.0
+        textView.setContentCompressionResistancePriority(.required, for: .vertical)
+        textView.setContentHuggingPriority(.required, for: .vertical)
+        textView.translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    private func configureLabel(
+        _ label: UILabel,
+        textStyle: UIFont.TextStyle,
+        color: UIColor
+    ) {
+        label.font = .preferredFont(forTextStyle: textStyle)
+        label.adjustsFontForContentSizeCategory = true
+        label.textColor = color
+        label.numberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
+        label.setContentCompressionResistancePriority(.required, for: .vertical)
+        label.setContentHuggingPriority(.required, for: .vertical)
+        label.translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    private func updateVisibility() {
+        loadingView.isHidden = !isLoading
+        if isLoading {
+            loadingIndicatorView.startAnimating()
+        } else {
+            loadingIndicatorView.stopAnimating()
+        }
+
+        reasoningTextView.isHidden = !hasReasoningText
+        contentTextView.isHidden = !hasContentText
+        errorLabel.isHidden = (errorLabel.text ?? "").isEmpty
+        isHidden = !isLoading && !hasReasoningText && !hasContentText && errorLabel.isHidden
+        updateTextViewHeights()
+    }
+
+    private func updateTextViewHeightsIfNeeded() {
+        let width = textMeasurementWidth
+        guard abs(width - lastMeasuredTextWidth) > 0.5 else {
+            return
+        }
+
+        updateTextViewHeights()
+    }
+
+    private func updateTextViewHeights() {
+        let width = textMeasurementWidth
+        guard width > 0.0 else {
+            return
+        }
+
+        updateTextViewHeight(reasoningTextView, constraint: reasoningHeightConstraint, width: width)
+        updateTextViewHeight(contentTextView, constraint: contentHeightConstraint, width: width)
+        lastMeasuredTextWidth = width
+        invalidateIntrinsicContentSize()
+    }
+
+    private func updateTextViewHeight(
+        _ textView: UITextView,
+        constraint: NSLayoutConstraint,
+        width: CGFloat
+    ) {
+        guard !textView.isHidden else {
+            constraint.constant = 0.0
+            return
+        }
+
+        let fittingSize = textView.sizeThatFits(
+            CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+        )
+        constraint.constant = ceil(fittingSize.height)
+    }
+
+    private var textMeasurementWidth: CGFloat {
+        max(
+            stackView.bounds.width,
+            bounds.width - Metrics.horizontalInset * 2.0,
+            (superview?.bounds.width ?? 0.0) - Metrics.horizontalInset * 2.0,
+            1.0
+        )
+    }
+
+    private var reasoningAttributes: [NSAttributedString.Key: Any] {
+        [
+            .font: UIFont.preferredFont(forTextStyle: .callout),
+            .foregroundColor: UIColor.secondaryLabel
+        ]
+    }
+
+    private var contentAttributes: [NSAttributedString.Key: Any] {
+        [
+            .font: UIFont.preferredFont(forTextStyle: .body),
+            .foregroundColor: UIColor.label
+        ]
+    }
+
+    private final class StreamingTextView: UITextView {
+        func append(_ string: String, attributes: [NSAttributedString.Key: Any]) {
+            guard !string.isEmpty else {
+                return
+            }
+
+            textStorage.beginEditing()
+            textStorage.append(NSAttributedString(string: string, attributes: attributes))
+            textStorage.endEditing()
+            invalidateIntrinsicContentSize()
+        }
+    }
+}
+
 private final class SentMessageBubbleView: UIView {
     private enum Metrics {
         static let controlHeight: CGFloat = 44.0
@@ -2050,9 +2532,17 @@ private final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate
     private var textHeightConstraint: NSLayoutConstraint!
     private var lastMeasuredTextWidth: CGFloat = 0.0
     private var isShowingSendControl = false
+    private var isShowingStopControl = false
+    private var isStreamingResponse = false
 
     var onSend: ((SendTransition) -> Void)?
+    var onStop: (() -> Void)?
     var onLayoutChange: (() -> Void)?
+    var isSendingEnabled = true {
+        didSet {
+            updateSendControlAvailability()
+        }
+    }
 
     private var containerGlassEffect: UIGlassContainerEffect? {
         effect as? UIGlassContainerEffect
@@ -2084,6 +2574,16 @@ private final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate
         placeholderLabel.isHidden = hasText
         updateInputMode(hasText: hasText, animated: true)
         updateTextHeight(animated: true)
+    }
+
+    func setStreamingResponseActive(_ isActive: Bool, animated: Bool) {
+        guard isStreamingResponse != isActive else {
+            return
+        }
+
+        isStreamingResponse = isActive
+        updateWaveformButtonStyle()
+        updateInputMode(hasText: !textView.text.isEmpty, animated: animated)
     }
 
     private func configure() {
@@ -2174,6 +2674,7 @@ private final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate
         )
         waveformButton.accessibilityLabel = "Waveform"
         waveformButton.translatesAutoresizingMaskIntoConstraints = false
+        waveformButton.addTarget(self, action: #selector(waveformButtonPressed), for: .touchUpInside)
         waveformGlassView.contentView.addSubview(waveformButton)
 
         NSLayoutConstraint.activate([
@@ -2279,7 +2780,19 @@ private final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate
         sendButton.addTarget(self, action: #selector(sendButtonPressed), for: .touchUpInside)
     }
 
+    @objc private func waveformButtonPressed() {
+        guard isStreamingResponse else {
+            return
+        }
+
+        onStop?()
+    }
+
     @objc private func sendButtonPressed() {
+        guard isSendingEnabled else {
+            return
+        }
+
         let messageText = textView.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !messageText.isEmpty else {
             return
@@ -2341,8 +2854,13 @@ private final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate
     }
 
     private func updateInputMode(hasText: Bool, animated: Bool) {
-        let stateChanged = hasText != isShowingSendControl
-        isShowingSendControl = hasText
+        let shouldShowStopControl = isStreamingResponse
+        let shouldShowSendControl = hasText && !shouldShowStopControl
+        let shouldShowWaveformControl = !shouldShowSendControl
+        let stateChanged = shouldShowSendControl != isShowingSendControl
+            || shouldShowStopControl != isShowingStopControl
+        isShowingSendControl = shouldShowSendControl
+        isShowingStopControl = shouldShowStopControl
 
         guard stateChanged || !animated else {
             return
@@ -2350,13 +2868,13 @@ private final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate
 
         let applyTargetState = { [self] in
             self.capsuleContentLeadingConstraint.constant = Metrics.capsuleHorizontalInset
-            self.capsuleContentTrailingConstraint.constant = hasText
+            self.capsuleContentTrailingConstraint.constant = shouldShowSendControl
                 ? -(Metrics.capsuleComposingTrailingInset + Metrics.sendButtonSize + Metrics.capsuleContentSpacing)
                 : -Metrics.capsuleHorizontalInset
-            self.waveformWidthConstraint.constant = hasText ? 0.0 : Metrics.controlHeight
-            self.stackView.setCustomSpacing(hasText ? 0.0 : Metrics.spacing, after: self.capsuleGlassView)
-            self.sendButton.alpha = hasText ? 1.0 : 0.0
-            self.waveformGlassView.alpha = hasText ? 0.0 : 1.0
+            self.waveformWidthConstraint.constant = shouldShowWaveformControl ? Metrics.controlHeight : 0.0
+            self.stackView.setCustomSpacing(shouldShowWaveformControl ? Metrics.spacing : 0.0, after: self.capsuleGlassView)
+            self.sendButton.alpha = shouldShowSendControl ? 1.0 : 0.0
+            self.waveformGlassView.alpha = shouldShowWaveformControl ? 1.0 : 0.0
             self.superview?.layoutIfNeeded()
             self.layoutIfNeeded()
         }
@@ -2364,9 +2882,10 @@ private final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate
         if animated {
             sendButton.isHidden = false
             waveformGlassView.isHidden = false
-            sendButton.isUserInteractionEnabled = hasText
-            waveformButton.isUserInteractionEnabled = !hasText
-            if hasText {
+            updateWaveformButtonStyle()
+            updateSendControlAvailability()
+            updateWaveformControlAvailability()
+            if shouldShowSendControl {
                 sendButton.alpha = 0.0
             }
 
@@ -2379,22 +2898,63 @@ private final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate
                     applyTargetState()
                 },
                 completion: { _ in
-                    guard self.isShowingSendControl == hasText else {
+                    guard self.isShowingSendControl == shouldShowSendControl,
+                          self.isShowingStopControl == shouldShowStopControl else {
                         return
                     }
 
                     self.containerGlassEffect?.spacing = Metrics.spacing
-                    self.sendButton.isHidden = !hasText
-                    self.waveformGlassView.isHidden = hasText
+                    self.sendButton.isHidden = !shouldShowSendControl
+                    self.waveformGlassView.isHidden = !shouldShowWaveformControl
+                    self.updateSendControlAvailability()
+                    self.updateWaveformControlAvailability()
                 }
             )
         } else {
             containerGlassEffect?.spacing = Metrics.spacing
+            updateWaveformButtonStyle()
             applyTargetState()
-            sendButton.isHidden = !hasText
-            sendButton.isUserInteractionEnabled = hasText
-            waveformGlassView.isHidden = hasText
-            waveformButton.isUserInteractionEnabled = !hasText
+            sendButton.isHidden = !shouldShowSendControl
+            updateSendControlAvailability()
+            waveformGlassView.isHidden = !shouldShowWaveformControl
+            updateWaveformControlAvailability()
+        }
+    }
+
+    private func updateSendControlAvailability() {
+        sendButton.isEnabled = isSendingEnabled
+        sendButton.isUserInteractionEnabled = isShowingSendControl && isSendingEnabled
+    }
+
+    private func updateWaveformControlAvailability() {
+        waveformButton.isUserInteractionEnabled = isShowingStopControl
+    }
+
+    private func updateWaveformButtonStyle() {
+        if isStreamingResponse {
+            waveformButton.configuration = nil
+            waveformGlassView.effect = GlassComposerBarView.makeGlassEffect(tintColor: .systemRed)
+            waveformButton.tintColor = .white
+            waveformButton.setImage(
+                UIImage(
+                    systemName: "stop.fill",
+                    withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.0, weight: .bold)
+                ),
+                for: .normal
+            )
+            waveformButton.accessibilityLabel = "Stop generating"
+        } else {
+            waveformButton.configuration = nil
+            waveformGlassView.effect = GlassComposerBarView.makeGlassEffect()
+            waveformButton.tintColor = .label
+            waveformButton.setImage(
+                UIImage(
+                    systemName: "waveform",
+                    withConfiguration: UIImage.SymbolConfiguration(pointSize: Metrics.iconPointSize, weight: .semibold)
+                ),
+                for: .normal
+            )
+            waveformButton.accessibilityLabel = "Waveform"
         }
     }
 
@@ -2437,9 +2997,10 @@ private final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate
         return effect
     }
 
-    private static func makeGlassEffect() -> UIGlassEffect {
+    private static func makeGlassEffect(tintColor: UIColor? = nil) -> UIGlassEffect {
         let effect = UIGlassEffect(style: .regular)
         effect.isInteractive = true
+        effect.tintColor = tintColor
         return effect
     }
 }

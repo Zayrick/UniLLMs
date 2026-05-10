@@ -7,11 +7,32 @@
 
 import Foundation
 
-struct OpenRouterAPIClient {
-    enum APIError: LocalizedError {
+nonisolated struct OpenRouterChatMessage: Codable, Equatable {
+    nonisolated enum Role: String, Codable {
+        case user
+        case assistant
+        case system
+    }
+
+    var role: Role
+    var content: String
+}
+
+nonisolated struct OpenRouterChatStreamDelta: Equatable {
+    var content: String = ""
+    var reasoning: String = ""
+
+    var isEmpty: Bool {
+        content.isEmpty && reasoning.isEmpty
+    }
+}
+
+nonisolated struct OpenRouterAPIClient {
+    nonisolated enum APIError: LocalizedError {
         case invalidAPIBase(String)
         case invalidResponse
         case serverStatus(Int, String?)
+        case streamError(String)
 
         var errorDescription: String? {
             switch self {
@@ -24,20 +45,67 @@ struct OpenRouterAPIClient {
                     return "OpenRouter returned HTTP \(statusCode): \(message)"
                 }
                 return "OpenRouter returned HTTP \(statusCode)."
+            case let .streamError(message):
+                return message
             }
         }
     }
 
-    private struct ModelsResponse: Decodable {
+    nonisolated private struct ChatCompletionsRequest: Encodable {
+        var model: String
+        var messages: [OpenRouterChatMessage]
+        var stream: Bool
+    }
+
+    nonisolated private struct ChatCompletionChunk: Decodable {
+        var choices: [Choice]?
+        var error: ResponseError?
+
+        nonisolated struct Choice: Decodable {
+            var delta: Delta?
+            var finishReason: String?
+
+            nonisolated private enum CodingKeys: String, CodingKey {
+                case delta
+                case finishReason = "finish_reason"
+            }
+        }
+
+        nonisolated struct Delta: Decodable {
+            var content: String?
+            var reasoning: String?
+            var reasoningContent: String?
+            var reasoningDetails: [ReasoningDetail]?
+
+            nonisolated private enum CodingKeys: String, CodingKey {
+                case content
+                case reasoning
+                case reasoningContent = "reasoning_content"
+                case reasoningDetails = "reasoning_details"
+            }
+        }
+
+        nonisolated struct ReasoningDetail: Decodable {
+            var type: String?
+            var text: String?
+            var summary: String?
+        }
+
+        nonisolated struct ResponseError: Decodable {
+            var message: String?
+        }
+    }
+
+    nonisolated private struct ModelsResponse: Decodable {
         var data: [Model]
     }
 
-    private struct Model: Decodable {
+    nonisolated private struct Model: Decodable {
         var id: String
         var name: String
         var contextLength: Int?
 
-        private enum CodingKeys: String, CodingKey {
+        nonisolated private enum CodingKeys: String, CodingKey {
             case id
             case name
             case contextLength = "context_length"
@@ -45,6 +113,58 @@ struct OpenRouterAPIClient {
     }
 
     var session: URLSession = .shared
+
+    func streamChatCompletion(
+        apiBase: String,
+        apiKey: String,
+        model: String,
+        messages: [OpenRouterChatMessage]
+    ) -> AsyncThrowingStream<OpenRouterChatStreamDelta, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let request = try chatCompletionsRequest(
+                        apiBase: apiBase,
+                        apiKey: apiKey,
+                        model: model,
+                        messages: messages
+                    )
+                    let (bytes, response) = try await session.bytes(for: request)
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        throw APIError.invalidResponse
+                    }
+
+                    guard (200..<300).contains(httpResponse.statusCode) else {
+                        let body = try await responseBodyString(from: bytes)
+                        throw APIError.serverStatus(httpResponse.statusCode, body)
+                    }
+
+                    for try await line in bytes.lines {
+                        try Task.checkCancellation()
+                        if Self.isDoneServerSentEventLine(line) {
+                            break
+                        }
+
+                        guard let delta = try Self.streamDelta(fromServerSentEventLine: line) else {
+                            continue
+                        }
+
+                        continuation.yield(delta)
+                    }
+
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+    }
 
     func fetchModels(apiBase: String, apiKey: String) async throws -> [LLMProviderModel] {
         var request = URLRequest(url: try modelsURL(apiBase: apiBase))
@@ -81,6 +201,57 @@ struct OpenRouterAPIClient {
     }
 
     private func modelsURL(apiBase: String) throws -> URL {
+        try normalizedAPIBaseURL(apiBase: apiBase)
+            .appendingPathComponent("models")
+    }
+
+    private func chatCompletionsRequest(
+        apiBase: String,
+        apiKey: String,
+        model: String,
+        messages: [OpenRouterChatMessage]
+    ) throws -> URLRequest {
+        var request = URLRequest(url: try chatCompletionsURL(apiBase: apiBase))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+
+        let trimmedAPIKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedAPIKey.isEmpty {
+            request.setValue("Bearer \(trimmedAPIKey)", forHTTPHeaderField: "Authorization")
+        }
+
+        request.httpBody = try JSONEncoder().encode(
+            ChatCompletionsRequest(
+                model: model,
+                messages: messages,
+                stream: true
+            )
+        )
+        return request
+    }
+
+    private func chatCompletionsURL(apiBase: String) throws -> URL {
+        try normalizedAPIBaseURL(apiBase: apiBase)
+            .appendingPathComponent("chat")
+            .appendingPathComponent("completions")
+    }
+
+    private func responseBodyString(from bytes: URLSession.AsyncBytes) async throws -> String {
+        var body = ""
+        for try await line in bytes.lines {
+            if !body.isEmpty {
+                body.append("\n")
+            }
+            body.append(line)
+            if body.count > 2_048 {
+                break
+            }
+        }
+        return body
+    }
+
+    private func normalizedAPIBaseURL(apiBase: String) throws -> URL {
         let trimmedAPIBase = apiBase.trimmingCharacters(in: .whitespacesAndNewlines)
         let baseString = trimmedAPIBase.isEmpty
             ? LLMProviderRecord.openRouterDefaultAPIBase
@@ -90,6 +261,72 @@ struct OpenRouterAPIClient {
             throw APIError.invalidAPIBase(baseString)
         }
 
-        return baseURL.appendingPathComponent("models")
+        return baseURL
+    }
+
+    nonisolated static func streamDelta(fromServerSentEventLine line: String) throws -> OpenRouterChatStreamDelta? {
+        let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedLine.isEmpty,
+              !trimmedLine.hasPrefix(":") else {
+            return nil
+        }
+
+        guard trimmedLine.hasPrefix("data:") else {
+            return nil
+        }
+
+        let dataPrefixEndIndex = trimmedLine.index(trimmedLine.startIndex, offsetBy: 5)
+        let payload = trimmedLine[dataPrefixEndIndex...]
+            .trimmingCharacters(in: .whitespaces)
+
+        guard payload != "[DONE]" else {
+            return nil
+        }
+
+        guard let data = payload.data(using: .utf8) else {
+            throw APIError.invalidResponse
+        }
+
+        let chunk = try JSONDecoder().decode(ChatCompletionChunk.self, from: data)
+        if let errorMessage = chunk.error?.message,
+           !errorMessage.isEmpty {
+            throw APIError.streamError(errorMessage)
+        }
+
+        let deltas = chunk.choices?
+            .compactMap(\.delta)
+            .map(Self.streamDelta)
+            ?? []
+
+        let content = deltas.map(\.content).joined()
+        let reasoning = deltas.map(\.reasoning).joined()
+        let delta = OpenRouterChatStreamDelta(content: content, reasoning: reasoning)
+        return delta.isEmpty ? nil : delta
+    }
+
+    nonisolated private static func isDoneServerSentEventLine(_ line: String) -> Bool {
+        line.trimmingCharacters(in: .whitespacesAndNewlines) == "data: [DONE]"
+    }
+
+    nonisolated private static func streamDelta(
+        from delta: ChatCompletionChunk.Delta
+    ) -> OpenRouterChatStreamDelta {
+        let reasoningFromDetails = delta.reasoningDetails?
+            .compactMap { detail in
+                detail.text ?? detail.summary
+            }
+            .joined()
+            ?? ""
+        let reasoningFromStringFields = [
+            delta.reasoning,
+            delta.reasoningContent
+        ]
+            .compactMap { $0 }
+            .joined()
+
+        return OpenRouterChatStreamDelta(
+            content: delta.content ?? "",
+            reasoning: reasoningFromDetails.isEmpty ? reasoningFromStringFields : reasoningFromDetails
+        )
     }
 }
