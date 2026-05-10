@@ -7,17 +7,6 @@
 
 import UIKit
 
-private struct LLMModelSelection: Equatable {
-    var providerID: UUID
-    var providerName: String
-    var modelID: String
-    var modelName: String
-
-    var displayName: String {
-        modelName.isEmpty ? modelID : modelName
-    }
-}
-
 class ViewController: UIViewController {
     private enum HeaderLayout {
         static let defaultModuleSelectionTitle = "Select Model"
@@ -60,6 +49,7 @@ class ViewController: UIViewController {
     }
 
     private let rootBackgroundView = AppGradientBackgroundView()
+    private let providerStore = LLMProviderStore.shared
     private let sideMenuView = SideMenuView()
     private let sideMenuDismissControl = UIControl()
     private let mainPageContainerView = UIView()
@@ -90,6 +80,7 @@ class ViewController: UIViewController {
     private var composerKeyboardBottomConstraint: NSLayoutConstraint!
     private var composerRestingBottomConstraint: NSLayoutConstraint!
     private var keyboardObservation: NotificationCenter.ObservationToken?
+    private var selectedModelSelectionObservation: NSObjectProtocol?
     private var isKeyboardVisible = false
     private var isSideMenuOpen = false
     private var selectedModelSelection: LLMModelSelection?
@@ -107,12 +98,23 @@ class ViewController: UIViewController {
         configureMessagesView()
         configureSideMenuDismissControl()
         installKeyboardObserver()
+        installSelectedModelSelectionObserver()
+        reloadSelectedModelSelection(animated: false)
     }
 
     deinit {
         if let keyboardObservation {
             NotificationCenter.default.removeObserver(keyboardObservation)
         }
+        if let selectedModelSelectionObservation {
+            NotificationCenter.default.removeObserver(selectedModelSelectionObservation)
+        }
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+
+        reloadSelectedModelSelection(animated: false)
     }
 
     override func viewSafeAreaInsetsDidChange() {
@@ -518,10 +520,16 @@ class ViewController: UIViewController {
         view.endEditing(true)
 
         let modelSelectionViewController = ModelSelectionViewController(
+            store: providerStore,
             selectedModelSelection: selectedModelSelection
         ) { [weak self] selection in
-            self?.selectedModelSelection = selection
-            self?.updateModuleSelectionTitle(animated: true)
+            guard let self else {
+                return
+            }
+
+            selectedModelSelection = selection
+            providerStore.saveSelectedModelSelection(selection)
+            updateModuleSelectionTitle(animated: true)
         }
         let navigationController = UINavigationController(rootViewController: modelSelectionViewController)
         navigationController.modalPresentationStyle = .pageSheet
@@ -783,6 +791,32 @@ class ViewController: UIViewController {
 
     private var currentPageCornerRadius: CGFloat {
         view.window?.windowScene?.screen.displayCornerRadius ?? 0.0
+    }
+
+    private func installSelectedModelSelectionObserver() {
+        selectedModelSelectionObservation = NotificationCenter.default.addObserver(
+            forName: LLMProviderStore.selectedModelSelectionDidChangeNotification,
+            object: providerStore,
+            queue: .main
+        ) { [weak self] _ in
+            self?.reloadSelectedModelSelection(animated: true)
+        }
+    }
+
+    private func reloadSelectedModelSelection(animated: Bool) {
+        let selection = providerStore.fetchSelectedModelSelection()
+        let currentTitle = selectedModelSelection?.displayName ?? HeaderLayout.defaultModuleSelectionTitle
+        let updatedTitle = selection?.displayName ?? HeaderLayout.defaultModuleSelectionTitle
+        guard selection != selectedModelSelection else {
+            return
+        }
+
+        selectedModelSelection = selection
+        guard currentTitle != updatedTitle else {
+            return
+        }
+
+        updateModuleSelectionTitle(animated: animated)
     }
 
     private func updateModuleSelectionTitle(animated: Bool) {

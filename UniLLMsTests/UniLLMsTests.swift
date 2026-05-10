@@ -120,4 +120,101 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertEqual(providers.map(\.id), [second.id])
     }
 
+    func testSelectedModelSelectionPersistsByProviderUUIDAndModelID() throws {
+        var provider = store.addOpenRouterProvider()
+        provider.name = "Work Router"
+        provider.models = [
+            LLMProviderModel(id: "anthropic/claude-sonnet-4", name: "Claude Sonnet 4", contextLength: 200_000)
+        ]
+        store.updateProvider(provider)
+
+        store.saveSelectedModelSelection(
+            LLMModelSelection(
+                providerID: provider.id,
+                providerName: "Stale Name",
+                modelID: "anthropic/claude-sonnet-4",
+                modelName: "Stale Model Name"
+            )
+        )
+
+        let selection = try XCTUnwrap(store.fetchSelectedModelSelection())
+        XCTAssertEqual(selection.providerID, provider.id)
+        XCTAssertEqual(selection.providerName, "Work Router")
+        XCTAssertEqual(selection.modelID, "anthropic/claude-sonnet-4")
+        XCTAssertEqual(selection.modelName, "Claude Sonnet 4")
+    }
+
+    func testDeletingSelectedProviderClearsSelectedModelSelection() throws {
+        var provider = store.addOpenRouterProvider()
+        provider.models = [
+            LLMProviderModel(id: "openai/gpt-4.1", name: "GPT-4.1", contextLength: 1_000_000)
+        ]
+        store.updateProvider(provider)
+        store.saveSelectedModelSelection(
+            LLMModelSelection(
+                providerID: provider.id,
+                providerName: provider.name,
+                modelID: "openai/gpt-4.1",
+                modelName: "GPT-4.1"
+            )
+        )
+
+        store.deleteProvider(id: provider.id)
+
+        XCTAssertNil(store.fetchSelectedModelSelection())
+    }
+
+    func testRemovingSelectedModelClearsSelectedModelSelection() throws {
+        var provider = store.addOpenRouterProvider()
+        provider.models = [
+            LLMProviderModel(id: "openai/gpt-4.1", name: "GPT-4.1", contextLength: 1_000_000)
+        ]
+        store.updateProvider(provider)
+        store.saveSelectedModelSelection(
+            LLMModelSelection(
+                providerID: provider.id,
+                providerName: provider.name,
+                modelID: "openai/gpt-4.1",
+                modelName: "GPT-4.1"
+            )
+        )
+
+        store.updateProviderModels(
+            id: provider.id,
+            models: [
+                LLMProviderModel(id: "openai/gpt-4.1-mini", name: "GPT-4.1 mini", contextLength: 1_000_000)
+            ],
+            modelsUpdatedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        XCTAssertNil(store.fetchSelectedModelSelection())
+    }
+
+    func testRefreshingSelectedModelUpdatesRecoveredDisplayName() throws {
+        var provider = store.addOpenRouterProvider()
+        provider.models = [
+            LLMProviderModel(id: "openai/gpt-4.1", name: "GPT-4.1", contextLength: 1_000_000)
+        ]
+        store.updateProvider(provider)
+        store.saveSelectedModelSelection(
+            LLMModelSelection(
+                providerID: provider.id,
+                providerName: provider.name,
+                modelID: "openai/gpt-4.1",
+                modelName: "GPT-4.1"
+            )
+        )
+
+        store.updateProviderModels(
+            id: provider.id,
+            models: [
+                LLMProviderModel(id: "openai/gpt-4.1", name: "GPT-4.1 Latest", contextLength: 1_000_000)
+            ],
+            modelsUpdatedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        let selection = try XCTUnwrap(store.fetchSelectedModelSelection())
+        XCTAssertEqual(selection.modelName, "GPT-4.1 Latest")
+    }
+
 }
