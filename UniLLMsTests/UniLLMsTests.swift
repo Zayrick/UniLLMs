@@ -2,7 +2,8 @@
 //  UniLLMsTests.swift
 //  UniLLMsTests
 //
-//  Created by Zayrick on 2026/5/9.
+//  Covers provider storage, provider manager behavior, and OpenRouter stream parsing non-UI behavior.
+//  Created by Zayrick on 2026/5/11.
 //
 
 import Foundation
@@ -72,7 +73,51 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertEqual(reloaded.name, "Work Router")
         XCTAssertEqual(reloaded.apiKey, "sk-or-test")
         XCTAssertEqual(reloaded.apiBase, "https://example.com/v1")
+        XCTAssertEqual(reloaded.configuration.apiKey, "sk-or-test")
+        XCTAssertEqual(reloaded.configuration.apiBase, "https://example.com/v1")
         XCTAssertEqual(reloaded.models, provider.models)
+    }
+
+    func testProviderManagerCreatesOpenRouterDraftFromRegisteredAdapter() throws {
+        let registry = LLMsProviderRegistry(adapters: [OpenRouterProvider()])
+        let manager = LLMsProviderManager(registry: registry, store: store)
+
+        let draft = try manager.makeProviderDraft(kind: .openRouter)
+
+        XCTAssertEqual(draft.kind, .openRouter)
+        XCTAssertEqual(draft.name, "OpenRouter")
+        XCTAssertEqual(draft.configuration.apiBase, LLMsProviderRecord.openRouterDefaultAPIBase)
+        XCTAssertTrue(draft.models.isEmpty)
+    }
+
+    func testProviderManagerRejectsUnregisteredProviderKind() throws {
+        let manager = LLMsProviderManager(registry: LLMsProviderRegistry(), store: store)
+
+        XCTAssertThrowsError(
+            try manager.makeProviderDraft(kind: LLMsProviderKind(rawValue: "missing"))
+        ) { error in
+            XCTAssertEqual(error.localizedDescription, "Unsupported LLM provider: missing")
+        }
+    }
+
+    func testProviderRecordDecodesLegacyConfigurationFields() throws {
+        let json = """
+        [{
+            "id": "00000000-0000-0000-0000-000000000001",
+            "kind": "openRouter",
+            "name": "Legacy Router",
+            "apiKey": "legacy-key",
+            "apiBase": "https://legacy.example/v1",
+            "models": [],
+            "createdAt": "2026-05-11T00:00:00Z"
+        }]
+        """
+        defaults.set(try XCTUnwrap(json.data(using: .utf8)), forKey: "providers")
+
+        let provider = try XCTUnwrap(store.fetchProviders().first)
+
+        XCTAssertEqual(provider.configuration.apiKey, "legacy-key")
+        XCTAssertEqual(provider.configuration.apiBase, "https://legacy.example/v1")
     }
 
     func testModelUpdatesDoNotOverwriteUnsavedConfiguration() throws {

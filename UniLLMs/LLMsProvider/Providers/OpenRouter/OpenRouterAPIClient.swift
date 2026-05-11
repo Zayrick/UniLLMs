@@ -2,7 +2,8 @@
 //  OpenRouterAPIClient.swift
 //  UniLLMs
 //
-//  Created by OpenAI on 2026/5/10.
+//  Created by ZayrickRouter HTTP and SSE API details, including requests, response parsing, and error conversion.
+//  Created by Zayrick on 2026/5/11.
 //
 
 import Foundation
@@ -28,7 +29,7 @@ nonisolated struct OpenRouterChatStreamDelta: Equatable {
 }
 
 nonisolated struct OpenRouterAPIClient {
-    nonisolated enum APIError: LocalizedError {
+    nonisolated enum APIError: LocalizedError, Equatable {
         case invalidAPIBase(String)
         case invalidResponse
         case serverStatus(Int, String?)
@@ -166,7 +167,7 @@ nonisolated struct OpenRouterAPIClient {
         }
     }
 
-    func fetchModels(apiBase: String, apiKey: String) async throws -> [LLMProviderModel] {
+    func fetchModels(apiBase: String, apiKey: String) async throws -> [LLMsProviderModel] {
         var request = URLRequest(url: try modelsURL(apiBase: apiBase))
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -189,7 +190,7 @@ nonisolated struct OpenRouterAPIClient {
         let decoded = try JSONDecoder().decode(ModelsResponse.self, from: data)
         return decoded.data
             .map {
-                LLMProviderModel(
+                LLMsProviderModel(
                     id: $0.id,
                     name: $0.name,
                     contextLength: $0.contextLength
@@ -254,10 +255,21 @@ nonisolated struct OpenRouterAPIClient {
     private func normalizedAPIBaseURL(apiBase: String) throws -> URL {
         let trimmedAPIBase = apiBase.trimmingCharacters(in: .whitespacesAndNewlines)
         let baseString = trimmedAPIBase.isEmpty
-            ? LLMProviderRecord.openRouterDefaultAPIBase
+            ? LLMsProviderRecord.openRouterDefaultAPIBase
             : trimmedAPIBase
 
-        guard let baseURL = URL(string: baseString) else {
+        guard var components = URLComponents(string: baseString),
+              let scheme = components.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              components.host?.isEmpty == false,
+              components.query == nil,
+              components.fragment == nil else {
+            throw APIError.invalidAPIBase(baseString)
+        }
+
+        let trimmedPath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        components.path = trimmedPath.isEmpty ? "" : "/\(trimmedPath)"
+        guard let baseURL = components.url else {
             throw APIError.invalidAPIBase(baseString)
         }
 

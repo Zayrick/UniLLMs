@@ -2,7 +2,8 @@
 //  UniLLMsUITestsLaunchTests.swift
 //  UniLLMsUITests
 //
-//  Created by Zayrick on 2026/5/9.
+//  Keeps the launch performance and launch screenshot test scaffold for future UI regression checks.
+//  Created by Zayrick on 2026/5/11.
 //
 
 import XCTest

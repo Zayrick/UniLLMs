@@ -2,7 +2,8 @@
 //  UniLLMsUITests.swift
 //  UniLLMsUITests
 //
-//  Created by Zayrick on 2026/5/9.
+//  Keeps the UI test scaffold for future real interaction coverage.
+//  Created by Zayrick on 2026/5/11.
 //
 
 import XCTest

@@ -1,51 +1,17 @@
 //
-//  LLMProviderStore.swift
+//  LLMsProviderStore.swift
 //  UniLLMs
 //
-//  Created by OpenAI on 2026/5/10.
+//  Created by Zayrick configuration, model cache, and selected model with UserDefaults while migrating legacy configuration fields.
+//  Created by Zayrick on 2026/5/11.
 //
 
 import Foundation
 
-nonisolated struct LLMModelSelection: Equatable {
-    var providerID: UUID
-    var providerName: String
-    var modelID: String
-    var modelName: String
-
-    var displayName: String {
-        modelName.isEmpty ? modelID : modelName
-    }
-}
-
-nonisolated struct LLMProviderModel: Codable, Equatable, Hashable {
-    var id: String
-    var name: String
-    var contextLength: Int?
-}
-
-nonisolated struct LLMProviderRecord: Codable, Equatable, Identifiable {
-    enum Kind: String, Codable {
-        case openRouter
-    }
-
-    static let openRouterDisplayName = "OpenRouter"
-    static let openRouterDefaultAPIBase = "https://openrouter.ai/api/v1"
-
-    var id: UUID
-    var kind: Kind
-    var name: String
-    var apiKey: String
-    var apiBase: String
-    var models: [LLMProviderModel]
-    var modelsUpdatedAt: Date?
-    var createdAt: Date
-}
-
-final class LLMProviderStore {
-    static let shared = LLMProviderStore()
+final class LLMsProviderStore {
+    static let shared = LLMsProviderStore()
     static let selectedModelSelectionDidChangeNotification = Notification.Name(
-        "LLMProviderStoreSelectedModelSelectionDidChange"
+        "LLMsProviderStoreSelectedModelSelectionDidChange"
     )
 
     private struct PersistedModelSelection: Codable, Equatable {
@@ -71,40 +37,57 @@ final class LLMProviderStore {
         decoder.dateDecodingStrategy = .iso8601
     }
 
-    func fetchProviders() -> [LLMProviderRecord] {
+    func fetchProviders() -> [LLMsProviderRecord] {
         guard let data = defaults.data(forKey: storageKey) else {
             return []
         }
 
-        return (try? decoder.decode([LLMProviderRecord].self, from: data)) ?? []
+        return (try? decoder.decode([LLMsProviderRecord].self, from: data)) ?? []
     }
 
-    func fetchProvider(id: UUID) -> LLMProviderRecord? {
+    func fetchProvider(id: UUID) -> LLMsProviderRecord? {
         fetchProviders().first { $0.id == id }
     }
 
-    func makeOpenRouterProviderDraft() -> LLMProviderRecord {
+    func makeProviderDraft(
+        kind: LLMsProviderKind,
+        displayName: String,
+        configuration: LLMsProviderConfiguration
+    ) -> LLMsProviderRecord {
         let providers = fetchProviders()
-        return LLMProviderRecord(
+        return LLMsProviderRecord(
             id: UUID(),
-            kind: .openRouter,
-            name: makeUniqueOpenRouterName(existingProviders: providers),
-            apiKey: "",
-            apiBase: LLMProviderRecord.openRouterDefaultAPIBase,
+            kind: kind,
+            name: makeUniqueProviderName(
+                baseName: displayName,
+                existingProviders: providers
+            ),
+            configuration: configuration,
             models: [],
             modelsUpdatedAt: nil,
             createdAt: Date()
         )
     }
 
+    func makeOpenRouterProviderDraft() -> LLMsProviderRecord {
+        makeProviderDraft(
+            kind: .openRouter,
+            displayName: LLMsProviderRecord.openRouterDisplayName,
+            configuration: LLMsProviderConfiguration(
+                apiKey: "",
+                apiBase: LLMsProviderRecord.openRouterDefaultAPIBase
+            )
+        )
+    }
+
     @discardableResult
-    func addOpenRouterProvider() -> LLMProviderRecord {
+    func addOpenRouterProvider() -> LLMsProviderRecord {
         let provider = makeOpenRouterProviderDraft()
         saveProvider(provider)
         return provider
     }
 
-    func saveProvider(_ provider: LLMProviderRecord) {
+    func saveProvider(_ provider: LLMsProviderRecord) {
         var providers = fetchProviders()
         if let index = providers.firstIndex(where: { $0.id == provider.id }) {
             providers[index] = provider
@@ -118,13 +101,13 @@ final class LLMProviderStore {
         )
     }
 
-    func updateProvider(_ provider: LLMProviderRecord) {
+    func updateProvider(_ provider: LLMsProviderRecord) {
         saveProvider(provider)
     }
 
     func updateProviderModels(
         id: UUID,
-        models: [LLMProviderModel],
+        models: [LLMsProviderModel],
         modelsUpdatedAt: Date
     ) {
         var providers = fetchProviders()
@@ -151,7 +134,7 @@ final class LLMProviderStore {
         )
     }
 
-    func fetchSelectedModelSelection() -> LLMModelSelection? {
+    func fetchSelectedModelSelection() -> ChatModelSelection? {
         guard let persistedSelection = fetchPersistedModelSelection() else {
             return nil
         }
@@ -168,7 +151,7 @@ final class LLMProviderStore {
         return selection
     }
 
-    func saveSelectedModelSelection(_ selection: LLMModelSelection) {
+    func saveSelectedModelSelection(_ selection: ChatModelSelection) {
         let persistedSelection = PersistedModelSelection(
             providerID: selection.providerID,
             modelID: selection.modelID
@@ -190,7 +173,7 @@ final class LLMProviderStore {
         notifySelectedModelSelectionDidChange()
     }
 
-    private func save(_ providers: [LLMProviderRecord]) {
+    private func save(_ providers: [LLMsProviderRecord]) {
         guard let data = try? encoder.encode(providers) else {
             return
         }
@@ -198,9 +181,11 @@ final class LLMProviderStore {
         defaults.set(data, forKey: storageKey)
     }
 
-    private func makeUniqueOpenRouterName(existingProviders: [LLMProviderRecord]) -> String {
+    private func makeUniqueProviderName(
+        baseName: String,
+        existingProviders: [LLMsProviderRecord]
+    ) -> String {
         let existingNames = Set(existingProviders.map(\.name))
-        let baseName = LLMProviderRecord.openRouterDisplayName
 
         guard existingNames.contains(baseName) else {
             return baseName
@@ -224,16 +209,16 @@ final class LLMProviderStore {
 
     private func resolvedModelSelection(
         for persistedSelection: PersistedModelSelection,
-        providers: [LLMProviderRecord]
-    ) -> LLMModelSelection? {
+        providers: [LLMsProviderRecord]
+    ) -> ChatModelSelection? {
         guard let provider = providers.first(where: { $0.id == persistedSelection.providerID }),
               let model = provider.models.first(where: { $0.id == persistedSelection.modelID }) else {
             return nil
         }
 
-        return LLMModelSelection(
+        return ChatModelSelection(
             providerID: provider.id,
-            providerName: providerDisplayName(provider),
+            providerName: provider.displayName,
             modelID: model.id,
             modelName: model.name
         )
@@ -241,7 +226,7 @@ final class LLMProviderStore {
 
     private func reconcileSelectedModelSelection(
         afterChangingProviderID changedProviderID: UUID,
-        providers: [LLMProviderRecord]
+        providers: [LLMsProviderRecord]
     ) {
         guard let persistedSelection = fetchPersistedModelSelection(),
               persistedSelection.providerID == changedProviderID else {
@@ -261,10 +246,5 @@ final class LLMProviderStore {
             name: Self.selectedModelSelectionDidChangeNotification,
             object: self
         )
-    }
-
-    private func providerDisplayName(_ provider: LLMProviderRecord) -> String {
-        let trimmedName = provider.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedName.isEmpty ? LLMProviderRecord.openRouterDisplayName : trimmedName
     }
 }
