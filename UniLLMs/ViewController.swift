@@ -1406,11 +1406,13 @@ private final class SettingsViewController: UITableViewController {
     }
 }
 
-private final class ModelSelectionViewController: UITableViewController {
+private final class ModelSelectionViewController: UITableViewController, UISearchResultsUpdating {
     private let store: LLMProviderStore
+    private var allProviders: [LLMProviderRecord] = []
     private var providers: [LLMProviderRecord] = []
     private var selectedModelSelection: LLMModelSelection?
     private let onSelect: (LLMModelSelection) -> Void
+    private let searchController = UISearchController(searchResultsController: nil)
 
     init(
         store: LLMProviderStore = .shared,
@@ -1439,6 +1441,7 @@ private final class ModelSelectionViewController: UITableViewController {
             target: self,
             action: #selector(close)
         )
+        configureSearchController()
         reloadProviders()
     }
 
@@ -1452,9 +1455,57 @@ private final class ModelSelectionViewController: UITableViewController {
         dismiss(animated: true)
     }
 
+    func updateSearchResults(for searchController: UISearchController) {
+        applyModelFilter()
+    }
+
+    private func configureSearchController() {
+        searchController.searchResultsUpdater = self
+        searchController.obscuresBackgroundDuringPresentation = false
+        searchController.hidesNavigationBarDuringPresentation = false
+        searchController.searchBar.placeholder = "Search Models"
+        searchController.searchBar.accessibilityLabel = "Search Models"
+        navigationItem.searchController = searchController
+        navigationItem.preferredSearchBarPlacement = .integratedButton
+        navigationItem.hidesSearchBarWhenScrolling = false
+        definesPresentationContext = true
+    }
+
     private func reloadProviders() {
-        providers = store.fetchProviders()
+        allProviders = store.fetchProviders()
+        applyModelFilter()
+    }
+
+    private func applyModelFilter() {
+        let query = searchController.searchBar.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !query.isEmpty else {
+            providers = allProviders
+            tableView.reloadData()
+            return
+        }
+
+        let normalizedQuery = query.localizedLowercase
+        providers = allProviders.compactMap { provider in
+            let displayName = providerDisplayName(provider)
+            let providerMatches = displayName.localizedLowercase.contains(normalizedQuery)
+            let matchingModels = provider.models.filter { model in
+                model.id.localizedLowercase.contains(normalizedQuery)
+                    || model.name.localizedLowercase.contains(normalizedQuery)
+            }
+
+            guard providerMatches || !matchingModels.isEmpty else {
+                return nil
+            }
+
+            var filteredProvider = provider
+            filteredProvider.models = providerMatches ? provider.models : matchingModels
+            return filteredProvider
+        }
         tableView.reloadData()
+    }
+
+    private var isFilteringModels: Bool {
+        !(searchController.searchBar.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
     }
 
     override func numberOfSections(in tableView: UITableView) -> Int {
@@ -1471,6 +1522,10 @@ private final class ModelSelectionViewController: UITableViewController {
 
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         guard !providers.isEmpty else {
+            if isFilteringModels && !allProviders.isEmpty {
+                return "Search"
+            }
+
             return "Providers"
         }
 
@@ -1486,6 +1541,13 @@ private final class ModelSelectionViewController: UITableViewController {
         cellForRowAt indexPath: IndexPath
     ) -> UITableViewCell {
         guard !providers.isEmpty else {
+            if isFilteringModels && !allProviders.isEmpty {
+                return unavailableCell(
+                    title: "No Matches",
+                    detail: "Try another model name, model ID, or provider."
+                )
+            }
+
             return unavailableCell(
                 title: "No LLMs Provider",
                 detail: "Add providers in Settings before selecting a model."
