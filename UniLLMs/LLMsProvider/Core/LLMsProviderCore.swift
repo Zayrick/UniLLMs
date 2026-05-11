@@ -30,7 +30,7 @@ nonisolated struct LLMsProviderKind: RawRepresentable, Codable, Hashable, Equata
     }
 }
 
-extension LLMsProviderKind {
+nonisolated extension LLMsProviderKind {
     static let openRouter = LLMsProviderKind(rawValue: "openRouter")
 }
 

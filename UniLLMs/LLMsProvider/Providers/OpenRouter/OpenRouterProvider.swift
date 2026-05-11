@@ -122,7 +122,7 @@ enum OpenRouterProviderError: LocalizedError, Equatable {
     }
 }
 
-private extension OpenRouterChatMessage {
+private nonisolated extension OpenRouterChatMessage {
     init(message: ChatMessage) {
         self.init(
             role: Role(rawValue: message.role.rawValue) ?? .user,
