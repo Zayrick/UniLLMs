@@ -37,6 +37,7 @@ final class ChatViewController: UIViewController {
         static let sendAnimationDuration: TimeInterval = 0.46
         static let sendAnimationDampingRatio: CGFloat = 0.88
         static let existingMessageShiftVisibilityMargin: CGFloat = 80.0
+        static let bottomLockTolerance: CGFloat = 2.0
     }
 
     private enum SideMenuLayout {
@@ -93,6 +94,7 @@ final class ChatViewController: UIViewController {
     private var selectedModelSelection: ChatModelSelection?
     private var activeResponseTask: Task<Void, Never>?
     private weak var activeResponseView: AssistantResponseTextView?
+    private var isMessagesBottomLocked = true
 
     func configure(dependencies: AppDependencyContainer) {
         self.dependencies = dependencies
@@ -144,7 +146,7 @@ final class ChatViewController: UIViewController {
         updateSideMenuLayout()
         updateMessagesContentInsets()
         messagesScrollView.layoutIfNeeded()
-        clampMessagesContentOffsetIfNeeded()
+        updateMessagesContentOffsetAfterLayoutChange()
         updateMainPageShadowPath()
     }
 
@@ -345,6 +347,7 @@ final class ChatViewController: UIViewController {
         messagesScrollView.alwaysBounceVertical = true
         messagesScrollView.keyboardDismissMode = .interactive
         messagesScrollView.contentInsetAdjustmentBehavior = .never
+        messagesScrollView.delegate = self
         messagesScrollView.topEdgeEffect.style = .soft
         messagesScrollView.bottomEdgeEffect.style = .soft
         mainPageView.insertSubview(messagesScrollView, aboveSubview: backgroundView)
@@ -506,7 +509,7 @@ final class ChatViewController: UIViewController {
             self.view.layoutIfNeeded()
             self.updateMessagesContentInsets()
             self.messagesScrollView.layoutIfNeeded()
-            self.clampMessagesContentOffsetIfNeeded()
+            self.updateMessagesContentOffsetAfterLayoutChange()
         }
 
         if animated {
@@ -746,10 +749,19 @@ final class ChatViewController: UIViewController {
 
         let targetOffsetY = messagesBottomContentOffsetY()
         messagesScrollView.setContentOffset(CGPoint(x: 0.0, y: targetOffsetY), animated: animated)
+        isMessagesBottomLocked = true
     }
 
     private func messagesBottomContentOffsetY() -> CGFloat {
         messagesContentOffsetBounds().maximum
+    }
+
+    private func isMessagesScrolledToBottom(
+        offsetY: CGFloat? = nil,
+        tolerance: CGFloat = MessagesLayout.bottomLockTolerance
+    ) -> Bool {
+        let candidateOffsetY = offsetY ?? messagesScrollView.contentOffset.y
+        return candidateOffsetY >= messagesBottomContentOffsetY() - tolerance
     }
 
     private func messagesContentOffsetBounds() -> (minimum: CGFloat, maximum: CGFloat) {
@@ -777,6 +789,14 @@ final class ChatViewController: UIViewController {
         }
 
         messagesScrollView.setContentOffset(CGPoint(x: 0.0, y: clampedOffsetY), animated: false)
+    }
+
+    private func updateMessagesContentOffsetAfterLayoutChange() {
+        if isMessagesBottomLocked {
+            scrollMessagesToBottom(animated: false)
+        } else {
+            clampMessagesContentOffsetIfNeeded()
+        }
     }
 
     private func animateSentMessage(
@@ -938,11 +958,16 @@ final class ChatViewController: UIViewController {
         mainPageView.layoutIfNeeded()
         let previousFrames = visibleMessageFrames()
         let previousHeight = responseView.isHidden ? 0.0 : responseView.bounds.height
+        let shouldFollowBottom = isMessagesBottomLocked
 
         update()
 
         mainPageView.layoutIfNeeded()
-        scrollMessagesToBottom(animated: false)
+        if shouldFollowBottom {
+            scrollMessagesToBottom(animated: false)
+        } else {
+            clampMessagesContentOffsetIfNeeded()
+        }
         mainPageView.layoutIfNeeded()
 
         let didGrow = responseView.bounds.height - previousHeight > 0.5
@@ -1110,4 +1135,52 @@ final class ChatViewController: UIViewController {
         return effect
     }
 
+}
+
+extension ChatViewController: UIScrollViewDelegate {
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        guard scrollView === messagesScrollView else {
+            return
+        }
+
+        isMessagesBottomLocked = false
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard scrollView === messagesScrollView,
+              scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating else {
+            return
+        }
+
+        isMessagesBottomLocked = isMessagesScrolledToBottom()
+    }
+
+    func scrollViewWillEndDragging(
+        _ scrollView: UIScrollView,
+        withVelocity velocity: CGPoint,
+        targetContentOffset: UnsafeMutablePointer<CGPoint>
+    ) {
+        guard scrollView === messagesScrollView else {
+            return
+        }
+
+        isMessagesBottomLocked = isMessagesScrolledToBottom(offsetY: targetContentOffset.pointee.y)
+    }
+
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        guard scrollView === messagesScrollView,
+              !decelerate else {
+            return
+        }
+
+        isMessagesBottomLocked = isMessagesScrolledToBottom()
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        guard scrollView === messagesScrollView else {
+            return
+        }
+
+        isMessagesBottomLocked = isMessagesScrolledToBottom()
+    }
 }
