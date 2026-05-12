@@ -1,26 +1,25 @@
 //
-//  OpenRouterProvider.swift
+//  OpenAICompatibleProvider.swift
 //  UniLLMs
 //
-//  Created by ZayrickAPIClient to the unified LLMsProviderAdapter interface and isolates the concrete provider implementation.
-//  Created by Zayrick on 2026/5/11.
+//  Adds OpenAI-compatible streaming chat providers with user-managed model IDs.
+//  Created by Codex on 2026/5/12.
 //
 
 import Foundation
 
 nonisolated extension LLMsProviderKind {
-    static let openRouter = LLMsProviderKind(rawValue: "openRouter")
+    static let openAICompatible = LLMsProviderKind(rawValue: "openAICompatible")
 }
 
-struct OpenRouterProvider: LLMsProviderAdapter {
+struct OpenAICompatibleProvider: LLMsProviderAdapter {
     private enum Metadata {
-        static let displayName = "OpenRouter"
-        static let defaultAPIBase = "https://openrouter.ai/api/v1"
+        static let displayName = "OpenAI Compatible"
     }
 
     enum ConfigurationKey {
-        static let apiKey = "apiKey"
         static let apiBase = "apiBase"
+        static let apiKey = "apiKey"
     }
 
     let apiClient: OpenRouterAPIClient
@@ -28,14 +27,14 @@ struct OpenRouterProvider: LLMsProviderAdapter {
     init(
         apiClient: OpenRouterAPIClient = OpenRouterAPIClient(
             serviceName: Metadata.displayName,
-            defaultAPIBase: Metadata.defaultAPIBase
+            defaultAPIBase: ""
         )
     ) {
         self.apiClient = apiClient
     }
 
     var kind: LLMsProviderKind {
-        .openRouter
+        .openAICompatible
     }
 
     var displayName: String {
@@ -43,14 +42,14 @@ struct OpenRouterProvider: LLMsProviderAdapter {
     }
 
     var capabilities: Set<LLMsProviderCapability> {
-        [.modelList, .streamingChat]
+        [.streamingChat]
     }
 
     var defaultConfiguration: LLMsProviderConfiguration {
         LLMsProviderConfiguration(
             values: [
-                ConfigurationKey.apiKey: "",
-                ConfigurationKey.apiBase: Metadata.defaultAPIBase
+                ConfigurationKey.apiBase: "",
+                ConfigurationKey.apiKey: ""
             ]
         )
     }
@@ -65,42 +64,34 @@ struct OpenRouterProvider: LLMsProviderAdapter {
                 inputKind: .plain
             ),
             LLMsProviderConfigurationField(
-                id: ConfigurationKey.apiKey,
-                title: "Key",
-                placeholder: "OpenRouter API Key",
-                binding: .configurationValue(ConfigurationKey.apiKey),
-                inputKind: .secret,
-                isRequired: true
-            ),
-            LLMsProviderConfigurationField(
                 id: ConfigurationKey.apiBase,
                 title: "API Base",
-                placeholder: Metadata.defaultAPIBase,
+                placeholder: "https://api.openai.com/v1",
                 binding: .configurationValue(ConfigurationKey.apiBase),
                 inputKind: .url,
                 isRequired: true
+            ),
+            LLMsProviderConfigurationField(
+                id: ConfigurationKey.apiKey,
+                title: "Key",
+                placeholder: "OpenAI API Key",
+                binding: .configurationValue(ConfigurationKey.apiKey),
+                inputKind: .secret
             )
         ]
     }
 
     var modelSource: LLMsProviderModelSource {
-        .remote
+        .manual
     }
 
     func configurationSummary(for configuration: LLMsProviderConfiguration) -> String? {
         configuration[ConfigurationKey.apiBase]
     }
 
-    func fetchModels(configuration: LLMsProviderConfiguration) async throws -> [LLMsProviderModel] {
-        try await apiClient.fetchModels(
-            apiBase: configuration[ConfigurationKey.apiBase],
-            apiKey: configuration[ConfigurationKey.apiKey]
-        )
-    }
-
     func validateChatConfiguration(_ configuration: LLMsProviderConfiguration) throws {
-        guard !configuration[ConfigurationKey.apiKey].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw OpenRouterProviderError.missingAPIKey(displayName)
+        guard !configuration[ConfigurationKey.apiBase].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw OpenAICompatibleProviderError.missingAPIBase(displayName)
         }
     }
 
@@ -142,22 +133,13 @@ struct OpenRouterProvider: LLMsProviderAdapter {
     }
 }
 
-enum OpenRouterProviderError: LocalizedError, Equatable {
-    case missingAPIKey(String)
+enum OpenAICompatibleProviderError: LocalizedError, Equatable {
+    case missingAPIBase(String)
 
     var errorDescription: String? {
         switch self {
-        case let .missingAPIKey(displayName):
-            return "Add an API key for \(displayName) in Settings first."
+        case let .missingAPIBase(displayName):
+            return "Add an API base for \(displayName) in Settings first."
         }
-    }
-}
-
-nonisolated extension OpenRouterChatMessage {
-    init(message: ChatMessage) {
-        self.init(
-            role: Role(rawValue: message.role.rawValue) ?? .user,
-            content: message.content
-        )
     }
 }

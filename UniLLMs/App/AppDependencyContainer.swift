@@ -27,11 +27,7 @@ final class AppDependencyContainer {
         self.coreDataStack = coreDataStack
         self.providerStore = providerStore
 
-        providerRegistry = LLMsProviderRegistry(
-            adapters: [
-                OpenRouterProvider()
-            ]
-        )
+        providerRegistry = LLMsProviderCatalog.makeRegistry()
         providerManager = LLMsProviderManager(
             registry: providerRegistry,
             store: providerStore
@@ -55,6 +51,7 @@ final class AppDependencyContainer {
         let turnRunner = ChatTurnRunner(responseStreamer: responseStreamer)
         chatRuntime = ChatRuntime(
             providerStore: providerStore,
+            providerManager: providerManager,
             contextBuilder: contextBuilder,
             turnRunner: turnRunner
         )

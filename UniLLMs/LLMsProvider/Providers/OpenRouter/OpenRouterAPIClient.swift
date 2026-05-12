@@ -31,21 +31,21 @@ nonisolated struct OpenRouterChatStreamDelta: Equatable {
 nonisolated struct OpenRouterAPIClient {
     nonisolated enum APIError: LocalizedError, Equatable {
         case invalidAPIBase(String)
-        case invalidResponse
-        case serverStatus(Int, String?)
+        case invalidResponse(String)
+        case serverStatus(String, Int, String?)
         case streamError(String)
 
         var errorDescription: String? {
             switch self {
             case let .invalidAPIBase(apiBase):
                 return "Invalid API Base: \(apiBase)"
-            case .invalidResponse:
-                return "OpenRouter returned an invalid response."
-            case let .serverStatus(statusCode, message):
+            case let .invalidResponse(serviceName):
+                return "\(serviceName) returned an invalid response."
+            case let .serverStatus(serviceName, statusCode, message):
                 if let message, !message.isEmpty {
-                    return "OpenRouter returned HTTP \(statusCode): \(message)"
+                    return "\(serviceName) returned HTTP \(statusCode): \(message)"
                 }
-                return "OpenRouter returned HTTP \(statusCode)."
+                return "\(serviceName) returned HTTP \(statusCode)."
             case let .streamError(message):
                 return message
             }
@@ -103,7 +103,7 @@ nonisolated struct OpenRouterAPIClient {
 
     nonisolated private struct Model: Decodable {
         var id: String
-        var name: String
+        var name: String?
         var contextLength: Int?
 
         nonisolated private enum CodingKeys: String, CodingKey {
@@ -113,11 +113,30 @@ nonisolated struct OpenRouterAPIClient {
         }
     }
 
+    nonisolated private static let defaultServiceName = "OpenRouter"
+    nonisolated private static let defaultAPIBaseValue = "https://openrouter.ai/api/v1"
+
     var session: URLSession = .shared
+    var serviceName: String = Self.defaultServiceName
+    var defaultAPIBase: String = Self.defaultAPIBaseValue
 
     func streamChatCompletion(
         apiBase: String,
         apiKey: String,
+        model: String,
+        messages: [OpenRouterChatMessage]
+    ) -> AsyncThrowingStream<OpenRouterChatStreamDelta, Error> {
+        streamChatCompletion(
+            apiBase: apiBase,
+            authorizationHeader: Self.bearerAuthorizationHeader(apiKey: apiKey),
+            model: model,
+            messages: messages
+        )
+    }
+
+    private func streamChatCompletion(
+        apiBase: String,
+        authorizationHeader: String,
         model: String,
         messages: [OpenRouterChatMessage]
     ) -> AsyncThrowingStream<OpenRouterChatStreamDelta, Error> {
@@ -126,18 +145,18 @@ nonisolated struct OpenRouterAPIClient {
                 do {
                     let request = try chatCompletionsRequest(
                         apiBase: apiBase,
-                        apiKey: apiKey,
+                        authorizationHeader: authorizationHeader,
                         model: model,
                         messages: messages
                     )
                     let (bytes, response) = try await session.bytes(for: request)
                     guard let httpResponse = response as? HTTPURLResponse else {
-                        throw APIError.invalidResponse
+                        throw APIError.invalidResponse(serviceName)
                     }
 
                     guard (200..<300).contains(httpResponse.statusCode) else {
                         let body = try await responseBodyString(from: bytes)
-                        throw APIError.serverStatus(httpResponse.statusCode, body)
+                        throw APIError.serverStatus(serviceName, httpResponse.statusCode, body)
                     }
 
                     for try await line in bytes.lines {
@@ -146,7 +165,10 @@ nonisolated struct OpenRouterAPIClient {
                             break
                         }
 
-                        guard let delta = try Self.streamDelta(fromServerSentEventLine: line) else {
+                        guard let delta = try Self.streamDelta(
+                            fromServerSentEventLine: line,
+                            serviceName: serviceName
+                        ) else {
                             continue
                         }
 
@@ -179,12 +201,12 @@ nonisolated struct OpenRouterAPIClient {
 
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
-            throw APIError.invalidResponse
+            throw APIError.invalidResponse(serviceName)
         }
 
         guard (200..<300).contains(httpResponse.statusCode) else {
             let body = String(data: data, encoding: .utf8)
-            throw APIError.serverStatus(httpResponse.statusCode, body)
+            throw APIError.serverStatus(serviceName, httpResponse.statusCode, body)
         }
 
         let decoded = try JSONDecoder().decode(ModelsResponse.self, from: data)
@@ -196,9 +218,6 @@ nonisolated struct OpenRouterAPIClient {
                     contextLength: $0.contextLength
                 )
             }
-            .sorted {
-                $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-            }
     }
 
     private func modelsURL(apiBase: String) throws -> URL {
@@ -208,7 +227,7 @@ nonisolated struct OpenRouterAPIClient {
 
     private func chatCompletionsRequest(
         apiBase: String,
-        apiKey: String,
+        authorizationHeader: String,
         model: String,
         messages: [OpenRouterChatMessage]
     ) throws -> URLRequest {
@@ -217,9 +236,9 @@ nonisolated struct OpenRouterAPIClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
 
-        let trimmedAPIKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedAPIKey.isEmpty {
-            request.setValue("Bearer \(trimmedAPIKey)", forHTTPHeaderField: "Authorization")
+        let trimmedAuthorizationHeader = authorizationHeader.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedAuthorizationHeader.isEmpty {
+            request.setValue(trimmedAuthorizationHeader, forHTTPHeaderField: "Authorization")
         }
 
         request.httpBody = try JSONEncoder().encode(
@@ -255,7 +274,7 @@ nonisolated struct OpenRouterAPIClient {
     private func normalizedAPIBaseURL(apiBase: String) throws -> URL {
         let trimmedAPIBase = apiBase.trimmingCharacters(in: .whitespacesAndNewlines)
         let baseString = trimmedAPIBase.isEmpty
-            ? LLMsProviderRecord.openRouterDefaultAPIBase
+            ? defaultAPIBase
             : trimmedAPIBase
 
         guard var components = URLComponents(string: baseString),
@@ -276,7 +295,10 @@ nonisolated struct OpenRouterAPIClient {
         return baseURL
     }
 
-    nonisolated static func streamDelta(fromServerSentEventLine line: String) throws -> OpenRouterChatStreamDelta? {
+    nonisolated static func streamDelta(
+        fromServerSentEventLine line: String,
+        serviceName: String = defaultServiceName
+    ) throws -> OpenRouterChatStreamDelta? {
         let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedLine.isEmpty,
               !trimmedLine.hasPrefix(":") else {
@@ -296,10 +318,16 @@ nonisolated struct OpenRouterAPIClient {
         }
 
         guard let data = payload.data(using: .utf8) else {
-            throw APIError.invalidResponse
+            throw APIError.invalidResponse(serviceName)
         }
 
-        let chunk = try JSONDecoder().decode(ChatCompletionChunk.self, from: data)
+        let chunk: ChatCompletionChunk
+        do {
+            chunk = try JSONDecoder().decode(ChatCompletionChunk.self, from: data)
+        } catch {
+            throw APIError.invalidResponse(serviceName)
+        }
+
         if let errorMessage = chunk.error?.message,
            !errorMessage.isEmpty {
             throw APIError.streamError(errorMessage)
@@ -318,6 +346,11 @@ nonisolated struct OpenRouterAPIClient {
 
     nonisolated private static func isDoneServerSentEventLine(_ line: String) -> Bool {
         line.trimmingCharacters(in: .whitespacesAndNewlines) == "data: [DONE]"
+    }
+
+    nonisolated private static func bearerAuthorizationHeader(apiKey: String) -> String {
+        let trimmedAPIKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedAPIKey.isEmpty ? "" : "Bearer \(trimmedAPIKey)"
     }
 
     nonisolated private static func streamDelta(

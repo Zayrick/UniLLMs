@@ -39,9 +39,8 @@ final class LLMsProviderViewController: UITableViewController {
 
     private func configureAddButton() {
         navigationItem.rightBarButtonItem = UIBarButtonItem(
-            barButtonSystemItem: .add,
-            target: self,
-            action: #selector(presentProviderPicker)
+            systemItem: .add,
+            menu: providerMenu()
         )
     }
 
@@ -50,28 +49,14 @@ final class LLMsProviderViewController: UITableViewController {
         tableView.reloadData()
     }
 
-    @objc private func presentProviderPicker() {
-        let adapters = dependencies.providerRegistry.adapters
-        guard adapters.count > 1 else {
-            presentNewProvider(kind: adapters.first?.kind ?? .openRouter)
-            return
+    private func providerMenu() -> UIMenu {
+        let actions = dependencies.providerRegistry.adapters.map { adapter in
+            UIAction(title: adapter.displayName) { [weak self] _ in
+                self?.presentNewProvider(kind: adapter.kind)
+            }
         }
 
-        let alertController = UIAlertController(
-            title: "Add Provider",
-            message: nil,
-            preferredStyle: .actionSheet
-        )
-        adapters.forEach { adapter in
-            alertController.addAction(
-                UIAlertAction(title: adapter.displayName, style: .default) { [weak self] _ in
-                    self?.presentNewProvider(kind: adapter.kind)
-                }
-            )
-        }
-        alertController.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alertController.popoverPresentationController?.barButtonItem = navigationItem.rightBarButtonItem
-        present(alertController, animated: true)
+        return UIMenu(title: "Add Provider", children: actions)
     }
 
     private func presentNewProvider(kind: LLMsProviderKind) {
@@ -106,12 +91,12 @@ final class LLMsProviderViewController: UITableViewController {
         _ tableView: UITableView,
         cellForRowAt indexPath: IndexPath
     ) -> UITableViewCell {
-        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
         let provider = providers[indexPath.row]
 
-        var contentConfiguration = UIListContentConfiguration.subtitleCell()
+        var contentConfiguration = cell.defaultContentConfiguration()
         contentConfiguration.text = dependencies.providerManager.displayName(for: provider)
-        contentConfiguration.secondaryText = provider.configuration.apiBase
+        contentConfiguration.secondaryText = dependencies.providerManager.configurationSummary(for: provider)
         contentConfiguration.image = UIImage(systemName: "globe")
 
         cell.contentConfiguration = contentConfiguration

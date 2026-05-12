@@ -92,7 +92,7 @@ final class ModelSelectionViewController: UITableViewController, UISearchResults
             let providerMatches = displayName.localizedLowercase.contains(normalizedQuery)
             let matchingModels = provider.models.filter { model in
                 model.id.localizedLowercase.contains(normalizedQuery)
-                    || model.name.localizedLowercase.contains(normalizedQuery)
+                    || (model.name?.localizedLowercase.contains(normalizedQuery) ?? false)
             }
 
             guard providerMatches || !matchingModels.isEmpty else {
@@ -165,11 +165,10 @@ final class ModelSelectionViewController: UITableViewController, UISearchResults
         }
 
         let model = provider.models[indexPath.row]
-        let modelTitle = model.name.isEmpty ? model.id : model.name
         let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
-        var contentConfiguration = UIListContentConfiguration.subtitleCell()
-        contentConfiguration.text = modelTitle
-        contentConfiguration.secondaryText = model.name.isEmpty ? nil : model.id
+        var contentConfiguration = cell.defaultContentConfiguration()
+        contentConfiguration.text = modelTitle(for: model)
+        contentConfiguration.secondaryText = modelSubtitle(for: model)
         contentConfiguration.image = UIImage(systemName: "cpu")
         contentConfiguration.imageProperties.tintColor = .secondaryLabel
         cell.contentConfiguration = contentConfiguration
@@ -203,7 +202,7 @@ final class ModelSelectionViewController: UITableViewController, UISearchResults
 
     private func unavailableCell(title: String, detail: String) -> UITableViewCell {
         let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
-        var contentConfiguration = UIListContentConfiguration.subtitleCell()
+        var contentConfiguration = cell.defaultContentConfiguration()
         contentConfiguration.text = title
         contentConfiguration.secondaryText = detail
         contentConfiguration.image = UIImage(systemName: "exclamationmark.circle")
@@ -220,5 +219,18 @@ final class ModelSelectionViewController: UITableViewController, UISearchResults
 
     private func providerDisplayName(_ provider: LLMsProviderRecord) -> String {
         dependencies.providerManager.displayName(for: provider)
+    }
+
+    private func modelTitle(for model: LLMsProviderModel) -> String {
+        normalizedModelName(model.name) ?? model.id
+    }
+
+    private func modelSubtitle(for model: LLMsProviderModel) -> String? {
+        normalizedModelName(model.name) == nil ? nil : model.id
+    }
+
+    private func normalizedModelName(_ name: String?) -> String? {
+        let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmedName.isEmpty ? nil : trimmedName
     }
 }

@@ -37,12 +37,35 @@ final class UniLLMsTests: XCTestCase {
         store = nil
     }
 
+    private func makeProviderManager(
+        adapters: [any LLMsProviderAdapter] = LLMsProviderCatalog.makeRegistry().adapters
+    ) -> LLMsProviderManager {
+        LLMsProviderManager(
+            registry: LLMsProviderRegistry(adapters: adapters),
+            store: store
+        )
+    }
+
+    private func makeOpenRouterProviderDraft() throws -> LLMsProviderRecord {
+        try makeProviderManager().makeProviderDraft(kind: .openRouter)
+    }
+
+    private func addOpenRouterProvider() throws -> LLMsProviderRecord {
+        let provider = try makeOpenRouterProviderDraft()
+        store.saveProvider(provider)
+        return provider
+    }
+
+    private var openRouterDefaultAPIBase: String {
+        OpenRouterProvider().defaultConfiguration[OpenRouterProvider.ConfigurationKey.apiBase]
+    }
+
     func testAddingOpenRouterProvidersAssignsUUIDsAndUniqueNames() throws {
-        let first = store.makeOpenRouterProviderDraft()
+        let first = try makeOpenRouterProviderDraft()
         store.saveProvider(first)
-        let second = store.makeOpenRouterProviderDraft()
+        let second = try makeOpenRouterProviderDraft()
         store.saveProvider(second)
-        let third = store.makeOpenRouterProviderDraft()
+        let third = try makeOpenRouterProviderDraft()
         store.saveProvider(third)
 
         XCTAssertNotEqual(first.id, second.id)
@@ -50,11 +73,11 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertEqual(first.name, "OpenRouter")
         XCTAssertEqual(second.name, "OpenRouter 1")
         XCTAssertEqual(third.name, "OpenRouter 2")
-        XCTAssertEqual(first.apiBase, LLMProviderRecord.openRouterDefaultAPIBase)
+        XCTAssertEqual(first.configuration[OpenRouterProvider.ConfigurationKey.apiBase], openRouterDefaultAPIBase)
     }
 
     func testOpenRouterDraftDoesNotPersistUntilSaved() throws {
-        let draft = store.makeOpenRouterProviderDraft()
+        let draft = try makeOpenRouterProviderDraft()
 
         XCTAssertTrue(store.fetchProviders().isEmpty)
 
@@ -66,10 +89,10 @@ final class UniLLMsTests: XCTestCase {
     }
 
     func testProviderConfigurationUpdatesPersistByUUID() throws {
-        var provider = store.addOpenRouterProvider()
+        var provider = try addOpenRouterProvider()
         provider.name = "Work Router"
-        provider.apiKey = "sk-or-test"
-        provider.apiBase = "https://example.com/v1"
+        provider.configuration[OpenRouterProvider.ConfigurationKey.apiKey] = "sk-or-test"
+        provider.configuration[OpenRouterProvider.ConfigurationKey.apiBase] = "https://example.com/v1"
         provider.models = [
             LLMProviderModel(id: "openai/gpt-4", name: "GPT-4", contextLength: 8192)
         ]
@@ -78,27 +101,81 @@ final class UniLLMsTests: XCTestCase {
         let reloaded = try XCTUnwrap(store.fetchProviders().first)
         XCTAssertEqual(reloaded.id, provider.id)
         XCTAssertEqual(reloaded.name, "Work Router")
-        XCTAssertEqual(reloaded.apiKey, "sk-or-test")
-        XCTAssertEqual(reloaded.apiBase, "https://example.com/v1")
-        XCTAssertEqual(reloaded.configuration.apiKey, "sk-or-test")
-        XCTAssertEqual(reloaded.configuration.apiBase, "https://example.com/v1")
+        XCTAssertEqual(reloaded.configuration[OpenRouterProvider.ConfigurationKey.apiKey], "sk-or-test")
+        XCTAssertEqual(reloaded.configuration[OpenRouterProvider.ConfigurationKey.apiBase], "https://example.com/v1")
         XCTAssertEqual(reloaded.models, provider.models)
     }
 
     func testProviderManagerCreatesOpenRouterDraftFromRegisteredAdapter() throws {
-        let registry = LLMsProviderRegistry(adapters: [OpenRouterProvider()])
-        let manager = LLMsProviderManager(registry: registry, store: store)
+        let manager = makeProviderManager(adapters: [OpenRouterProvider()])
 
         let draft = try manager.makeProviderDraft(kind: .openRouter)
 
         XCTAssertEqual(draft.kind, .openRouter)
         XCTAssertEqual(draft.name, "OpenRouter")
-        XCTAssertEqual(draft.configuration.apiBase, LLMsProviderRecord.openRouterDefaultAPIBase)
+        XCTAssertEqual(draft.configuration[OpenRouterProvider.ConfigurationKey.apiBase], openRouterDefaultAPIBase)
         XCTAssertTrue(draft.models.isEmpty)
+
+        switch manager.modelSource(for: .openRouter) {
+        case .some(.remote):
+            break
+        case .some(.manual), nil:
+            XCTFail("OpenRouter should fetch models remotely.")
+        }
+    }
+
+    func testProviderManagerCreatesOpenAICompatibleDraftFromRegisteredAdapter() throws {
+        let manager = makeProviderManager(adapters: [OpenAICompatibleProvider()])
+
+        let draft = try manager.makeProviderDraft(kind: .openAICompatible)
+
+        XCTAssertEqual(draft.kind, .openAICompatible)
+        XCTAssertEqual(draft.name, "OpenAI Compatible")
+        XCTAssertEqual(draft.configuration[OpenAICompatibleProvider.ConfigurationKey.apiBase], "")
+        XCTAssertEqual(draft.configuration[OpenAICompatibleProvider.ConfigurationKey.apiKey], "")
+        XCTAssertTrue(draft.models.isEmpty)
+
+        switch manager.modelSource(for: .openAICompatible) {
+        case .some(.manual):
+            break
+        case .some(.remote), nil:
+            XCTFail("OpenAI Compatible should use manual model entry.")
+        }
+    }
+
+    func testProviderManagerChecksOnlyRequiredConfigurationFields() throws {
+        let manager = makeProviderManager(
+            adapters: [
+                OpenRouterProvider(),
+                OpenAICompatibleProvider()
+            ]
+        )
+        var openRouter = try manager.makeProviderDraft(kind: .openRouter)
+
+        XCTAssertFalse(manager.hasRequiredConfigurationFields(for: openRouter))
+
+        openRouter.configuration[OpenRouterProvider.ConfigurationKey.apiKey] = "sk-or-test"
+        openRouter.configuration[OpenRouterProvider.ConfigurationKey.apiBase] = ""
+
+        XCTAssertFalse(manager.hasRequiredConfigurationFields(for: openRouter))
+
+        openRouter.configuration[OpenRouterProvider.ConfigurationKey.apiBase] = openRouterDefaultAPIBase
+        openRouter.name = ""
+
+        XCTAssertTrue(manager.hasRequiredConfigurationFields(for: openRouter))
+
+        var compatible = try manager.makeProviderDraft(kind: .openAICompatible)
+
+        XCTAssertFalse(manager.hasRequiredConfigurationFields(for: compatible))
+
+        compatible.configuration[OpenAICompatibleProvider.ConfigurationKey.apiBase] = "http://localhost:11434/v1"
+        compatible.configuration[OpenAICompatibleProvider.ConfigurationKey.apiKey] = ""
+
+        XCTAssertTrue(manager.hasRequiredConfigurationFields(for: compatible))
     }
 
     func testProviderManagerRejectsUnregisteredProviderKind() throws {
-        let manager = LLMsProviderManager(registry: LLMsProviderRegistry(), store: store)
+        let manager = makeProviderManager(adapters: [])
 
         XCTAssertThrowsError(
             try manager.makeProviderDraft(kind: LLMsProviderKind(rawValue: "missing"))
@@ -123,12 +200,12 @@ final class UniLLMsTests: XCTestCase {
 
         let provider = try XCTUnwrap(store.fetchProviders().first)
 
-        XCTAssertEqual(provider.configuration.apiKey, "legacy-key")
-        XCTAssertEqual(provider.configuration.apiBase, "https://legacy.example/v1")
+        XCTAssertEqual(provider.configuration[OpenRouterProvider.ConfigurationKey.apiKey], "legacy-key")
+        XCTAssertEqual(provider.configuration[OpenRouterProvider.ConfigurationKey.apiBase], "https://legacy.example/v1")
     }
 
     func testModelUpdatesDoNotOverwriteUnsavedConfiguration() throws {
-        let provider = store.addOpenRouterProvider()
+        let provider = try addOpenRouterProvider()
         let models = [
             LLMProviderModel(id: "openai/gpt-4", name: "GPT-4", contextLength: 8192)
         ]
@@ -142,14 +219,14 @@ final class UniLLMsTests: XCTestCase {
 
         let reloaded = try XCTUnwrap(store.fetchProviders().first)
         XCTAssertEqual(reloaded.name, "OpenRouter")
-        XCTAssertEqual(reloaded.apiKey, "")
-        XCTAssertEqual(reloaded.apiBase, LLMProviderRecord.openRouterDefaultAPIBase)
+        XCTAssertEqual(reloaded.configuration[OpenRouterProvider.ConfigurationKey.apiKey], "")
+        XCTAssertEqual(reloaded.configuration[OpenRouterProvider.ConfigurationKey.apiBase], openRouterDefaultAPIBase)
         XCTAssertEqual(reloaded.models, models)
         XCTAssertEqual(reloaded.modelsUpdatedAt, updatedAt)
     }
 
     func testModelUpdatesForDraftDoNotPersist() throws {
-        let draft = store.makeOpenRouterProviderDraft()
+        let draft = try makeOpenRouterProviderDraft()
 
         store.updateProviderModels(
             id: draft.id,
@@ -163,8 +240,8 @@ final class UniLLMsTests: XCTestCase {
     }
 
     func testDeletingProviderRemovesMatchingUUIDOnly() throws {
-        let first = store.addOpenRouterProvider()
-        let second = store.addOpenRouterProvider()
+        let first = try addOpenRouterProvider()
+        let second = try addOpenRouterProvider()
 
         store.deleteProvider(id: first.id)
 
@@ -173,8 +250,8 @@ final class UniLLMsTests: XCTestCase {
     }
 
     func testFetchingProviderByIDReturnsMatchingProvider() throws {
-        _ = store.addOpenRouterProvider()
-        let second = store.addOpenRouterProvider()
+        _ = try addOpenRouterProvider()
+        let second = try addOpenRouterProvider()
 
         let fetched = try XCTUnwrap(store.fetchProvider(id: second.id))
         let missingID = try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-000000000000"))
@@ -185,7 +262,7 @@ final class UniLLMsTests: XCTestCase {
     }
 
     func testSelectedModelSelectionPersistsByProviderUUIDAndModelID() throws {
-        var provider = store.addOpenRouterProvider()
+        var provider = try addOpenRouterProvider()
         provider.name = "Work Router"
         provider.models = [
             LLMProviderModel(id: "anthropic/claude-sonnet-4", name: "Claude Sonnet 4", contextLength: 200_000)
@@ -208,8 +285,30 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertEqual(selection.modelName, "Claude Sonnet 4")
     }
 
+    func testProviderManagerResolvesSelectedProviderDisplayNameFromRegisteredAdapter() throws {
+        let manager = makeProviderManager()
+        var provider = try addOpenRouterProvider()
+        provider.name = ""
+        provider.models = [
+            LLMProviderModel(id: "openai/gpt-4.1", name: "GPT-4.1", contextLength: 1_000_000)
+        ]
+        store.updateProvider(provider)
+        store.saveSelectedModelSelection(
+            LLMModelSelection(
+                providerID: provider.id,
+                providerName: "Stale Name",
+                modelID: "openai/gpt-4.1",
+                modelName: "Stale Model Name"
+            )
+        )
+
+        let selection = try XCTUnwrap(manager.fetchSelectedModelSelection())
+        XCTAssertEqual(selection.providerName, "OpenRouter")
+        XCTAssertEqual(selection.modelName, "GPT-4.1")
+    }
+
     func testDeletingSelectedProviderClearsSelectedModelSelection() throws {
-        var provider = store.addOpenRouterProvider()
+        var provider = try addOpenRouterProvider()
         provider.models = [
             LLMProviderModel(id: "openai/gpt-4.1", name: "GPT-4.1", contextLength: 1_000_000)
         ]
@@ -229,7 +328,7 @@ final class UniLLMsTests: XCTestCase {
     }
 
     func testRemovingSelectedModelClearsSelectedModelSelection() throws {
-        var provider = store.addOpenRouterProvider()
+        var provider = try addOpenRouterProvider()
         provider.models = [
             LLMProviderModel(id: "openai/gpt-4.1", name: "GPT-4.1", contextLength: 1_000_000)
         ]
@@ -255,7 +354,7 @@ final class UniLLMsTests: XCTestCase {
     }
 
     func testRefreshingSelectedModelUpdatesRecoveredDisplayName() throws {
-        var provider = store.addOpenRouterProvider()
+        var provider = try addOpenRouterProvider()
         provider.models = [
             LLMProviderModel(id: "openai/gpt-4.1", name: "GPT-4.1", contextLength: 1_000_000)
         ]
@@ -279,6 +378,17 @@ final class UniLLMsTests: XCTestCase {
 
         let selection = try XCTUnwrap(store.fetchSelectedModelSelection())
         XCTAssertEqual(selection.modelName, "GPT-4.1 Latest")
+    }
+
+    func testChatModelSelectionDisplayNameFallsBackToIDWhenModelNameIsMissing() {
+        let selection = LLMModelSelection(
+            providerID: UUID(),
+            providerName: "OpenAI Compatible",
+            modelID: "gpt-4.1-mini",
+            modelName: nil
+        )
+
+        XCTAssertEqual(selection.displayName, "gpt-4.1-mini")
     }
 
     func testMarkdownThematicBreakRendersAsVisualDivider() throws {
@@ -396,6 +506,17 @@ final class UniLLMsTests: XCTestCase {
             )
         ) { error in
             XCTAssertEqual(error.localizedDescription, "Provider disconnected unexpectedly")
+        }
+    }
+
+    func testOpenRouterStreamParserUsesServiceNameForInvalidPayload() throws {
+        XCTAssertThrowsError(
+            try OpenRouterAPIClient.streamDelta(
+                fromServerSentEventLine: "data: {",
+                serviceName: "OpenAI Compatible"
+            )
+        ) { error in
+            XCTAssertEqual(error.localizedDescription, "OpenAI Compatible returned an invalid response.")
         }
     }
 

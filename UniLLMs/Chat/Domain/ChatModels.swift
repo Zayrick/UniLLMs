@@ -75,10 +75,11 @@ nonisolated struct ChatModelSelection: Equatable {
     var providerID: UUID
     var providerName: String
     var modelID: String
-    var modelName: String
+    var modelName: String?
 
     var displayName: String {
-        modelName.isEmpty ? modelID : modelName
+        let trimmedModelName = modelName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmedModelName.isEmpty ? modelID : trimmedModelName
     }
 }
 

@@ -55,6 +55,9 @@ final class ChatViewController: UIViewController {
     private var providerStore: LLMsProviderStore {
         dependencies.providerStore
     }
+    private var providerManager: LLMsProviderManager {
+        dependencies.providerManager
+    }
     private var chatRuntime: ChatRuntime {
         dependencies.chatRuntime
     }
@@ -1013,7 +1016,7 @@ final class ChatViewController: UIViewController {
     }
 
     private func reloadSelectedModelSelection(animated: Bool) {
-        let selection = providerStore.fetchSelectedModelSelection()
+        let selection = providerManager.fetchSelectedModelSelection()
         let currentTitle = selectedModelSelection?.displayName ?? HeaderLayout.defaultModuleSelectionTitle
         let updatedTitle = selection?.displayName ?? HeaderLayout.defaultModuleSelectionTitle
         guard selection != selectedModelSelection else {

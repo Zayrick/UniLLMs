@@ -27,6 +27,7 @@ enum ChatRuntimeError: LocalizedError, Equatable {
 
 final class ChatRuntime {
     private let providerStore: LLMsProviderStore
+    private let providerManager: LLMsProviderManager
     private let contextBuilder: ChatContextBuilder
     private let turnRunner: ChatTurnRunner
     private var currentSession = ChatSession(title: "New Chat")
@@ -35,10 +36,12 @@ final class ChatRuntime {
 
     init(
         providerStore: LLMsProviderStore,
+        providerManager: LLMsProviderManager,
         contextBuilder: ChatContextBuilder,
         turnRunner: ChatTurnRunner
     ) {
         self.providerStore = providerStore
+        self.providerManager = providerManager
         self.contextBuilder = contextBuilder
         self.turnRunner = turnRunner
     }
@@ -48,7 +51,7 @@ final class ChatRuntime {
             throw ChatRuntimeError.turnAlreadyInProgress
         }
 
-        guard let selection = providerStore.fetchSelectedModelSelection() else {
+        guard let selection = providerManager.fetchSelectedModelSelection() else {
             throw ChatRuntimeError.missingModelSelection
         }
 

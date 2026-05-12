@@ -69,24 +69,6 @@ final class LLMsProviderStore {
         )
     }
 
-    func makeOpenRouterProviderDraft() -> LLMsProviderRecord {
-        makeProviderDraft(
-            kind: .openRouter,
-            displayName: LLMsProviderRecord.openRouterDisplayName,
-            configuration: LLMsProviderConfiguration(
-                apiKey: "",
-                apiBase: LLMsProviderRecord.openRouterDefaultAPIBase
-            )
-        )
-    }
-
-    @discardableResult
-    func addOpenRouterProvider() -> LLMsProviderRecord {
-        let provider = makeOpenRouterProviderDraft()
-        saveProvider(provider)
-        return provider
-    }
-
     func saveProvider(_ provider: LLMsProviderRecord) {
         var providers = fetchProviders()
         if let index = providers.firstIndex(where: { $0.id == provider.id }) {
@@ -134,7 +116,9 @@ final class LLMsProviderStore {
         )
     }
 
-    func fetchSelectedModelSelection() -> ChatModelSelection? {
+    func fetchSelectedModelSelection(
+        providerDisplayName: (LLMsProviderRecord) -> String = { $0.displayName }
+    ) -> ChatModelSelection? {
         guard let persistedSelection = fetchPersistedModelSelection() else {
             return nil
         }
@@ -142,7 +126,8 @@ final class LLMsProviderStore {
         let providers = fetchProviders()
         guard let selection = resolvedModelSelection(
             for: persistedSelection,
-            providers: providers
+            providers: providers,
+            providerDisplayName: providerDisplayName
         ) else {
             clearSelectedModelSelection()
             return nil
@@ -209,7 +194,8 @@ final class LLMsProviderStore {
 
     private func resolvedModelSelection(
         for persistedSelection: PersistedModelSelection,
-        providers: [LLMsProviderRecord]
+        providers: [LLMsProviderRecord],
+        providerDisplayName: (LLMsProviderRecord) -> String
     ) -> ChatModelSelection? {
         guard let provider = providers.first(where: { $0.id == persistedSelection.providerID }),
               let model = provider.models.first(where: { $0.id == persistedSelection.modelID }) else {
@@ -218,7 +204,7 @@ final class LLMsProviderStore {
 
         return ChatModelSelection(
             providerID: provider.id,
-            providerName: provider.displayName,
+            providerName: providerDisplayName(provider),
             modelID: model.id,
             modelName: model.name
         )
@@ -233,7 +219,11 @@ final class LLMsProviderStore {
             return
         }
 
-        guard resolvedModelSelection(for: persistedSelection, providers: providers) != nil else {
+        guard resolvedModelSelection(
+            for: persistedSelection,
+            providers: providers,
+            providerDisplayName: { $0.displayName }
+        ) != nil else {
             clearSelectedModelSelection()
             return
         }

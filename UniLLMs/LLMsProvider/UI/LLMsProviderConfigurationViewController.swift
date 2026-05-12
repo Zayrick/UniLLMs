@@ -14,6 +14,14 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
         case models
     }
 
+    private enum ModelRows {
+        static let addTitle = "Add Model"
+        static let modelIDTitle = "Model ID"
+        static let modelIDPlaceholder = "gpt-4.1-mini"
+        static let refreshTitle = "Refresh Model List"
+        static let loadingTitle = "Refreshing Model List"
+    }
+
     private let dependencies: AppDependencyContainer
     private var saveButtonItem: UIBarButtonItem?
     private var provider: LLMsProviderRecord
@@ -24,6 +32,10 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
 
     private var configurationFields: [LLMsProviderConfigurationField] {
         dependencies.providerManager.configurationFields(for: provider.kind)
+    }
+
+    private var modelSource: LLMsProviderModelSource? {
+        dependencies.providerManager.modelSource(for: provider.kind)
     }
 
     private lazy var updatedDateFormatter: DateFormatter = {
@@ -48,8 +60,12 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
     required init?(coder: NSCoder) {
         let dependencies = AppEnvironment.shared.dependencies
         self.dependencies = dependencies
-        provider = (try? dependencies.providerManager.makeProviderDraft(kind: .openRouter))
-            ?? dependencies.providerStore.makeOpenRouterProviderDraft()
+        provider = (try? dependencies.providerManager.makeDefaultProviderDraft())
+            ?? LLMsProviderRecord(
+                kind: LLMsProviderKind(rawValue: ""),
+                name: "",
+                configuration: LLMsProviderConfiguration()
+            )
         savedProvider = provider
         isNewProvider = true
         super.init(coder: coder)
@@ -69,7 +85,9 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
 
-        guard !isNewProvider,
+        guard let modelSource,
+              case .remote = modelSource,
+              !isNewProvider,
               !didStartInitialModelLoad else {
             return
         }
@@ -91,6 +109,10 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
         case .configuration:
             return configurationFields.count
         case .models:
+            guard modelSource != nil else {
+                return 0
+            }
+
             return provider.models.count + 1
         }
     }
@@ -134,11 +156,45 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
         switch section {
         case .configuration:
             (tableView.cellForRow(at: indexPath) as? ProviderTextFieldCell)?.activateTextField()
-        case .models where indexPath.row == 0:
-            refreshModels()
         case .models:
-            return
+            handleModelSelection(at: indexPath)
         }
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath
+    ) -> UISwipeActionsConfiguration? {
+        guard let section = Section(rawValue: indexPath.section),
+              section == .models,
+              let modelSource,
+              case .manual = modelSource,
+              indexPath.row > 0 else {
+            return nil
+        }
+
+        let modelIndex = indexPath.row - 1
+        let deleteAction = UIContextualAction(style: .destructive, title: "Delete") { [weak self] _, _, completion in
+            guard let self,
+                  provider.models.indices.contains(modelIndex) else {
+                completion(false)
+                return
+            }
+
+            provider.models.remove(at: modelIndex)
+            updateSaveButtonState()
+            tableView.performBatchUpdates {
+                tableView.deleteRows(at: [indexPath], with: .fade)
+            } completion: { [weak self] _ in
+                self?.reloadManualModelsSummary()
+            }
+            completion(true)
+        }
+        deleteAction.image = UIImage(systemName: "trash")
+
+        let configuration = UISwipeActionsConfiguration(actions: [deleteAction])
+        configuration.performsFirstActionWithFullSwipe = false
+        return configuration
     }
 
     private func configurationCell(for indexPath: IndexPath) -> UITableViewCell {
@@ -166,10 +222,23 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
     }
 
     private func modelCell(for indexPath: IndexPath) -> UITableViewCell {
+        guard let modelSource else {
+            return UITableViewCell()
+        }
+
+        switch modelSource {
+        case .remote:
+            return remoteModelCell(for: indexPath)
+        case .manual:
+            return manualModelCell(for: indexPath)
+        }
+    }
+
+    private func remoteModelCell(for indexPath: IndexPath) -> UITableViewCell {
         if indexPath.row == 0 {
-            let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
-            var contentConfiguration = UIListContentConfiguration.subtitleCell()
-            contentConfiguration.text = isLoadingModels ? "Refreshing Model List" : "Refresh Model List"
+            let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+            var contentConfiguration = cell.defaultContentConfiguration()
+            contentConfiguration.text = isLoadingModels ? ModelRows.loadingTitle : ModelRows.refreshTitle
             contentConfiguration.secondaryText = modelRefreshDetailText
             contentConfiguration.image = UIImage(systemName: "arrow.clockwise")
             cell.contentConfiguration = contentConfiguration
@@ -186,13 +255,53 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
 
         let model = provider.models[indexPath.row - 1]
         let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
-        var contentConfiguration = UIListContentConfiguration.subtitleCell()
-        contentConfiguration.text = model.name
-        contentConfiguration.secondaryText = model.id
+        var contentConfiguration = cell.defaultContentConfiguration()
+        contentConfiguration.text = modelTitle(for: model)
+        contentConfiguration.secondaryText = modelSubtitle(for: model)
         contentConfiguration.image = UIImage(systemName: "cpu")
         contentConfiguration.imageProperties.tintColor = .secondaryLabel
         cell.contentConfiguration = contentConfiguration
         cell.selectionStyle = .none
+        return cell
+    }
+
+    private func manualModelCell(for indexPath: IndexPath) -> UITableViewCell {
+        if indexPath.row == 0 {
+            let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+            var contentConfiguration = cell.defaultContentConfiguration()
+            contentConfiguration.text = ModelRows.addTitle
+            contentConfiguration.secondaryText = manualModelsDetailText
+            contentConfiguration.image = UIImage(systemName: "plus.circle")
+            cell.contentConfiguration = contentConfiguration
+            cell.selectionStyle = .default
+            return cell
+        }
+
+        guard let cell = tableView.dequeueReusableCell(
+            withIdentifier: ProviderTextFieldCell.reuseIdentifier,
+            for: indexPath
+        ) as? ProviderTextFieldCell else {
+            return UITableViewCell()
+        }
+
+        let model = provider.models[indexPath.row - 1]
+        cell.configure(
+            title: ModelRows.modelIDTitle,
+            text: model.id,
+            placeholder: ModelRows.modelIDPlaceholder,
+            isSecureTextEntry: false,
+            keyboardType: .asciiCapable,
+            textContentType: nil
+        )
+        cell.onTextChange = { [weak self, weak cell] text in
+            guard let self,
+                  let cell,
+                  let currentIndexPath = self.tableView.indexPath(for: cell) else {
+                return
+            }
+
+            self.setManualModelID(text, at: currentIndexPath.row - 1)
+        }
         return cell
     }
 
@@ -204,30 +313,33 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
         return "Updated \(updatedDateFormatter.string(from: updatedAt))"
     }
 
-    private func value(for field: LLMsProviderConfigurationField) -> String {
-        switch field.valueKey {
-        case .providerName:
-            return provider.name
-        case .apiKey:
-            return provider.configuration.apiKey
-        case .apiBase:
-            return provider.configuration.apiBase
-        case let .extra(key):
-            return provider.configuration.extra[key] ?? ""
+    private var manualModelsDetailText: String? {
+        let modelCount = manualModelCount
+        guard modelCount > 0 else {
+            return nil
         }
+
+        return modelCount == 1 ? "1 Model" : "\(modelCount) Models"
+    }
+
+    private var manualModelCount: Int {
+        provider.models
+            .filter { !$0.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .count
+    }
+
+    private func value(for field: LLMsProviderConfigurationField) -> String {
+        provider.configurationValue(for: field.binding)
     }
 
     private func setValue(_ text: String, for field: LLMsProviderConfigurationField) {
-        switch field.valueKey {
+        provider.setConfigurationValue(text, for: field.binding)
+
+        switch field.binding {
         case .providerName:
-            provider.name = text
             title = text.isEmpty ? dependencies.providerManager.displayName(for: provider) : text
-        case .apiKey:
-            provider.configuration.apiKey = text
-        case .apiBase:
-            provider.configuration.apiBase = text
-        case let .extra(key):
-            provider.configuration.extra[key] = text
+        case .configurationValue(_):
+            break
         }
 
         updateSaveButtonState()
@@ -257,6 +369,62 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
         }
     }
 
+    private func handleModelSelection(at indexPath: IndexPath) {
+        guard let modelSource else {
+            return
+        }
+
+        switch modelSource {
+        case .remote where indexPath.row == 0:
+            refreshModels()
+        case .manual where indexPath.row == 0:
+            appendManualModelRow()
+        case .manual:
+            (tableView.cellForRow(at: indexPath) as? ProviderTextFieldCell)?.activateTextField()
+        case .remote:
+            return
+        }
+    }
+
+    private func appendManualModelRow() {
+        provider.models.append(
+            LLMsProviderModel(
+                id: "",
+                name: nil,
+                contextLength: nil
+            )
+        )
+
+        let insertedIndexPath = IndexPath(
+            row: provider.models.count,
+            section: Section.models.rawValue
+        )
+        updateSaveButtonState()
+        tableView.insertRows(at: [insertedIndexPath], with: .automatic)
+        tableView.scrollToRow(at: insertedIndexPath, at: .middle, animated: true)
+
+        DispatchQueue.main.async { [weak self] in
+            (self?.tableView.cellForRow(at: insertedIndexPath) as? ProviderTextFieldCell)?
+                .activateTextField()
+        }
+    }
+
+    private func setManualModelID(_ text: String, at modelIndex: Int) {
+        guard provider.models.indices.contains(modelIndex) else {
+            return
+        }
+
+        let oldModelCount = manualModelCount
+        provider.models[modelIndex].id = text
+        provider.models[modelIndex].name = normalizedModelName(provider.models[modelIndex].name)
+
+        updateSaveButtonState()
+
+        if oldModelCount != manualModelCount {
+            reloadManualModelsSummary()
+        }
+    }
+
     private func presentModelLoadError(_ error: Error) {
         guard presentedViewController == nil else {
             return
@@ -272,7 +440,9 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
     }
 
     private func refreshModels() {
-        guard !isLoadingModels else {
+        guard let modelSource,
+              case .remote = modelSource,
+              !isLoadingModels else {
             return
         }
 
@@ -320,6 +490,7 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
 
     @objc private func saveConfiguration() {
         view.endEditing(true)
+        provider = providerForSaving
         dependencies.providerStore.saveProvider(provider)
         isNewProvider = false
         savedProvider = provider
@@ -333,18 +504,80 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
     }
 
     private var canSaveConfiguration: Bool {
-        hasUnsavedConfigurationChanges && hasRequiredConfigurationFields
+        hasRequiredConfigurationFields && (isNewProvider || hasUnsavedChanges)
     }
 
     private var hasRequiredConfigurationFields: Bool {
-        configurationFields.allSatisfy {
-            !value(for: $0).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
+        dependencies.providerManager.hasRequiredConfigurationFields(for: provider)
     }
 
-    private var hasUnsavedConfigurationChanges: Bool {
-        provider.name != savedProvider.name
-            || provider.configuration != savedProvider.configuration
+    private var hasUnsavedChanges: Bool {
+        providerForComparison(provider) != providerForComparison(savedProvider)
+    }
+
+    private var providerForSaving: LLMsProviderRecord {
+        var normalizedRecord = normalizedProvider(provider)
+        guard hasManualModelListChanges else {
+            return normalizedRecord
+        }
+
+        normalizedRecord.modelsUpdatedAt = Date()
+        return normalizedRecord
+    }
+
+    private func normalizedProvider(_ provider: LLMsProviderRecord) -> LLMsProviderRecord {
+        var normalizedRecord = provider
+        normalizedRecord.models = provider.models.compactMap { model in
+            let trimmedID = model.id.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedID.isEmpty else {
+                return nil
+            }
+
+            return LLMsProviderModel(
+                id: trimmedID,
+                name: normalizedModelName(model.name),
+                contextLength: model.contextLength
+            )
+        }
+        return normalizedRecord
+    }
+
+    private func providerForComparison(_ provider: LLMsProviderRecord) -> LLMsProviderRecord {
+        var normalizedRecord = normalizedProvider(provider)
+        if modelSource == .manual {
+            normalizedRecord.modelsUpdatedAt = normalizedProvider(savedProvider).modelsUpdatedAt
+        }
+        return normalizedRecord
+    }
+
+    private var hasManualModelListChanges: Bool {
+        guard modelSource == .manual else {
+            return false
+        }
+
+        return normalizedProvider(provider).models != normalizedProvider(savedProvider).models
+    }
+
+    private func normalizedModelName(_ name: String?) -> String? {
+        let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmedName.isEmpty ? nil : trimmedName
+    }
+
+    private func modelTitle(for model: LLMsProviderModel) -> String {
+        normalizedModelName(model.name) ?? model.id
+    }
+
+    private func modelSubtitle(for model: LLMsProviderModel) -> String? {
+        normalizedModelName(model.name) == nil ? nil : model.id
+    }
+
+    private func reloadManualModelsSummary() {
+        let addIndexPath = IndexPath(row: 0, section: Section.models.rawValue)
+        guard tableView.indexPathsForVisibleRows?.contains(addIndexPath) == true else {
+            return
+        }
+
+        tableView.reloadRows(at: [addIndexPath], with: .none)
     }
 
     private func reloadModelsSection(animated: Bool) {

@@ -30,33 +30,55 @@ nonisolated struct LLMsProviderKind: RawRepresentable, Codable, Hashable, Equata
     }
 }
 
-nonisolated extension LLMsProviderKind {
-    static let openRouter = LLMsProviderKind(rawValue: "openRouter")
-}
-
 nonisolated struct LLMsProviderModel: Codable, Equatable, Hashable {
     var id: String
-    var name: String
+    var name: String?
     var contextLength: Int?
 }
 
 nonisolated struct LLMsProviderConfiguration: Codable, Equatable {
-    var apiKey: String
-    var apiBase: String
-    var extra: [String: String]
+    var values: [String: String]
 
-    init(apiKey: String = "", apiBase: String = "", extra: [String: String] = [:]) {
-        self.apiKey = apiKey
-        self.apiBase = apiBase
-        self.extra = extra
+    init(values: [String: String] = [:]) {
+        self.values = values
+    }
+
+    subscript(key: String) -> String {
+        get { values[key] ?? "" }
+        set { values[key] = newValue }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case values
+    }
+
+    init(from decoder: Decoder) throws {
+        if let container = try? decoder.container(keyedBy: CodingKeys.self),
+           let values = try container.decodeIfPresent([String: String].self, forKey: .values) {
+            self.values = values
+            return
+        }
+
+        let container = try decoder.container(keyedBy: LLMsProviderDynamicCodingKey.self)
+        var decodedValues: [String: String] = [:]
+        for key in container.allKeys {
+            if let stringValue = try? container.decode(String.self, forKey: key) {
+                decodedValues[key.stringValue] = stringValue
+            } else if let nestedValues = try? container.decode([String: String].self, forKey: key) {
+                nestedValues.forEach { decodedValues[$0.key] = $0.value }
+            }
+        }
+        values = decodedValues
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(values, forKey: .values)
     }
 }
 
 nonisolated struct LLMsProviderRecord: Codable, Equatable, Identifiable {
     typealias Kind = LLMsProviderKind
-
-    static let openRouterDisplayName = "OpenRouter"
-    static let openRouterDefaultAPIBase = "https://openrouter.ai/api/v1"
 
     var id: UUID
     var kind: LLMsProviderKind
@@ -90,26 +112,14 @@ nonisolated struct LLMsProviderRecord: Codable, Equatable, Identifiable {
             return trimmedName
         }
 
-        return kind == .openRouter ? Self.openRouterDisplayName : kind.rawValue
+        return kind.rawValue
     }
 
-    var apiKey: String {
-        get { configuration.apiKey }
-        set { configuration.apiKey = newValue }
-    }
-
-    var apiBase: String {
-        get { configuration.apiBase }
-        set { configuration.apiBase = newValue }
-    }
-
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
         case id
         case kind
         case name
         case configuration
-        case apiKey
-        case apiBase
         case models
         case modelsUpdatedAt
         case createdAt
@@ -124,18 +134,10 @@ nonisolated struct LLMsProviderRecord: Codable, Equatable, Identifiable {
         modelsUpdatedAt = try container.decodeIfPresent(Date.self, forKey: .modelsUpdatedAt)
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
 
-        if let configuration = try container.decodeIfPresent(
+        configuration = try container.decodeIfPresent(
             LLMsProviderConfiguration.self,
             forKey: .configuration
-        ) {
-            self.configuration = configuration
-        } else {
-            self.configuration = LLMsProviderConfiguration(
-                apiKey: try container.decodeIfPresent(String.self, forKey: .apiKey) ?? "",
-                apiBase: try container.decodeIfPresent(String.self, forKey: .apiBase)
-                    ?? Self.openRouterDefaultAPIBase
-            )
-        }
+        ) ?? Self.decodeLegacyConfigurationValues(from: decoder)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -151,11 +153,9 @@ nonisolated struct LLMsProviderRecord: Codable, Equatable, Identifiable {
 }
 
 nonisolated struct LLMsProviderConfigurationField: Equatable, Identifiable {
-    enum ValueKey: Equatable {
+    enum Binding: Equatable {
         case providerName
-        case apiKey
-        case apiBase
-        case extra(String)
+        case configurationValue(String)
     }
 
     enum InputKind: Equatable {
@@ -167,8 +167,53 @@ nonisolated struct LLMsProviderConfigurationField: Equatable, Identifiable {
     var id: String
     var title: String
     var placeholder: String
-    var valueKey: ValueKey
+    var binding: Binding
     var inputKind: InputKind
+    var isRequired: Bool = false
+}
+
+nonisolated extension LLMsProviderRecord {
+    func configurationValue(for binding: LLMsProviderConfigurationField.Binding) -> String {
+        switch binding {
+        case .providerName:
+            return name
+        case let .configurationValue(key):
+            return configuration[key]
+        }
+    }
+
+    mutating func setConfigurationValue(
+        _ value: String,
+        for binding: LLMsProviderConfigurationField.Binding
+    ) {
+        switch binding {
+        case .providerName:
+            name = value
+        case let .configurationValue(key):
+            configuration[key] = value
+        }
+    }
+
+    private static func decodeLegacyConfigurationValues(from decoder: Decoder) throws -> LLMsProviderConfiguration {
+        let container = try decoder.container(keyedBy: LLMsProviderDynamicCodingKey.self)
+        let knownKeys = Set(CodingKeys.allCases.map(\.stringValue))
+        var values: [String: String] = [:]
+
+        for key in container.allKeys where !knownKeys.contains(key.stringValue) {
+            guard let value = try? container.decode(String.self, forKey: key) else {
+                continue
+            }
+
+            values[key.stringValue] = value
+        }
+
+        return LLMsProviderConfiguration(values: values)
+    }
+}
+
+nonisolated enum LLMsProviderModelSource: Equatable {
+    case remote
+    case manual
 }
 
 nonisolated enum LLMsProviderCapability: String, Codable, Hashable {
@@ -184,7 +229,9 @@ protocol LLMsProviderAdapter {
     var capabilities: Set<LLMsProviderCapability> { get }
     var defaultConfiguration: LLMsProviderConfiguration { get }
     var configurationFields: [LLMsProviderConfigurationField] { get }
+    var modelSource: LLMsProviderModelSource { get }
 
+    func configurationSummary(for configuration: LLMsProviderConfiguration) -> String?
     func validateChatConfiguration(_ configuration: LLMsProviderConfiguration) throws
     func fetchModels(configuration: LLMsProviderConfiguration) async throws -> [LLMsProviderModel]
     func streamChat(
@@ -194,17 +241,29 @@ protocol LLMsProviderAdapter {
 }
 
 extension LLMsProviderAdapter {
+    func configurationSummary(for configuration: LLMsProviderConfiguration) -> String? {
+        nil
+    }
+
     func validateChatConfiguration(_ configuration: LLMsProviderConfiguration) throws {}
+
+    func fetchModels(configuration: LLMsProviderConfiguration) async throws -> [LLMsProviderModel] {
+        []
+    }
 }
 
 final class LLMsProviderRegistry {
     private var adaptersByKind: [LLMsProviderKind: any LLMsProviderAdapter] = [:]
+    private var orderedKinds: [LLMsProviderKind] = []
 
     init(adapters: [any LLMsProviderAdapter] = []) {
         adapters.forEach(register)
     }
 
     func register(_ adapter: any LLMsProviderAdapter) {
+        if adaptersByKind[adapter.kind] == nil {
+            orderedKinds.append(adapter.kind)
+        }
         adaptersByKind[adapter.kind] = adapter
     }
 
@@ -213,17 +272,20 @@ final class LLMsProviderRegistry {
     }
 
     var adapters: [any LLMsProviderAdapter] {
-        adaptersByKind.values.sorted {
-            $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+        orderedKinds.compactMap {
+            adaptersByKind[$0]
         }
     }
 }
 
 enum LLMsProviderManagerError: LocalizedError, Equatable {
+    case noRegisteredProviders
     case unsupportedProvider(LLMsProviderKind)
 
     var errorDescription: String? {
         switch self {
+        case .noRegisteredProviders:
+            return "No LLM providers are registered."
         case let .unsupportedProvider(kind):
             return "Unsupported LLM provider: \(kind.rawValue)"
         }
@@ -241,6 +303,18 @@ final class LLMsProviderManager {
 
     func makeProviderDraft(kind: LLMsProviderKind) throws -> LLMsProviderRecord {
         let adapter = try requireAdapter(for: kind)
+        return makeProviderDraft(adapter: adapter)
+    }
+
+    func makeDefaultProviderDraft() throws -> LLMsProviderRecord {
+        guard let adapter = registry.adapters.first else {
+            throw LLMsProviderManagerError.noRegisteredProviders
+        }
+
+        return makeProviderDraft(adapter: adapter)
+    }
+
+    private func makeProviderDraft(adapter: any LLMsProviderAdapter) -> LLMsProviderRecord {
         return store.makeProviderDraft(
             kind: adapter.kind,
             displayName: adapter.displayName,
@@ -266,6 +340,33 @@ final class LLMsProviderManager {
 
     func configurationFields(for kind: LLMsProviderKind) -> [LLMsProviderConfigurationField] {
         registry.adapter(for: kind)?.configurationFields ?? []
+    }
+
+    func modelSource(for kind: LLMsProviderKind) -> LLMsProviderModelSource? {
+        registry.adapter(for: kind)?.modelSource
+    }
+
+    func configurationSummary(for provider: LLMsProviderRecord) -> String? {
+        registry.adapter(for: provider.kind)?
+            .configurationSummary(for: provider.configuration)
+    }
+
+    func fetchSelectedModelSelection() -> ChatModelSelection? {
+        store.fetchSelectedModelSelection { provider in
+            displayName(for: provider)
+        }
+    }
+
+    func hasRequiredConfigurationFields(for provider: LLMsProviderRecord) -> Bool {
+        configurationFields(for: provider.kind).allSatisfy { field in
+            guard field.isRequired else {
+                return true
+            }
+
+            return !provider.configurationValue(for: field.binding)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty
+        }
     }
 
     func fetchModels(for provider: LLMsProviderRecord) async throws -> [LLMsProviderModel] {
@@ -299,3 +400,17 @@ final class LLMsProviderManager {
 typealias LLMProviderModel = LLMsProviderModel
 typealias LLMProviderRecord = LLMsProviderRecord
 typealias LLMProviderStore = LLMsProviderStore
+
+private struct LLMsProviderDynamicCodingKey: CodingKey {
+    var stringValue: String
+    var intValue: Int?
+
+    init?(stringValue: String) {
+        self.stringValue = stringValue
+    }
+
+    init?(intValue: Int) {
+        stringValue = "\(intValue)"
+        self.intValue = intValue
+    }
+}
