@@ -21,14 +21,14 @@ extension ChatMarkdownRenderer {
     private mutating func renderInline(_ markup: any Markup) -> NSMutableAttributedString {
         switch markup {
         case let text as Text:
-            return NSMutableAttributedString(string: text.string, attributes: Self.bodyAttributes(style: style))
+            return NSMutableAttributedString(string: text.string, attributes: bodyAttributes())
         case let strong as Strong:
             let result = renderInlineChildren(of: strong)
-            apply([.font: boldFont(from: style.bodyFont)], to: result)
+            apply([.font: boldFont(from: style.bodyFont(compatibleWith: traitCollection))], to: result)
             return result
         case let emphasis as Emphasis:
             let result = renderInlineChildren(of: emphasis)
-            apply([.font: italicFont(from: style.bodyFont)], to: result)
+            apply([.font: italicFont(from: style.bodyFont(compatibleWith: traitCollection))], to: result)
             return result
         case let strikethrough as Strikethrough:
             let result = renderInlineChildren(of: strikethrough)
@@ -38,7 +38,7 @@ extension ChatMarkdownRenderer {
             return NSMutableAttributedString(
                 string: inlineCode.code,
                 attributes: [
-                    .font: style.codeFont,
+                    .font: style.codeFont(compatibleWith: traitCollection),
                     .foregroundColor: style.codeTextColor,
                     .backgroundColor: style.codeBackgroundColor
                 ]
@@ -60,14 +60,14 @@ extension ChatMarkdownRenderer {
         case let image as Markdown.Image:
             return NSMutableAttributedString(
                 string: imageDisplayText(source: image.source, altText: image.plainText),
-                attributes: Self.secondaryAttributes(style: style)
+                attributes: secondaryAttributes()
             )
         case _ as SoftBreak:
-            return NSMutableAttributedString(string: " ", attributes: Self.bodyAttributes(style: style))
+            return NSMutableAttributedString(string: " ", attributes: bodyAttributes())
         case _ as LineBreak:
-            return NSMutableAttributedString(string: "\n", attributes: Self.bodyAttributes(style: style))
+            return NSMutableAttributedString(string: "\n", attributes: bodyAttributes())
         case let html as InlineHTML:
-            return NSMutableAttributedString(string: html.rawHTML, attributes: Self.secondaryAttributes(style: style))
+            return NSMutableAttributedString(string: html.rawHTML, attributes: secondaryAttributes())
         case let unorderedList as UnorderedList:
             return renderUnorderedList(unorderedList)
         case let orderedList as OrderedList:

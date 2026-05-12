@@ -99,7 +99,7 @@ extension ChatMarkdownRenderer {
         let result = NSMutableAttributedString()
         let leadingParagraph = NSMutableAttributedString(
             string: "\(marker)\t",
-            attributes: Self.bodyAttributes(style: style)
+            attributes: bodyAttributes()
         )
         leadingParagraph.addAttribute(
             .font,
@@ -312,9 +312,12 @@ extension ChatMarkdownRenderer {
 
     private func listMarkerFont(isOrdered: Bool) -> UIFont {
         guard isOrdered else {
-            return style.bodyFont
+            return style.bodyFont(compatibleWith: traitCollection)
         }
 
-        return .monospacedDigitSystemFont(ofSize: style.bodyFont.pointSize, weight: .regular)
+        return .monospacedDigitSystemFont(
+            ofSize: style.bodyFont(compatibleWith: traitCollection).pointSize,
+            weight: .regular
+        )
     }
 }

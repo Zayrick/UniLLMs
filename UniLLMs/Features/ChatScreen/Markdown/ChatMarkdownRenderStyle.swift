@@ -25,17 +25,20 @@ struct ChatMarkdownRenderStyle {
         )
     }
 
-    var bodyFont: UIFont {
-        .preferredFont(forTextStyle: .body)
+    func bodyFont(compatibleWith traitCollection: UITraitCollection) -> UIFont {
+        .preferredFont(forTextStyle: .body, compatibleWith: traitCollection)
     }
 
-    var calloutFont: UIFont {
-        .preferredFont(forTextStyle: .callout)
+    func calloutFont(compatibleWith traitCollection: UITraitCollection) -> UIFont {
+        .preferredFont(forTextStyle: .callout, compatibleWith: traitCollection)
     }
 
-    var codeFont: UIFont {
+    func codeFont(compatibleWith traitCollection: UITraitCollection) -> UIFont {
         .monospacedSystemFont(
-            ofSize: UIFont.preferredFont(forTextStyle: .callout).pointSize,
+            ofSize: UIFont.preferredFont(
+                forTextStyle: .callout,
+                compatibleWith: traitCollection
+            ).pointSize,
             weight: .regular
         )
     }
@@ -44,16 +47,16 @@ struct ChatMarkdownRenderStyle {
         secondaryTextColor.withAlphaComponent(0.35)
     }
 
-    func headingFont(level: Int) -> UIFont {
+    func headingFont(level: Int, compatibleWith traitCollection: UITraitCollection) -> UIFont {
         switch level {
         case 1:
-            return .preferredFont(forTextStyle: .title2)
+            return .preferredFont(forTextStyle: .title2, compatibleWith: traitCollection)
         case 2:
-            return .preferredFont(forTextStyle: .title3)
+            return .preferredFont(forTextStyle: .title3, compatibleWith: traitCollection)
         case 3:
-            return .preferredFont(forTextStyle: .headline)
+            return .preferredFont(forTextStyle: .headline, compatibleWith: traitCollection)
         default:
-            return .preferredFont(forTextStyle: .subheadline)
+            return .preferredFont(forTextStyle: .subheadline, compatibleWith: traitCollection)
         }
     }
 }

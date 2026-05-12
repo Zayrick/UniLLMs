@@ -50,7 +50,7 @@ extension ChatMarkdownRenderer {
         return blockString(
             text,
             attributes: [
-                .font: style.codeFont,
+                .font: style.codeFont(compatibleWith: traitCollection),
                 .foregroundColor: style.textColor,
                 .backgroundColor: style.codeBackgroundColor
             ],

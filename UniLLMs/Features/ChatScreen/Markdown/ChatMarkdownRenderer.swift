@@ -13,10 +13,12 @@ struct ChatMarkdownRenderer {
     private static let parseLock = NSLock()
 
     let style: ChatMarkdownRenderStyle
+    let traitCollection: UITraitCollection
     let listState = ChatMarkdownListState()
 
-    init(style: ChatMarkdownRenderStyle = .assistant) {
+    init(style: ChatMarkdownRenderStyle = .assistant, traitCollection: UITraitCollection) {
         self.style = style
+        self.traitCollection = traitCollection
     }
 
     mutating func render(markdown: String) -> NSAttributedString {

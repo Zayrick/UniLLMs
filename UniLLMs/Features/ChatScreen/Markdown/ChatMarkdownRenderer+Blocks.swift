@@ -39,12 +39,12 @@ extension ChatMarkdownRenderer {
         case let htmlBlock as HTMLBlock:
             return blockString(
                 htmlBlock.rawHTML + "\n",
-                attributes: Self.secondaryAttributes(style: style)
+                attributes: secondaryAttributes()
             )
         case let image as Markdown.Image:
             return blockString(
                 imageDisplayText(source: image.source, altText: image.plainText) + "\n",
-                attributes: Self.secondaryAttributes(style: style)
+                attributes: secondaryAttributes()
             )
         default:
             let result = NSMutableAttributedString()
@@ -66,7 +66,7 @@ extension ChatMarkdownRenderer {
 
         apply(
             [
-                .font: style.headingFont(level: heading.level),
+                .font: style.headingFont(level: heading.level, compatibleWith: traitCollection),
                 .foregroundColor: style.textColor,
                 .paragraphStyle: paragraphStyle
             ],
@@ -91,7 +91,7 @@ extension ChatMarkdownRenderer {
         let result = NSMutableAttributedString(
             string: text,
             attributes: [
-                .font: style.codeFont,
+                .font: style.codeFont(compatibleWith: traitCollection),
                 .foregroundColor: style.codeTextColor,
                 .backgroundColor: style.codeBackgroundColor
             ]
@@ -113,7 +113,7 @@ extension ChatMarkdownRenderer {
         apply(
             [
                 .foregroundColor: style.secondaryTextColor,
-                .font: style.calloutFont
+                .font: style.calloutFont(compatibleWith: traitCollection)
             ],
             to: result
         )
@@ -128,9 +128,12 @@ extension ChatMarkdownRenderer {
 
     private func renderThematicBreak() -> NSMutableAttributedString {
         let result = NSMutableAttributedString(
-            attachment: HorizontalRuleTextAttachment(color: style.dividerColor)
+            attachment: HorizontalRuleTextAttachment(
+                color: style.dividerColor,
+                traitCollection: traitCollection
+            )
         )
-        result.append(NSAttributedString(string: "\n", attributes: Self.bodyAttributes(style: style)))
+        result.append(NSAttributedString(string: "\n", attributes: bodyAttributes()))
 
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.minimumLineHeight = HorizontalRuleTextAttachment.totalHeight
@@ -144,11 +147,15 @@ extension ChatMarkdownRenderer {
 
 private final class HorizontalRuleTextAttachment: NSTextAttachment {
     static let totalHeight: CGFloat = 14.0
-    private static let lineHeight: CGFloat = 1.0 / UIScreen.main.scale
 
-    init(color: UIColor) {
+    init(color: UIColor, traitCollection: UITraitCollection) {
+        let lineHeight = 1.0 / traitCollection.displayScale
         super.init(data: nil, ofType: nil)
-        image = Self.makeImage(color: color)
+        image = Self.makeImage(
+            color: color,
+            traitCollection: traitCollection,
+            lineHeight: lineHeight
+        )
     }
 
     required init?(coder: NSCoder) {
@@ -169,14 +176,18 @@ private final class HorizontalRuleTextAttachment: NSTextAttachment {
         )
     }
 
-    private static func makeImage(color: UIColor) -> UIImage {
+    private static func makeImage(
+        color: UIColor,
+        traitCollection: UITraitCollection,
+        lineHeight: CGFloat
+    ) -> UIImage {
         let size = CGSize(width: 1.0, height: totalHeight)
-        let format = UIGraphicsImageRendererFormat()
+        let format = UIGraphicsImageRendererFormat(for: traitCollection)
         format.opaque = false
-        format.scale = UIScreen.main.scale
+        let resolvedColor = color.resolvedColor(with: traitCollection)
 
         return UIGraphicsImageRenderer(size: size, format: format).image { rendererContext in
-            color.setFill()
+            resolvedColor.setFill()
             rendererContext.fill(
                 CGRect(
                     x: 0.0,

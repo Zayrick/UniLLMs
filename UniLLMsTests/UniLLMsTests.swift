@@ -15,6 +15,12 @@ final class UniLLMsTests: XCTestCase {
     private var defaults: UserDefaults!
     private var suiteName: String!
     private var store: LLMProviderStore!
+    private var markdownRendererTraits: UITraitCollection {
+        UITraitCollection(traitsFrom: [
+            UITraitCollection(displayScale: 2.0),
+            UITraitCollection(preferredContentSizeCategory: .large)
+        ])
+    }
 
     override func setUpWithError() throws {
         suiteName = "UniLLMsTests.\(UUID().uuidString)"
@@ -276,7 +282,7 @@ final class UniLLMsTests: XCTestCase {
     }
 
     func testMarkdownThematicBreakRendersAsVisualDivider() throws {
-        var renderer = ChatMarkdownRenderer()
+        var renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let attributedText = renderer.render(markdown: "Above\n\n---\n\nBelow")
 
         XCTAssertFalse(attributedText.string.contains("---"))
@@ -286,7 +292,7 @@ final class UniLLMsTests: XCTestCase {
     }
 
     func testMarkdownNestedListRendersIncreasingIndents() throws {
-        var renderer = ChatMarkdownRenderer()
+        var renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let attributedText = renderer.render(markdown: "- Parent\n  - Child\n    - Grandchild")
 
         let parentStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Parent"))
@@ -300,7 +306,7 @@ final class UniLLMsTests: XCTestCase {
     }
 
     func testMarkdownOrderedListUsesStableContentIndentAcrossDigitWidths() throws {
-        var renderer = ChatMarkdownRenderer()
+        var renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let attributedText = renderer.render(markdown: "9. Nine\n10. Ten")
 
         let nineStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Nine"))

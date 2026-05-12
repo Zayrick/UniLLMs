@@ -10,6 +10,17 @@ import UIKit
 
 final class StreamingMarkdownTextView: UITextView {
     private var markdownText = ""
+    private var traitChangeRegistration: (any UITraitChangeRegistration)?
+
+    override init(frame: CGRect, textContainer: NSTextContainer?) {
+        super.init(frame: frame, textContainer: textContainer)
+        configureTraitObservation()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configureTraitObservation()
+    }
 
     func appendMarkdown(_ string: String) {
         guard !string.isEmpty else {
@@ -29,10 +40,16 @@ final class StreamingMarkdownTextView: UITextView {
         attributedText = nil
     }
 
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-
-        renderMarkdown()
+    private func configureTraitObservation() {
+        traitChangeRegistration = registerForTraitChanges(
+            [
+                UITraitUserInterfaceStyle.self,
+                UITraitPreferredContentSizeCategory.self,
+                UITraitDisplayScale.self
+            ]
+        ) { (textView: StreamingMarkdownTextView, _) in
+            textView.renderMarkdown()
+        }
     }
 
     private func renderMarkdown() {
@@ -41,7 +58,7 @@ final class StreamingMarkdownTextView: UITextView {
             return
         }
 
-        var renderer = ChatMarkdownRenderer()
+        var renderer = ChatMarkdownRenderer(traitCollection: traitCollection)
         attributedText = renderer.render(markdown: markdownText)
         invalidateIntrinsicContentSize()
     }

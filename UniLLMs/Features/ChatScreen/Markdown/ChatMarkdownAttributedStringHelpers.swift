@@ -31,7 +31,7 @@ extension ChatMarkdownRenderer {
             return
         }
 
-        attributedString.append(NSAttributedString(string: "\n", attributes: Self.bodyAttributes(style: style)))
+        attributedString.append(NSAttributedString(string: "\n", attributes: bodyAttributes()))
     }
 
     func trimTrailingNewlines(in attributedString: NSMutableAttributedString) {
@@ -48,16 +48,16 @@ extension ChatMarkdownRenderer {
         attributedString.addAttributes(attributes, range: NSRange(location: 0, length: attributedString.length))
     }
 
-    static func bodyAttributes(style: ChatMarkdownRenderStyle) -> [NSAttributedString.Key: Any] {
+    func bodyAttributes() -> [NSAttributedString.Key: Any] {
         [
-            .font: style.bodyFont,
+            .font: style.bodyFont(compatibleWith: traitCollection),
             .foregroundColor: style.textColor
         ]
     }
 
-    static func secondaryAttributes(style: ChatMarkdownRenderStyle) -> [NSAttributedString.Key: Any] {
+    func secondaryAttributes() -> [NSAttributedString.Key: Any] {
         [
-            .font: style.calloutFont,
+            .font: style.calloutFont(compatibleWith: traitCollection),
             .foregroundColor: style.secondaryTextColor
         ]
     }
