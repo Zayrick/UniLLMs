@@ -305,6 +305,42 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertGreaterThan(grandchildStyle.headIndent, childStyle.headIndent)
     }
 
+    func testMarkdownBlockQuotePreservesNestedListIndents() throws {
+        var renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
+        let attributedText = renderer.render(markdown: "> - Parent\n>   - Child\n>     - Grandchild")
+
+        let parentStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Parent"))
+        let childStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Child"))
+        let grandchildStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Grandchild"))
+
+        XCTAssertGreaterThan(childStyle.firstLineHeadIndent, parentStyle.firstLineHeadIndent)
+        XCTAssertGreaterThan(grandchildStyle.firstLineHeadIndent, childStyle.firstLineHeadIndent)
+        XCTAssertGreaterThan(childStyle.headIndent, parentStyle.headIndent)
+        XCTAssertGreaterThan(grandchildStyle.headIndent, childStyle.headIndent)
+    }
+
+    func testMarkdownNestedBlockQuoteRendersIncreasingIndents() throws {
+        var renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
+        let attributedText = renderer.render(markdown: "> Outer\n>\n> > Inner")
+
+        let outerStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Outer"))
+        let innerStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Inner"))
+
+        XCTAssertGreaterThan(innerStyle.firstLineHeadIndent, outerStyle.firstLineHeadIndent)
+        XCTAssertGreaterThan(innerStyle.headIndent, outerStyle.headIndent)
+    }
+
+    func testMarkdownListContinuationPreservesNestedBlockQuoteIndent() throws {
+        var renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
+        let attributedText = renderer.render(markdown: "- Item\n  > Quote")
+
+        let itemStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Item"))
+        let quoteStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Quote"))
+
+        XCTAssertGreaterThan(quoteStyle.firstLineHeadIndent, itemStyle.headIndent)
+        XCTAssertGreaterThan(quoteStyle.headIndent, itemStyle.headIndent)
+    }
+
     func testMarkdownOrderedListUsesStableContentIndentAcrossDigitWidths() throws {
         var renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let attributedText = renderer.render(markdown: "9. Nine\n10. Ten")

@@ -15,6 +15,7 @@ struct ChatMarkdownRenderer {
     let style: ChatMarkdownRenderStyle
     let traitCollection: UITraitCollection
     let listState = ChatMarkdownListState()
+    let quoteState = ChatMarkdownQuoteState()
 
     init(style: ChatMarkdownRenderStyle = .assistant, traitCollection: UITraitCollection) {
         self.style = style

@@ -9,6 +9,23 @@
 import Markdown
 import UIKit
 
+private enum BlockQuoteLayout {
+    static let indent: CGFloat = 12.0
+    static let paragraphSpacing: CGFloat = 4.0
+}
+
+final class ChatMarkdownQuoteState {
+    private(set) var depth = 0
+
+    func push() {
+        depth += 1
+    }
+
+    func pop() {
+        depth = max(0, depth - 1)
+    }
+}
+
 extension ChatMarkdownRenderer {
     private mutating func renderBlocks(_ children: MarkupChildren) -> NSMutableAttributedString {
         let result = NSMutableAttributedString()
@@ -67,7 +84,7 @@ extension ChatMarkdownRenderer {
         apply(
             [
                 .font: style.headingFont(level: heading.level, compatibleWith: traitCollection),
-                .foregroundColor: style.textColor,
+                .foregroundColor: currentTextColor,
                 .paragraphStyle: paragraphStyle
             ],
             to: result
@@ -106,24 +123,24 @@ extension ChatMarkdownRenderer {
     }
 
     private mutating func renderBlockQuote(_ quote: BlockQuote) -> NSMutableAttributedString {
+        quoteState.push()
+        defer { quoteState.pop() }
+
         let result = renderBlocks(quote.children)
+
         trimTrailingNewlines(in: result)
         appendNewlineIfNeeded(to: result)
+        applyBlockQuoteIndent(to: result)
 
-        apply(
-            [
-                .foregroundColor: style.secondaryTextColor,
-                .font: style.calloutFont(compatibleWith: traitCollection)
-            ],
-            to: result
-        )
-
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.firstLineHeadIndent = 12.0
-        paragraphStyle.headIndent = 12.0
-        paragraphStyle.paragraphSpacing = 4.0
-        apply([.paragraphStyle: paragraphStyle], to: result)
         return result
+    }
+
+    private func applyBlockQuoteIndent(to attributedString: NSMutableAttributedString) {
+        offsetParagraphIndent(
+            in: attributedString,
+            by: BlockQuoteLayout.indent,
+            minimumParagraphSpacing: BlockQuoteLayout.paragraphSpacing
+        )
     }
 
     private func renderThematicBreak() -> NSMutableAttributedString {

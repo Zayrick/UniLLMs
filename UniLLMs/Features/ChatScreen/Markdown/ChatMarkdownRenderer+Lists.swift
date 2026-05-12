@@ -257,45 +257,10 @@ extension ChatMarkdownRenderer {
         to attributedString: NSMutableAttributedString,
         markerColumnWidth: CGFloat
     ) {
-        let contentIndent = listContentIndent(markerColumnWidth: markerColumnWidth)
-        applyParagraphIndent(
-            to: attributedString,
-            firstLineHeadIndent: contentIndent,
-            headIndent: contentIndent
+        offsetParagraphIndent(
+            in: attributedString,
+            by: listContentIndent(markerColumnWidth: markerColumnWidth)
         )
-    }
-
-    private func applyParagraphIndent(
-        to attributedString: NSMutableAttributedString,
-        firstLineHeadIndent: CGFloat,
-        headIndent: CGFloat
-    ) {
-        guard attributedString.length > 0 else {
-            return
-        }
-
-        let fullRange = NSRange(location: 0, length: attributedString.length)
-        var paragraphRanges: [(style: NSParagraphStyle?, range: NSRange)] = []
-        attributedString.enumerateAttribute(.paragraphStyle, in: fullRange) { value, range, _ in
-            paragraphRanges.append((value as? NSParagraphStyle, range))
-        }
-
-        for paragraphRange in paragraphRanges {
-            let paragraphStyle: NSMutableParagraphStyle
-            if let existingStyle = paragraphRange.style,
-               let mutableStyle = existingStyle.mutableCopy() as? NSMutableParagraphStyle {
-                paragraphStyle = mutableStyle
-            } else {
-                paragraphStyle = NSMutableParagraphStyle()
-            }
-
-            paragraphStyle.firstLineHeadIndent = firstLineHeadIndent
-            paragraphStyle.headIndent = headIndent
-            paragraphStyle.tabStops = [
-                NSTextTab(textAlignment: .left, location: headIndent)
-            ]
-            attributedString.addAttribute(.paragraphStyle, value: paragraphStyle, range: paragraphRange.range)
-        }
     }
 
     private var listBaseIndent: CGFloat {
@@ -312,11 +277,11 @@ extension ChatMarkdownRenderer {
 
     private func listMarkerFont(isOrdered: Bool) -> UIFont {
         guard isOrdered else {
-            return style.bodyFont(compatibleWith: traitCollection)
+            return currentBodyFont()
         }
 
         return .monospacedDigitSystemFont(
-            ofSize: style.bodyFont(compatibleWith: traitCollection).pointSize,
+            ofSize: currentBodyFont().pointSize,
             weight: .regular
         )
     }

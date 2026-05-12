@@ -26,6 +26,58 @@ extension ChatMarkdownRenderer {
         apply([.paragraphStyle: paragraphStyle], to: attributedString)
     }
 
+    func transformParagraphStyles(
+        in attributedString: NSMutableAttributedString,
+        transform: (NSMutableParagraphStyle) -> Void
+    ) {
+        guard attributedString.length > 0 else {
+            return
+        }
+
+        let fullRange = NSRange(location: 0, length: attributedString.length)
+        var paragraphRanges: [(style: NSParagraphStyle?, range: NSRange)] = []
+        attributedString.enumerateAttribute(.paragraphStyle, in: fullRange) { value, range, _ in
+            paragraphRanges.append((value as? NSParagraphStyle, range))
+        }
+
+        for paragraphRange in paragraphRanges {
+            let paragraphStyle: NSMutableParagraphStyle
+            if let existingStyle = paragraphRange.style,
+               let mutableStyle = existingStyle.mutableCopy() as? NSMutableParagraphStyle {
+                paragraphStyle = mutableStyle
+            } else {
+                paragraphStyle = NSMutableParagraphStyle()
+            }
+
+            transform(paragraphStyle)
+            attributedString.addAttribute(.paragraphStyle, value: paragraphStyle, range: paragraphRange.range)
+        }
+    }
+
+    func offsetParagraphIndent(
+        in attributedString: NSMutableAttributedString,
+        by offset: CGFloat,
+        minimumParagraphSpacing: CGFloat? = nil
+    ) {
+        transformParagraphStyles(in: attributedString) { paragraphStyle in
+            paragraphStyle.firstLineHeadIndent += offset
+            paragraphStyle.headIndent += offset
+            if let minimumParagraphSpacing {
+                paragraphStyle.paragraphSpacing = max(
+                    paragraphStyle.paragraphSpacing,
+                    minimumParagraphSpacing
+                )
+            }
+            paragraphStyle.tabStops = paragraphStyle.tabStops.map { tab in
+                NSTextTab(
+                    textAlignment: tab.alignment,
+                    location: tab.location + offset,
+                    options: tab.options
+                )
+            }
+        }
+    }
+
     func appendNewlineIfNeeded(to attributedString: NSMutableAttributedString) {
         guard attributedString.length == 0 || !attributedString.string.hasSuffix("\n") else {
             return
@@ -50,8 +102,8 @@ extension ChatMarkdownRenderer {
 
     func bodyAttributes() -> [NSAttributedString.Key: Any] {
         [
-            .font: style.bodyFont(compatibleWith: traitCollection),
-            .foregroundColor: style.textColor
+            .font: currentBodyFont(),
+            .foregroundColor: currentTextColor
         ]
     }
 
@@ -60,5 +112,17 @@ extension ChatMarkdownRenderer {
             .font: style.calloutFont(compatibleWith: traitCollection),
             .foregroundColor: style.secondaryTextColor
         ]
+    }
+
+    var currentTextColor: UIColor {
+        quoteState.depth > 0 ? style.secondaryTextColor : style.textColor
+    }
+
+    func currentBodyFont() -> UIFont {
+        if quoteState.depth > 0 {
+            return style.calloutFont(compatibleWith: traitCollection)
+        }
+
+        return style.bodyFont(compatibleWith: traitCollection)
     }
 }

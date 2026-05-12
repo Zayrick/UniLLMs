@@ -24,11 +24,11 @@ extension ChatMarkdownRenderer {
             return NSMutableAttributedString(string: text.string, attributes: bodyAttributes())
         case let strong as Strong:
             let result = renderInlineChildren(of: strong)
-            apply([.font: boldFont(from: style.bodyFont(compatibleWith: traitCollection))], to: result)
+            apply([.font: boldFont(from: currentBodyFont())], to: result)
             return result
         case let emphasis as Emphasis:
             let result = renderInlineChildren(of: emphasis)
-            apply([.font: italicFont(from: style.bodyFont(compatibleWith: traitCollection))], to: result)
+            apply([.font: italicFont(from: currentBodyFont())], to: result)
             return result
         case let strikethrough as Strikethrough:
             let result = renderInlineChildren(of: strikethrough)
