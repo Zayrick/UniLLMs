@@ -157,7 +157,9 @@ final class UniLLMsTests: XCTestCase {
             draft.models,
             [
                 LLMProviderModel(id: FakeLLMsProvider.ModelID.staticResponse, name: "Static"),
-                LLMProviderModel(id: FakeLLMsProvider.ModelID.stream, name: "Stream")
+                LLMProviderModel(id: FakeLLMsProvider.ModelID.stream, name: "Stream"),
+                LLMProviderModel(id: FakeLLMsProvider.ModelID.markdownStatic, name: "Markdown Static"),
+                LLMProviderModel(id: FakeLLMsProvider.ModelID.markdownStream, name: "Markdown Stream")
             ]
         )
         XCTAssertEqual(try await manager.fetchModels(for: draft), draft.models)
@@ -215,6 +217,57 @@ final class UniLLMsTests: XCTestCase {
         }
 
         XCTAssertTrue(streamedContent.contains("fake streaming response"))
+    }
+
+    func testFakeMarkdownStaticModelReturnsSingleMarkdownFixture() async throws {
+        let provider = FakeLLMsProvider(staticResponseDelayNanoseconds: 0)
+        var deltas: [ChatResponseDelta] = []
+
+        for try await delta in provider.streamChat(
+            request: ChatRequest(
+                modelID: FakeLLMsProvider.ModelID.markdownStatic,
+                messages: [],
+                context: ChatContext()
+            ),
+            configuration: LLMsProviderConfiguration()
+        ) {
+            deltas.append(delta)
+        }
+
+        XCTAssertEqual(deltas.count, 1)
+        XCTAssertTrue(deltas[0].content.contains("# UniLLMs Markdown Torture Fixture"))
+        XCTAssertTrue(deltas[0].content.contains("> [!NOTE]"))
+        XCTAssertTrue(deltas[0].content.contains("```swift"))
+        XCTAssertTrue(deltas[0].content.contains("$$"))
+    }
+
+    func testFakeMarkdownStreamModelYieldsMarkdownFixtureInRandomSizedCharacterChunks() async throws {
+        let provider = FakeLLMsProvider(
+            streamInitialDelayNanoseconds: 0,
+            markdownStreamChunkDelayRangeNanoseconds: 0...0
+        )
+        var deltas: [ChatResponseDelta] = []
+        var streamedContent = ""
+
+        for try await delta in provider.streamChat(
+            request: ChatRequest(
+                modelID: FakeLLMsProvider.ModelID.markdownStream,
+                messages: [],
+                context: ChatContext()
+            ),
+            configuration: LLMsProviderConfiguration()
+        ) {
+            deltas.append(delta)
+            XCTAssertGreaterThanOrEqual(delta.content.count, 1)
+            XCTAssertLessThanOrEqual(delta.content.count, 6)
+            streamedContent += delta.content
+        }
+
+        XCTAssertGreaterThan(deltas.count, 10)
+        XCTAssertTrue(streamedContent.contains("# UniLLMs Markdown Torture Fixture"))
+        XCTAssertTrue(streamedContent.contains("| Feature | Syntax | Expected Alignment | Notes |"))
+        XCTAssertTrue(streamedContent.contains("```mermaid"))
+        XCTAssertTrue(streamedContent.contains("\\begin{bmatrix}"))
     }
 
     func testProviderManagerCreatesStaticDraftWithBuiltInModels() async throws {
