@@ -285,6 +285,30 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertTrue(attributedText.containsTextAttachment)
     }
 
+    func testMarkdownNestedListRendersIncreasingIndents() throws {
+        var renderer = ChatMarkdownRenderer()
+        let attributedText = renderer.render(markdown: "- Parent\n  - Child\n    - Grandchild")
+
+        let parentStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Parent"))
+        let childStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Child"))
+        let grandchildStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Grandchild"))
+
+        XCTAssertGreaterThan(childStyle.firstLineHeadIndent, parentStyle.firstLineHeadIndent)
+        XCTAssertGreaterThan(grandchildStyle.firstLineHeadIndent, childStyle.firstLineHeadIndent)
+        XCTAssertGreaterThan(childStyle.headIndent, parentStyle.headIndent)
+        XCTAssertGreaterThan(grandchildStyle.headIndent, childStyle.headIndent)
+    }
+
+    func testMarkdownOrderedListUsesStableContentIndentAcrossDigitWidths() throws {
+        var renderer = ChatMarkdownRenderer()
+        let attributedText = renderer.render(markdown: "9. Nine\n10. Ten")
+
+        let nineStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Nine"))
+        let tenStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Ten"))
+
+        XCTAssertEqual(nineStyle.headIndent, tenStyle.headIndent)
+    }
+
     func testOpenRouterStreamParserDecodesContentDelta() throws {
         let delta = try XCTUnwrap(
             OpenRouterAPIClient.streamDelta(
@@ -372,5 +396,14 @@ private extension NSAttributedString {
             stop.pointee = true
         }
         return foundAttachment
+    }
+
+    func paragraphStyle(containing text: String) -> NSParagraphStyle? {
+        let range = (string as NSString).range(of: text)
+        guard range.location != NSNotFound else {
+            return nil
+        }
+
+        return attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle
     }
 }
