@@ -16,6 +16,11 @@ private enum ListLayout {
     static let itemSpacing: CGFloat = 2.0
 }
 
+private enum ListMarker {
+    case text(String)
+    case symbol(name: String)
+}
+
 final class ChatMarkdownListState {
     fileprivate var depth = 0
     fileprivate var orderedCounters: [Int] = []
@@ -45,7 +50,7 @@ extension ChatMarkdownRenderer {
     ) -> NSMutableAttributedString where Items.Element == ListItem {
         let result = NSMutableAttributedString()
         let listItems = Array(items)
-        var markers: [String] = []
+        var markers: [ListMarker] = []
         markers.reserveCapacity(listItems.count)
         for item in listItems {
             markers.append(marker(for: item, isOrdered: isOrdered))
@@ -53,7 +58,7 @@ extension ChatMarkdownRenderer {
 
         let markerColumnWidth = max(
             ListLayout.markerMinWidth,
-            markers.map { markerTextWidth($0, isOrdered: isOrdered) }.max() ?? 0.0
+            markers.map { markerWidth($0, isOrdered: isOrdered) }.max() ?? 0.0
         )
 
         for (item, marker) in zip(listItems, markers) {
@@ -74,38 +79,40 @@ extension ChatMarkdownRenderer {
         return result
     }
 
-    private mutating func marker(for item: ListItem, isOrdered: Bool) -> String {
-        if isOrdered {
-            let current = listState.orderedCounters.last ?? 1
-            if !listState.orderedCounters.isEmpty {
-                listState.orderedCounters[listState.orderedCounters.count - 1] = current + 1
-            }
-            return "\(current)."
-        }
-
+    private mutating func marker(for item: ListItem, isOrdered: Bool) -> ListMarker {
         if let checkbox = item.checkbox {
-            return checkbox == .checked ? "[x]" : "[ ]"
+            if isOrdered {
+                _ = advanceOrderedCounter()
+            }
+            return checkbox == .checked
+                ? .symbol(name: "checkmark.square")
+                : .symbol(name: "square")
         }
 
-        return "-"
+        if isOrdered {
+            let current = advanceOrderedCounter()
+            return .text("\(current).")
+        }
+
+        return .text("-")
+    }
+
+    private mutating func advanceOrderedCounter() -> Int {
+        let current = listState.orderedCounters.last ?? 1
+        if !listState.orderedCounters.isEmpty {
+            listState.orderedCounters[listState.orderedCounters.count - 1] = current + 1
+        }
+        return current
     }
 
     private mutating func renderListItem(
         _ item: ListItem,
-        marker: String,
+        marker: ListMarker,
         isOrdered: Bool,
         markerColumnWidth: CGFloat
     ) -> NSMutableAttributedString {
         let result = NSMutableAttributedString()
-        let leadingParagraph = NSMutableAttributedString(
-            string: "\(marker)\t",
-            attributes: bodyAttributes()
-        )
-        leadingParagraph.addAttribute(
-            .font,
-            value: listMarkerFont(isOrdered: isOrdered),
-            range: NSRange(location: 0, length: (marker as NSString).length)
-        )
+        let leadingParagraph = markerAttributedString(marker, isOrdered: isOrdered)
         var didAppendLeadingParagraph = false
         var didAppendLeadingContent = false
 
@@ -197,7 +204,7 @@ extension ChatMarkdownRenderer {
 
     private func appendListParagraph(
         _ paragraph: NSMutableAttributedString,
-        marker: String,
+        marker: ListMarker,
         isOrdered: Bool,
         markerColumnWidth: CGFloat,
         to result: NSMutableAttributedString
@@ -232,7 +239,7 @@ extension ChatMarkdownRenderer {
     }
 
     private func listParagraphStyle(
-        marker: String,
+        marker: ListMarker,
         isOrdered: Bool,
         markerColumnWidth: CGFloat
     ) -> NSMutableParagraphStyle {
@@ -240,7 +247,7 @@ extension ChatMarkdownRenderer {
         let contentIndent = listContentIndent(markerColumnWidth: markerColumnWidth)
         let markerIndent = max(
             listBaseIndent,
-            contentIndent - ListLayout.markerSpacing - markerTextWidth(marker, isOrdered: isOrdered)
+            contentIndent - ListLayout.markerSpacing - markerWidth(marker, isOrdered: isOrdered)
         )
 
         paragraphStyle.lineSpacing = 1.0
@@ -271,7 +278,40 @@ extension ChatMarkdownRenderer {
         listBaseIndent + markerColumnWidth + ListLayout.markerSpacing
     }
 
-    private func markerTextWidth(_ marker: String, isOrdered: Bool) -> CGFloat {
+    private func markerAttributedString(_ marker: ListMarker, isOrdered: Bool) -> NSMutableAttributedString {
+        let result = NSMutableAttributedString()
+        switch marker {
+        case let .text(text):
+            result.append(NSAttributedString(string: text, attributes: bodyAttributes()))
+            result.addAttribute(
+                .font,
+                value: listMarkerFont(isOrdered: isOrdered),
+                range: NSRange(location: 0, length: (text as NSString).length)
+            )
+        case let .symbol(name):
+            if let image = symbolImage(named: name) {
+                let symbol = NSMutableAttributedString(attachment: NSTextAttachment(image: image))
+                symbol.addAttributes(
+                    bodyAttributes(),
+                    range: NSRange(location: 0, length: symbol.length)
+                )
+                result.append(symbol)
+            }
+        }
+        result.append(NSAttributedString(string: "\t", attributes: bodyAttributes()))
+        return result
+    }
+
+    private func markerWidth(_ marker: ListMarker, isOrdered: Bool) -> CGFloat {
+        switch marker {
+        case let .text(text):
+            return textMarkerWidth(text, isOrdered: isOrdered)
+        case let .symbol(name):
+            return symbolImage(named: name)?.size.width ?? 0.0
+        }
+    }
+
+    private func textMarkerWidth(_ marker: String, isOrdered: Bool) -> CGFloat {
         ceil((marker as NSString).size(withAttributes: [.font: listMarkerFont(isOrdered: isOrdered)]).width)
     }
 
@@ -284,5 +324,14 @@ extension ChatMarkdownRenderer {
             ofSize: currentBodyFont().pointSize,
             weight: .regular
         )
+    }
+
+    private func symbolImage(named name: String) -> UIImage? {
+        let configuration = UIImage.SymbolConfiguration(font: currentBodyFont(), scale: .medium)
+        return UIImage(systemName: name, withConfiguration: configuration)?
+            .withTintColor(
+                currentTextColor.resolvedColor(with: traitCollection),
+                renderingMode: .alwaysOriginal
+            )
     }
 }

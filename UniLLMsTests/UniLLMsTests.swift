@@ -653,6 +653,16 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertEqual(nineStyle.headIndent, tenStyle.headIndent)
     }
 
+    func testMarkdownTaskListRendersCheckboxMarkers() throws {
+        let attributedText = renderMarkdownText("- [x] Done\n- [ ] Todo")
+
+        XCTAssertEqual(attributedText.textAttachmentCount, 2)
+        XCTAssertTrue(attributedText.string.contains("Done"))
+        XCTAssertTrue(attributedText.string.contains("Todo"))
+        XCTAssertFalse(attributedText.string.contains("[x]"))
+        XCTAssertFalse(attributedText.string.contains("[ ]"))
+    }
+
     func testOpenRouterStreamParserDecodesContentDelta() throws {
         let delta = try XCTUnwrap(
             OpenRouterAPIClient.streamDelta(
@@ -777,19 +787,22 @@ private struct StaticModelProvider: LLMsProviderAdapter {
 
 private extension NSAttributedString {
     var containsTextAttachment: Bool {
-        var foundAttachment = false
+        textAttachmentCount > 0
+    }
+
+    var textAttachmentCount: Int {
+        var attachmentCount = 0
         enumerateAttribute(
             .attachment,
             in: NSRange(location: 0, length: length)
-        ) { value, _, stop in
+        ) { value, _, _ in
             guard value is NSTextAttachment else {
                 return
             }
 
-            foundAttachment = true
-            stop.pointee = true
+            attachmentCount += 1
         }
-        return foundAttachment
+        return attachmentCount
     }
 
     func paragraphStyle(containing text: String) -> NSParagraphStyle? {
