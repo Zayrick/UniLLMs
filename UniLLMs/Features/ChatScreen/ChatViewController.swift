@@ -912,6 +912,7 @@ final class ChatViewController: UIViewController {
 
         if let activeResponseView {
             applyAssistantResponseChange(to: activeResponseView) {
+                activeResponseView.finishStreamingContent()
                 activeResponseView.setLoadingVisible(false)
             }
         }
@@ -979,6 +980,7 @@ final class ChatViewController: UIViewController {
     private func finishAssistantResponseStream() {
         if let activeResponseView {
             applyAssistantResponseChange(to: activeResponseView) {
+                activeResponseView.finishStreamingContent()
                 activeResponseView.setLoadingVisible(false)
             }
         }

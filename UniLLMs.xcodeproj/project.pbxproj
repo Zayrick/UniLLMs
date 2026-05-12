@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		A9498EF02FAEB00000763196 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = A9498EF22FAEB00000763196 /* Markdown */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		A9498ED02FAE793700763196 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -65,6 +69,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A9498EF02FAEB00000763196 /* Markdown in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -125,6 +130,7 @@
 			);
 			name = UniLLMs;
 			packageProductDependencies = (
+				A9498EF22FAEB00000763196 /* Markdown */,
 			);
 			productName = UniLLMs;
 			productReference = A9498EB62FAE793500763196 /* UniLLMs.app */;
@@ -208,6 +214,9 @@
 			);
 			mainGroup = A9498EAD2FAE793500763196;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A9498EF12FAEB00000763196 /* XCRemoteSwiftPackageReference "swift-markdown" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A9498EB72FAE793500763196 /* Products */;
 			projectDirPath = "";
@@ -585,6 +594,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A9498EF12FAEB00000763196 /* XCRemoteSwiftPackageReference "swift-markdown" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/swiftlang/swift-markdown.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.8.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A9498EF22FAEB00000763196 /* Markdown */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A9498EF12FAEB00000763196 /* XCRemoteSwiftPackageReference "swift-markdown" */;
+			productName = Markdown;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A9498EAE2FAE793500763196 /* Project object */;
 }

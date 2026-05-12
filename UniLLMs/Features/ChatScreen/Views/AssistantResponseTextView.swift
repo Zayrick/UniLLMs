@@ -21,7 +21,7 @@ final class AssistantResponseTextView: UIView {
     private let loadingIndicatorView = UIActivityIndicatorView(style: .medium)
     private let loadingLabel = UILabel()
     private let reasoningTextView = StreamingTextView()
-    private let contentTextView = StreamingTextView()
+    private let contentTextView = StreamingMarkdownTextView()
     private let errorLabel = UILabel()
     private var reasoningHeightConstraint: NSLayoutConstraint!
     private var contentHeightConstraint: NSLayoutConstraint!
@@ -59,7 +59,7 @@ final class AssistantResponseTextView: UIView {
         }
         if !contentDelta.isEmpty {
             hasContentText = true
-            contentTextView.append(contentDelta, attributes: contentAttributes)
+            contentTextView.appendMarkdown(contentDelta)
         }
 
         updateVisibility()
@@ -67,6 +67,7 @@ final class AssistantResponseTextView: UIView {
 
     func setError(_ message: String) {
         isLoading = false
+        contentTextView.finishStreamingContent()
         errorLabel.text = message
         updateVisibility()
     }
@@ -91,6 +92,11 @@ final class AssistantResponseTextView: UIView {
         updateVisibility()
     }
 
+    func finishStreamingContent() {
+        contentTextView.finishStreamingContent()
+        updateVisibility()
+    }
+
     private func configure() {
         backgroundColor = .clear
         isOpaque = false
@@ -104,8 +110,8 @@ final class AssistantResponseTextView: UIView {
 
         configureLoadingView()
 
-        configureTextView(reasoningTextView, textStyle: .callout, color: .secondaryLabel)
-        configureTextView(contentTextView, textStyle: .body, color: .label)
+        configurePlainTextView(reasoningTextView, textStyle: .callout, color: .secondaryLabel)
+        configureTextView(contentTextView)
         configureLabel(errorLabel, textStyle: .callout, color: .systemRed)
 
         stackView.addArrangedSubview(loadingView)
@@ -151,24 +157,28 @@ final class AssistantResponseTextView: UIView {
         loadingView.addArrangedSubview(loadingLabel)
     }
 
-    private func configureTextView(
-        _ textView: UITextView,
-        textStyle: UIFont.TextStyle,
-        color: UIColor
-    ) {
+    private func configureTextView(_ textView: UITextView) {
         textView.backgroundColor = .clear
         textView.isOpaque = false
         textView.isEditable = false
         textView.isSelectable = false
         textView.isScrollEnabled = false
-        textView.font = .preferredFont(forTextStyle: textStyle)
-        textView.adjustsFontForContentSizeCategory = true
-        textView.textColor = color
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0.0
         textView.setContentCompressionResistancePriority(.required, for: .vertical)
         textView.setContentHuggingPriority(.required, for: .vertical)
         textView.translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    private func configurePlainTextView(
+        _ textView: UITextView,
+        textStyle: UIFont.TextStyle,
+        color: UIColor
+    ) {
+        configureTextView(textView)
+        textView.font = .preferredFont(forTextStyle: textStyle)
+        textView.adjustsFontForContentSizeCategory = true
+        textView.textColor = color
     }
 
     private func configureLabel(
@@ -251,13 +261,6 @@ final class AssistantResponseTextView: UIView {
         [
             .font: UIFont.preferredFont(forTextStyle: .callout),
             .foregroundColor: UIColor.secondaryLabel
-        ]
-    }
-
-    private var contentAttributes: [NSAttributedString.Key: Any] {
-        [
-            .font: UIFont.preferredFont(forTextStyle: .body),
-            .foregroundColor: UIColor.label
         ]
     }
 
