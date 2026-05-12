@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import UIKit
 import XCTest
 @testable import UniLLMs
 
@@ -274,6 +275,16 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertEqual(selection.modelName, "GPT-4.1 Latest")
     }
 
+    func testMarkdownThematicBreakRendersAsVisualDivider() throws {
+        var renderer = ChatMarkdownRenderer()
+        let attributedText = renderer.render(markdown: "Above\n\n---\n\nBelow")
+
+        XCTAssertFalse(attributedText.string.contains("---"))
+        XCTAssertTrue(attributedText.string.contains("Above"))
+        XCTAssertTrue(attributedText.string.contains("Below"))
+        XCTAssertTrue(attributedText.containsTextAttachment)
+    }
+
     func testOpenRouterStreamParserDecodesContentDelta() throws {
         let delta = try XCTUnwrap(
             OpenRouterAPIClient.streamDelta(
@@ -344,4 +355,22 @@ final class UniLLMsTests: XCTestCase {
         }
     }
 
+}
+
+private extension NSAttributedString {
+    var containsTextAttachment: Bool {
+        var foundAttachment = false
+        enumerateAttribute(
+            .attachment,
+            in: NSRange(location: 0, length: length)
+        ) { value, _, stop in
+            guard value is NSTextAttachment else {
+                return
+            }
+
+            foundAttachment = true
+            stop.pointee = true
+        }
+        return foundAttachment
+    }
 }

@@ -41,6 +41,10 @@ struct ChatMarkdownRenderStyle {
         )
     }
 
+    var dividerColor: UIColor {
+        secondaryTextColor.withAlphaComponent(0.35)
+    }
+
     func headingFont(level: Int) -> UIFont {
         switch level {
         case 1:
@@ -113,7 +117,7 @@ struct ChatMarkdownRenderer {
         case let table as Table:
             return renderTable(table)
         case _ as ThematicBreak:
-            return blockString("---\n", attributes: Self.secondaryAttributes(style: style))
+            return renderThematicBreak()
         case let htmlBlock as HTMLBlock:
             return blockString(htmlBlock.rawHTML + "\n", attributes: Self.secondaryAttributes(style: style))
         case let image as Markdown.Image:
@@ -259,6 +263,21 @@ struct ChatMarkdownRenderer {
         paragraphStyle.firstLineHeadIndent = 12.0
         paragraphStyle.headIndent = 12.0
         paragraphStyle.paragraphSpacing = 4.0
+        apply([.paragraphStyle: paragraphStyle], to: result)
+        return result
+    }
+
+    private func renderThematicBreak() -> NSMutableAttributedString {
+        let result = NSMutableAttributedString(
+            attachment: HorizontalRuleTextAttachment(color: style.dividerColor)
+        )
+        result.append(NSAttributedString(string: "\n", attributes: Self.bodyAttributes(style: style)))
+
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.minimumLineHeight = HorizontalRuleTextAttachment.totalHeight
+        paragraphStyle.maximumLineHeight = HorizontalRuleTextAttachment.totalHeight
+        paragraphStyle.paragraphSpacingBefore = 6.0
+        paragraphStyle.paragraphSpacing = 6.0
         apply([.paragraphStyle: paragraphStyle], to: result)
         return result
     }
@@ -454,6 +473,53 @@ struct ChatMarkdownRenderer {
             .font: style.calloutFont,
             .foregroundColor: style.secondaryTextColor
         ]
+    }
+}
+
+private final class HorizontalRuleTextAttachment: NSTextAttachment {
+    static let totalHeight: CGFloat = 14.0
+    private static let lineHeight: CGFloat = 1.0 / UIScreen.main.scale
+
+    init(color: UIColor) {
+        super.init(data: nil, ofType: nil)
+        image = Self.makeImage(color: color)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+    }
+
+    override func attachmentBounds(
+        for textContainer: NSTextContainer?,
+        proposedLineFragment lineFrag: CGRect,
+        glyphPosition position: CGPoint,
+        characterIndex charIndex: Int
+    ) -> CGRect {
+        CGRect(
+            x: 0.0,
+            y: -Self.totalHeight / 2.0,
+            width: max(1.0, lineFrag.width),
+            height: Self.totalHeight
+        )
+    }
+
+    private static func makeImage(color: UIColor) -> UIImage {
+        let size = CGSize(width: 1.0, height: totalHeight)
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = false
+        format.scale = UIScreen.main.scale
+
+        return UIGraphicsImageRenderer(size: size, format: format).image { rendererContext in
+            color.setFill()
+            rendererContext.fill(
+                CGRect(
+                    x: 0.0,
+                    y: (totalHeight - lineHeight) / 2.0,
+                    width: size.width,
+                    height: lineHeight
+                )
+            )
+        }.resizableImage(withCapInsets: .zero, resizingMode: .stretch)
     }
 }
 
