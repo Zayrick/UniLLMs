@@ -556,6 +556,28 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertTrue(attributedText.containsTextAttachment)
     }
 
+    func testMarkdownTableRendersAsDedicatedBlock() throws {
+        var renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
+        let blocks = renderer.renderBlocks(
+            markdown: """
+            | Feature | Count |
+            | :-- | --: |
+            | **Tables** | 2 |
+            """
+        )
+
+        let firstBlock = try XCTUnwrap(blocks.first)
+        guard case let .table(tableData) = firstBlock else {
+            XCTFail("Expected first rendered block to be a Markdown table")
+            return
+        }
+        XCTAssertEqual(blocks.count, 1)
+        XCTAssertEqual(tableData.columnCount, 2)
+        XCTAssertEqual(tableData.rows.count, 2)
+        XCTAssertEqual(tableData.rows[0][0].accessibilityText, "Feature")
+        XCTAssertEqual(tableData.rows[1][0].accessibilityText, "Tables")
+    }
+
     func testMarkdownNestedListRendersIncreasingIndents() throws {
         var renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let attributedText = renderer.render(markdown: "- Parent\n  - Child\n    - Grandchild")

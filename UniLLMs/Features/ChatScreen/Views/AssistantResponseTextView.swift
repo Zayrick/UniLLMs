@@ -21,7 +21,7 @@ final class AssistantResponseTextView: UIView {
     private let loadingIndicatorView = UIActivityIndicatorView(style: .medium)
     private let loadingLabel = UILabel()
     private let reasoningTextView = StreamingTextView()
-    private let contentTextView = StreamingMarkdownTextView()
+    private let contentMarkdownView = StreamingMarkdownView()
     private let errorLabel = UILabel()
     private var reasoningHeightConstraint: NSLayoutConstraint!
     private var contentHeightConstraint: NSLayoutConstraint!
@@ -59,7 +59,7 @@ final class AssistantResponseTextView: UIView {
         }
         if !contentDelta.isEmpty {
             hasContentText = true
-            contentTextView.appendMarkdown(contentDelta)
+            contentMarkdownView.appendMarkdown(contentDelta)
         }
 
         updateVisibility()
@@ -67,7 +67,7 @@ final class AssistantResponseTextView: UIView {
 
     func setError(_ message: String) {
         isLoading = false
-        contentTextView.finishStreamingContent()
+        contentMarkdownView.finishStreamingContent()
         errorLabel.text = message
         updateVisibility()
     }
@@ -93,7 +93,7 @@ final class AssistantResponseTextView: UIView {
     }
 
     func finishStreamingContent() {
-        contentTextView.finishStreamingContent()
+        contentMarkdownView.finishStreamingContent()
         updateVisibility()
     }
 
@@ -111,16 +111,16 @@ final class AssistantResponseTextView: UIView {
         configureLoadingView()
 
         configurePlainTextView(reasoningTextView, textStyle: .callout, color: .secondaryLabel)
-        configureTextView(contentTextView)
+        configureContentMarkdownView()
         configureLabel(errorLabel, textStyle: .callout, color: .systemRed)
 
         stackView.addArrangedSubview(loadingView)
         stackView.addArrangedSubview(reasoningTextView)
-        stackView.addArrangedSubview(contentTextView)
+        stackView.addArrangedSubview(contentMarkdownView)
         stackView.addArrangedSubview(errorLabel)
 
         reasoningHeightConstraint = reasoningTextView.heightAnchor.constraint(equalToConstant: 0.0)
-        contentHeightConstraint = contentTextView.heightAnchor.constraint(equalToConstant: 0.0)
+        contentHeightConstraint = contentMarkdownView.heightAnchor.constraint(equalToConstant: 0.0)
 
         NSLayoutConstraint.activate([
             stackView.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.verticalInset),
@@ -162,6 +162,7 @@ final class AssistantResponseTextView: UIView {
         textView.isOpaque = false
         textView.isEditable = false
         textView.isSelectable = false
+        textView.isUserInteractionEnabled = true
         textView.isScrollEnabled = false
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0.0
@@ -179,6 +180,14 @@ final class AssistantResponseTextView: UIView {
         textView.font = .preferredFont(forTextStyle: textStyle)
         textView.adjustsFontForContentSizeCategory = true
         textView.textColor = color
+    }
+
+    private func configureContentMarkdownView() {
+        contentMarkdownView.backgroundColor = .clear
+        contentMarkdownView.isOpaque = false
+        contentMarkdownView.setContentCompressionResistancePriority(.required, for: .vertical)
+        contentMarkdownView.setContentHuggingPriority(.required, for: .vertical)
+        contentMarkdownView.translatesAutoresizingMaskIntoConstraints = false
     }
 
     private func configureLabel(
@@ -205,7 +214,7 @@ final class AssistantResponseTextView: UIView {
         }
 
         reasoningTextView.isHidden = !hasReasoningText
-        contentTextView.isHidden = !hasContentText
+        contentMarkdownView.isHidden = !hasContentText
         errorLabel.isHidden = (errorLabel.text ?? "").isEmpty
         isHidden = !isLoading && !hasReasoningText && !hasContentText && errorLabel.isHidden
         updateTextViewHeights()
@@ -227,7 +236,7 @@ final class AssistantResponseTextView: UIView {
         }
 
         updateTextViewHeight(reasoningTextView, constraint: reasoningHeightConstraint, width: width)
-        updateTextViewHeight(contentTextView, constraint: contentHeightConstraint, width: width)
+        updateContentHeight(contentMarkdownView, constraint: contentHeightConstraint, width: width)
         lastMeasuredTextWidth = width
         invalidateIntrinsicContentSize()
     }
@@ -243,6 +252,22 @@ final class AssistantResponseTextView: UIView {
         }
 
         let fittingSize = textView.sizeThatFits(
+            CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+        )
+        constraint.constant = ceil(fittingSize.height)
+    }
+
+    private func updateContentHeight(
+        _ view: UIView,
+        constraint: NSLayoutConstraint,
+        width: CGFloat
+    ) {
+        guard !view.isHidden else {
+            constraint.constant = 0.0
+            return
+        }
+
+        let fittingSize = view.sizeThatFits(
             CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
         )
         constraint.constant = ceil(fittingSize.height)
