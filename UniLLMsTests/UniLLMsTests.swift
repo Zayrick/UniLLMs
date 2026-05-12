@@ -143,6 +143,80 @@ final class UniLLMsTests: XCTestCase {
         }
     }
 
+    func testProviderManagerCreatesFakeDraftWithBuiltInModelsAndNoConfiguration() async throws {
+        let manager = makeProviderManager(adapters: [FakeLLMsProvider()])
+
+        let draft = try manager.makeProviderDraft(kind: .fake)
+
+        XCTAssertEqual(draft.kind, .fake)
+        XCTAssertEqual(draft.name, "Fake")
+        XCTAssertEqual(draft.configuration, LLMsProviderConfiguration())
+        XCTAssertTrue(manager.configurationFields(for: .fake).isEmpty)
+        XCTAssertTrue(manager.hasRequiredConfigurationFields(for: draft))
+        XCTAssertEqual(
+            draft.models,
+            [
+                LLMProviderModel(id: FakeLLMsProvider.ModelID.staticResponse, name: "Static"),
+                LLMProviderModel(id: FakeLLMsProvider.ModelID.stream, name: "Stream")
+            ]
+        )
+        XCTAssertEqual(try await manager.fetchModels(for: draft), draft.models)
+
+        switch manager.modelSource(for: .fake) {
+        case .some(.`static`):
+            break
+        case .some(.remote), .some(.manual), nil:
+            XCTFail("Fake provider should use built-in models.")
+        }
+    }
+
+    func testDefaultProviderCatalogRegistersFakeProvider() {
+        let registry = LLMsProviderCatalog.makeRegistry()
+
+        XCTAssertNotNil(registry.adapter(for: .fake))
+    }
+
+    func testFakeStaticModelReturnsSingleDelayedResponse() async throws {
+        let provider = FakeLLMsProvider(staticResponseDelayNanoseconds: 0)
+        var deltas: [ChatResponseDelta] = []
+
+        for try await delta in provider.streamChat(
+            request: ChatRequest(
+                modelID: FakeLLMsProvider.ModelID.staticResponse,
+                messages: [],
+                context: ChatContext()
+            ),
+            configuration: LLMsProviderConfiguration()
+        ) {
+            deltas.append(delta)
+        }
+
+        XCTAssertEqual(deltas.count, 1)
+        XCTAssertTrue(deltas[0].content.contains("fake static response"))
+    }
+
+    func testFakeStreamModelYieldsResponseOneCharacterAtATime() async throws {
+        let provider = FakeLLMsProvider(
+            streamInitialDelayNanoseconds: 0,
+            streamCharacterDelayNanoseconds: 0
+        )
+        var streamedContent = ""
+
+        for try await delta in provider.streamChat(
+            request: ChatRequest(
+                modelID: FakeLLMsProvider.ModelID.stream,
+                messages: [],
+                context: ChatContext()
+            ),
+            configuration: LLMsProviderConfiguration()
+        ) {
+            XCTAssertLessThanOrEqual(delta.content.count, 1)
+            streamedContent += delta.content
+        }
+
+        XCTAssertTrue(streamedContent.contains("fake streaming response"))
+    }
+
     func testProviderManagerCreatesStaticDraftWithBuiltInModels() async throws {
         let staticModels = [
             LLMProviderModel(id: "openai/gpt-4.1-mini", name: "GPT-4.1 mini"),
