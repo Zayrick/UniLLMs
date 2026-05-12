@@ -2,7 +2,7 @@
 //  ChatMarkdownRenderer.swift
 //  UniLLMs
 //
-//  Renders chat Markdown into attributed text and block views using swift-markdown.
+//  Renders chat Markdown into text and table blocks using swift-markdown.
 //  Created by Zayrick on 2026/5/12.
 //
 
@@ -27,27 +27,7 @@ struct ChatMarkdownRenderer {
         self.traitCollection = traitCollection
     }
 
-    mutating func render(markdown: String) -> NSAttributedString {
-        guard !markdown.isEmpty else {
-            return NSAttributedString()
-        }
-
-        let blocks = renderBlocks(markdown: markdown)
-        let result = NSMutableAttributedString()
-        for block in blocks {
-            switch block {
-            case let .text(text):
-                result.append(text)
-            case let .table(tableData):
-                result.append(renderPlainTextTable(tableData))
-            }
-        }
-
-        trimTrailingNewlines(in: result)
-        return result
-    }
-
-    mutating func renderBlocks(markdown: String) -> [ChatMarkdownRenderedBlock] {
+    mutating func render(markdown: String) -> [ChatMarkdownRenderedBlock] {
         guard !markdown.isEmpty else {
             return []
         }

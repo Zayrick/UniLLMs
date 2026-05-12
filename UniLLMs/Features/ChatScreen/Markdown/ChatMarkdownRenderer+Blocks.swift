@@ -27,7 +27,7 @@ final class ChatMarkdownQuoteState {
 }
 
 extension ChatMarkdownRenderer {
-    private mutating func renderBlocks(_ children: MarkupChildren) -> NSMutableAttributedString {
+    private mutating func renderChildBlocks(_ children: MarkupChildren) -> NSMutableAttributedString {
         let result = NSMutableAttributedString()
         for child in children {
             result.append(renderBlock(child))
@@ -126,7 +126,7 @@ extension ChatMarkdownRenderer {
         quoteState.push()
         defer { quoteState.pop() }
 
-        let result = renderBlocks(quote.children)
+        let result = renderChildBlocks(quote.children)
 
         trimTrailingNewlines(in: result)
         appendNewlineIfNeeded(to: result)

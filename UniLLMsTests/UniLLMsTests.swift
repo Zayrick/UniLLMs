@@ -60,6 +60,27 @@ final class UniLLMsTests: XCTestCase {
         OpenRouterProvider().defaultConfiguration[OpenRouterProvider.ConfigurationKey.apiBase]
     }
 
+    private func renderMarkdownText(
+        _ markdown: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> NSAttributedString {
+        var renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
+        let blocks = renderer.render(markdown: markdown)
+        let result = NSMutableAttributedString()
+
+        for block in blocks {
+            switch block {
+            case let .text(text):
+                result.append(text)
+            case .table:
+                XCTFail("Expected Markdown to render only text blocks.", file: file, line: line)
+            }
+        }
+
+        return result
+    }
+
     func testAddingOpenRouterProvidersAssignsUUIDsAndUniqueNames() throws {
         let first = try makeOpenRouterProviderDraft()
         store.saveProvider(first)
@@ -547,8 +568,7 @@ final class UniLLMsTests: XCTestCase {
     }
 
     func testMarkdownThematicBreakRendersAsVisualDivider() throws {
-        var renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
-        let attributedText = renderer.render(markdown: "Above\n\n---\n\nBelow")
+        let attributedText = renderMarkdownText("Above\n\n---\n\nBelow")
 
         XCTAssertFalse(attributedText.string.contains("---"))
         XCTAssertTrue(attributedText.string.contains("Above"))
@@ -558,7 +578,7 @@ final class UniLLMsTests: XCTestCase {
 
     func testMarkdownTableRendersAsDedicatedBlock() throws {
         var renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
-        let blocks = renderer.renderBlocks(
+        let blocks = renderer.render(
             markdown: """
             | Feature | Count |
             | :-- | --: |
@@ -579,8 +599,7 @@ final class UniLLMsTests: XCTestCase {
     }
 
     func testMarkdownNestedListRendersIncreasingIndents() throws {
-        var renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
-        let attributedText = renderer.render(markdown: "- Parent\n  - Child\n    - Grandchild")
+        let attributedText = renderMarkdownText("- Parent\n  - Child\n    - Grandchild")
 
         let parentStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Parent"))
         let childStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Child"))
@@ -593,8 +612,7 @@ final class UniLLMsTests: XCTestCase {
     }
 
     func testMarkdownBlockQuotePreservesNestedListIndents() throws {
-        var renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
-        let attributedText = renderer.render(markdown: "> - Parent\n>   - Child\n>     - Grandchild")
+        let attributedText = renderMarkdownText("> - Parent\n>   - Child\n>     - Grandchild")
 
         let parentStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Parent"))
         let childStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Child"))
@@ -607,8 +625,7 @@ final class UniLLMsTests: XCTestCase {
     }
 
     func testMarkdownNestedBlockQuoteRendersIncreasingIndents() throws {
-        var renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
-        let attributedText = renderer.render(markdown: "> Outer\n>\n> > Inner")
+        let attributedText = renderMarkdownText("> Outer\n>\n> > Inner")
 
         let outerStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Outer"))
         let innerStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Inner"))
@@ -618,8 +635,7 @@ final class UniLLMsTests: XCTestCase {
     }
 
     func testMarkdownListContinuationPreservesNestedBlockQuoteIndent() throws {
-        var renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
-        let attributedText = renderer.render(markdown: "- Item\n  > Quote")
+        let attributedText = renderMarkdownText("- Item\n  > Quote")
 
         let itemStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Item"))
         let quoteStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Quote"))
@@ -629,8 +645,7 @@ final class UniLLMsTests: XCTestCase {
     }
 
     func testMarkdownOrderedListUsesStableContentIndentAcrossDigitWidths() throws {
-        var renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
-        let attributedText = renderer.render(markdown: "9. Nine\n10. Ten")
+        let attributedText = renderMarkdownText("9. Nine\n10. Ten")
 
         let nineStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Nine"))
         let tenStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Ten"))

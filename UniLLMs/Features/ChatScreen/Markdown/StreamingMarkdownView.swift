@@ -85,7 +85,7 @@ final class StreamingMarkdownView: UIView {
         }
 
         var renderer = ChatMarkdownRenderer(traitCollection: traitCollection)
-        let blocks = renderer.renderBlocks(markdown: markdownText)
+        let blocks = renderer.render(markdown: markdownText)
 
         removeRenderedBlocks()
         for block in blocks {
