@@ -52,7 +52,8 @@ final class LLMsProviderStore {
     func makeProviderDraft(
         kind: LLMsProviderKind,
         displayName: String,
-        configuration: LLMsProviderConfiguration
+        configuration: LLMsProviderConfiguration,
+        models: [LLMsProviderModel] = []
     ) -> LLMsProviderRecord {
         let providers = fetchProviders()
         return LLMsProviderRecord(
@@ -63,7 +64,7 @@ final class LLMsProviderStore {
                 existingProviders: providers
             ),
             configuration: configuration,
-            models: [],
+            models: models,
             modelsUpdatedAt: nil,
             createdAt: Date()
         )

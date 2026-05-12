@@ -160,7 +160,7 @@ final class ModelSelectionViewController: UITableViewController, UISearchResults
         guard !provider.models.isEmpty else {
             return unavailableCell(
                 title: "No Models",
-                detail: "Refresh the model list for this provider in Settings."
+                detail: noModelsDetail(for: provider)
             )
         }
 
@@ -219,6 +219,19 @@ final class ModelSelectionViewController: UITableViewController, UISearchResults
 
     private func providerDisplayName(_ provider: LLMsProviderRecord) -> String {
         dependencies.providerManager.displayName(for: provider)
+    }
+
+    private func noModelsDetail(for provider: LLMsProviderRecord) -> String {
+        switch dependencies.providerManager.modelSource(for: provider.kind) {
+        case .some(.remote):
+            return "Refresh the model list for this provider in Settings."
+        case .some(.manual):
+            return "Add models for this provider in Settings."
+        case .some(.`static`):
+            return "This provider does not include static models."
+        case nil:
+            return "Add provider models in Settings."
+        }
     }
 
     private func modelTitle(for model: LLMsProviderModel) -> String {

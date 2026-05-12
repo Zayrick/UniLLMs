@@ -109,11 +109,16 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
         case .configuration:
             return configurationFields.count
         case .models:
-            guard modelSource != nil else {
+            guard let modelSource else {
                 return 0
             }
 
-            return provider.models.count + 1
+            switch modelSource {
+            case .remote, .manual:
+                return provider.models.count + 1
+            case .`static`:
+                return provider.models.count
+            }
         }
     }
 
@@ -231,6 +236,8 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
             return remoteModelCell(for: indexPath)
         case .manual:
             return manualModelCell(for: indexPath)
+        case .`static`:
+            return staticModelCell(for: indexPath)
         }
     }
 
@@ -254,15 +261,7 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
         }
 
         let model = provider.models[indexPath.row - 1]
-        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
-        var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = modelTitle(for: model)
-        contentConfiguration.secondaryText = modelSubtitle(for: model)
-        contentConfiguration.image = UIImage(systemName: "cpu")
-        contentConfiguration.imageProperties.tintColor = .secondaryLabel
-        cell.contentConfiguration = contentConfiguration
-        cell.selectionStyle = .none
-        return cell
+        return readOnlyModelCell(for: model)
     }
 
     private func manualModelCell(for indexPath: IndexPath) -> UITableViewCell {
@@ -302,6 +301,23 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
 
             self.setManualModelID(text, at: currentIndexPath.row - 1)
         }
+        return cell
+    }
+
+    private func staticModelCell(for indexPath: IndexPath) -> UITableViewCell {
+        let model = provider.models[indexPath.row]
+        return readOnlyModelCell(for: model)
+    }
+
+    private func readOnlyModelCell(for model: LLMsProviderModel) -> UITableViewCell {
+        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        var contentConfiguration = cell.defaultContentConfiguration()
+        contentConfiguration.text = modelTitle(for: model)
+        contentConfiguration.secondaryText = modelSubtitle(for: model)
+        contentConfiguration.image = UIImage(systemName: "cpu")
+        contentConfiguration.imageProperties.tintColor = .secondaryLabel
+        cell.contentConfiguration = contentConfiguration
+        cell.selectionStyle = .none
         return cell
     }
 
@@ -381,7 +397,7 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
             appendManualModelRow()
         case .manual:
             (tableView.cellForRow(at: indexPath) as? ProviderTextFieldCell)?.activateTextField()
-        case .remote:
+        case .remote, .`static`:
             return
         }
     }

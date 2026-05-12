@@ -34,6 +34,12 @@ nonisolated struct LLMsProviderModel: Codable, Equatable, Hashable {
     var id: String
     var name: String?
     var contextLength: Int?
+
+    init(id: String, name: String? = nil, contextLength: Int? = nil) {
+        self.id = id
+        self.name = name
+        self.contextLength = contextLength
+    }
 }
 
 nonisolated struct LLMsProviderConfiguration: Codable, Equatable {
@@ -214,6 +220,7 @@ nonisolated extension LLMsProviderRecord {
 nonisolated enum LLMsProviderModelSource: Equatable {
     case remote
     case manual
+    case `static`
 }
 
 nonisolated enum LLMsProviderCapability: String, Codable, Hashable {
@@ -230,6 +237,7 @@ protocol LLMsProviderAdapter {
     var defaultConfiguration: LLMsProviderConfiguration { get }
     var configurationFields: [LLMsProviderConfigurationField] { get }
     var modelSource: LLMsProviderModelSource { get }
+    var staticModels: [LLMsProviderModel] { get }
 
     func configurationSummary(for configuration: LLMsProviderConfiguration) -> String?
     func validateChatConfiguration(_ configuration: LLMsProviderConfiguration) throws
@@ -246,6 +254,10 @@ extension LLMsProviderAdapter {
     }
 
     func validateChatConfiguration(_ configuration: LLMsProviderConfiguration) throws {}
+
+    var staticModels: [LLMsProviderModel] {
+        []
+    }
 
     func fetchModels(configuration: LLMsProviderConfiguration) async throws -> [LLMsProviderModel] {
         []
@@ -315,10 +327,12 @@ final class LLMsProviderManager {
     }
 
     private func makeProviderDraft(adapter: any LLMsProviderAdapter) -> LLMsProviderRecord {
+        let models = adapter.modelSource == .`static` ? adapter.staticModels : []
         return store.makeProviderDraft(
             kind: adapter.kind,
             displayName: adapter.displayName,
-            configuration: adapter.defaultConfiguration
+            configuration: adapter.defaultConfiguration,
+            models: models
         )
     }
 
@@ -370,8 +384,12 @@ final class LLMsProviderManager {
     }
 
     func fetchModels(for provider: LLMsProviderRecord) async throws -> [LLMsProviderModel] {
-        try await requireAdapter(for: provider.kind)
-            .fetchModels(configuration: provider.configuration)
+        let adapter = try requireAdapter(for: provider.kind)
+        guard adapter.modelSource != .`static` else {
+            return adapter.staticModels
+        }
+
+        return try await adapter.fetchModels(configuration: provider.configuration)
     }
 
     func streamChatCompletion(

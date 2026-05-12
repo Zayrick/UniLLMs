@@ -119,7 +119,7 @@ final class UniLLMsTests: XCTestCase {
         switch manager.modelSource(for: .openRouter) {
         case .some(.remote):
             break
-        case .some(.manual), nil:
+        case .some(.manual), .some(.`static`), nil:
             XCTFail("OpenRouter should fetch models remotely.")
         }
     }
@@ -138,8 +138,36 @@ final class UniLLMsTests: XCTestCase {
         switch manager.modelSource(for: .openAICompatible) {
         case .some(.manual):
             break
-        case .some(.remote), nil:
+        case .some(.remote), .some(.`static`), nil:
             XCTFail("OpenAI Compatible should use manual model entry.")
+        }
+    }
+
+    func testProviderManagerCreatesStaticDraftWithBuiltInModels() async throws {
+        let staticModels = [
+            LLMProviderModel(id: "openai/gpt-4.1-mini", name: "GPT-4.1 mini"),
+            LLMProviderModel(id: "custom-model")
+        ]
+        let manager = makeProviderManager(
+            adapters: [
+                StaticModelProvider(staticModels: staticModels)
+            ]
+        )
+
+        let draft = try manager.makeProviderDraft(kind: StaticModelProvider.providerKind)
+
+        XCTAssertEqual(draft.kind, StaticModelProvider.providerKind)
+        XCTAssertEqual(draft.name, "Static Test Provider")
+        XCTAssertEqual(draft.models, staticModels)
+        XCTAssertNil(draft.modelsUpdatedAt)
+        XCTAssertNil(draft.models[1].name)
+        XCTAssertEqual(try await manager.fetchModels(for: draft), staticModels)
+
+        switch manager.modelSource(for: StaticModelProvider.providerKind) {
+        case .some(.`static`):
+            break
+        case .some(.remote), .some(.manual), nil:
+            XCTFail("Static test provider should use built-in models.")
         }
     }
 
@@ -542,6 +570,45 @@ final class UniLLMsTests: XCTestCase {
         }
     }
 
+}
+
+private struct StaticModelProvider: LLMsProviderAdapter {
+    static let providerKind = LLMsProviderKind(rawValue: "staticTest")
+
+    var staticModels: [LLMsProviderModel]
+
+    var kind: LLMsProviderKind {
+        Self.providerKind
+    }
+
+    var displayName: String {
+        "Static Test Provider"
+    }
+
+    var capabilities: Set<LLMsProviderCapability> {
+        [.modelList, .streamingChat]
+    }
+
+    var defaultConfiguration: LLMsProviderConfiguration {
+        LLMsProviderConfiguration()
+    }
+
+    var configurationFields: [LLMsProviderConfigurationField] {
+        []
+    }
+
+    var modelSource: LLMsProviderModelSource {
+        .`static`
+    }
+
+    func streamChat(
+        request: ChatRequest,
+        configuration: LLMsProviderConfiguration
+    ) -> AsyncThrowingStream<ChatResponseDelta, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.finish()
+        }
+    }
 }
 
 private extension NSAttributedString {

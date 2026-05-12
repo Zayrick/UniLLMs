@@ -62,6 +62,12 @@ final class LLMsProviderViewController: UITableViewController {
     private func presentNewProvider(kind: LLMsProviderKind) {
         do {
             let provider = try dependencies.providerManager.makeProviderDraft(kind: kind)
+            guard !dependencies.providerManager.configurationFields(for: kind).isEmpty else {
+                dependencies.providerStore.saveProvider(provider)
+                reloadProviders()
+                return
+            }
+
             navigationController?.pushViewController(
                 ProviderConfigurationViewController(
                     provider: provider,
