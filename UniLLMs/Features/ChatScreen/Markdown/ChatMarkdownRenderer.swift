@@ -3,7 +3,7 @@
 //  UniLLMs
 //
 //  Renders chat Markdown into attributed text using swift-markdown.
-//  Created by Codex on 2026/5/12.
+//  Created by Zayrick on 2026/5/12.
 //
 
 import Markdown

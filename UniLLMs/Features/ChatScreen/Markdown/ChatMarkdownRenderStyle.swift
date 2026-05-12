@@ -3,7 +3,7 @@
 //  UniLLMs
 //
 //  Style values for chat Markdown rendering.
-//  Created by Codex on 2026/5/12.
+//  Created by Zayrick on 2026/5/12.
 //
 
 import UIKit
