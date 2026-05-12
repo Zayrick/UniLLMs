@@ -1,0 +1,109 @@
+//
+//  ChatMarkdownRenderer+Inline.swift
+//  UniLLMs
+//
+//  Inline Markdown rendering.
+//  Created by Codex on 2026/5/12.
+//
+
+import Markdown
+import UIKit
+
+extension ChatMarkdownRenderer {
+    mutating func renderInlineChildren(of markup: any Markup) -> NSMutableAttributedString {
+        let result = NSMutableAttributedString()
+        for child in markup.children {
+            result.append(renderInline(child))
+        }
+        return result
+    }
+
+    private mutating func renderInline(_ markup: any Markup) -> NSMutableAttributedString {
+        switch markup {
+        case let text as Text:
+            return NSMutableAttributedString(string: text.string, attributes: Self.bodyAttributes(style: style))
+        case let strong as Strong:
+            let result = renderInlineChildren(of: strong)
+            apply([.font: boldFont(from: style.bodyFont)], to: result)
+            return result
+        case let emphasis as Emphasis:
+            let result = renderInlineChildren(of: emphasis)
+            apply([.font: italicFont(from: style.bodyFont)], to: result)
+            return result
+        case let strikethrough as Strikethrough:
+            let result = renderInlineChildren(of: strikethrough)
+            apply([.strikethroughStyle: NSUnderlineStyle.single.rawValue], to: result)
+            return result
+        case let inlineCode as InlineCode:
+            return NSMutableAttributedString(
+                string: inlineCode.code,
+                attributes: [
+                    .font: style.codeFont,
+                    .foregroundColor: style.codeTextColor,
+                    .backgroundColor: style.codeBackgroundColor
+                ]
+            )
+        case let link as Link:
+            let result = renderInlineChildren(of: link)
+            apply(
+                [
+                    .foregroundColor: style.linkColor,
+                    .underlineStyle: NSUnderlineStyle.single.rawValue
+                ],
+                to: result
+            )
+            if let destination = link.destination,
+               let url = URL(string: destination) {
+                apply([.link: url], to: result)
+            }
+            return result
+        case let image as Markdown.Image:
+            return NSMutableAttributedString(
+                string: imageDisplayText(source: image.source, altText: image.plainText),
+                attributes: Self.secondaryAttributes(style: style)
+            )
+        case _ as SoftBreak:
+            return NSMutableAttributedString(string: " ", attributes: Self.bodyAttributes(style: style))
+        case _ as LineBreak:
+            return NSMutableAttributedString(string: "\n", attributes: Self.bodyAttributes(style: style))
+        case let html as InlineHTML:
+            return NSMutableAttributedString(string: html.rawHTML, attributes: Self.secondaryAttributes(style: style))
+        case let unorderedList as UnorderedList:
+            return renderUnorderedList(unorderedList)
+        case let orderedList as OrderedList:
+            return renderOrderedList(orderedList)
+        case let paragraph as Paragraph:
+            return renderParagraph(paragraph)
+        default:
+            return renderInlineChildren(of: markup)
+        }
+    }
+
+    private func boldFont(from font: UIFont) -> UIFont {
+        font.withSymbolicTraits(.traitBold) ?? .boldSystemFont(ofSize: font.pointSize)
+    }
+
+    private func italicFont(from font: UIFont) -> UIFont {
+        font.withSymbolicTraits(.traitItalic) ?? .italicSystemFont(ofSize: font.pointSize)
+    }
+
+    func imageDisplayText(source: String?, altText: String) -> String {
+        let label = altText.isEmpty ? "Image" : altText
+        guard let source,
+              !source.isEmpty else {
+            return "[\(label)]"
+        }
+
+        return "[\(label): \(source)]"
+    }
+}
+
+private extension UIFont {
+    func withSymbolicTraits(_ traits: UIFontDescriptor.SymbolicTraits) -> UIFont? {
+        guard let descriptor = fontDescriptor.withSymbolicTraits(fontDescriptor.symbolicTraits.union(traits)) else {
+            return nil
+        }
+
+        return UIFont(descriptor: descriptor, size: pointSize)
+    }
+}
