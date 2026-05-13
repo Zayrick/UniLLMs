@@ -611,6 +611,36 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertEqual(attributedText.string, "A code B")
     }
 
+    func testMarkdownNestedStrongEmphasisCombinesFontTraits() throws {
+        let attributedText = renderMarkdownText("***Bold italic***")
+        let font = try XCTUnwrap(attributedText.font(containing: "Bold italic"))
+        let traits = font.fontDescriptor.symbolicTraits
+
+        XCTAssertTrue(traits.contains(.traitBold))
+        XCTAssertTrue(traits.contains(.traitItalic))
+    }
+
+    func testMarkdownNestedInlineCodePreservesOuterModes() throws {
+        let attributedText = renderMarkdownText("[**`id`**](https://example.com)")
+        let codeRange = try XCTUnwrap(attributedText.range(of: "id"))
+        let font = try XCTUnwrap(
+            attributedText.attribute(.font, at: codeRange.location, effectiveRange: nil) as? UIFont
+        )
+
+        XCTAssertTrue(font.fontDescriptor.symbolicTraits.contains(.traitBold))
+        XCTAssertEqual(
+            attributedText.attribute(.link, at: codeRange.location, effectiveRange: nil) as? URL,
+            URL(string: "https://example.com")
+        )
+        XCTAssertNotNil(
+            attributedText.attribute(
+                .chatInlineCodeBackgroundColor,
+                at: codeRange.location,
+                effectiveRange: nil
+            ) as? UIColor
+        )
+    }
+
     func testMarkdownTableRendersAsDedicatedBlock() throws {
         var renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let blocks = renderer.render(
@@ -655,6 +685,48 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertEqual(codeCell.accessibilityText, "id")
         XCTAssertNotNil(
             codeCell.attributedText.attribute(
+                .chatInlineCodeBackgroundColor,
+                at: codeRange.location,
+                effectiveRange: nil
+            ) as? UIColor
+        )
+    }
+
+    func testMarkdownTableNestedStrongEmphasisCombinesFontTraits() throws {
+        var renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
+        let blocks = renderer.render(
+            markdown: """
+            | Value |
+            | :-- |
+            | ***Cell*** |
+            """
+        )
+
+        let firstBlock = try XCTUnwrap(blocks.first)
+        guard case let .table(tableData) = firstBlock else {
+            XCTFail("Expected first rendered block to be a Markdown table")
+            return
+        }
+
+        let font = try XCTUnwrap(tableData.rows[1][0].attributedText.font(containing: "Cell"))
+        let traits = font.fontDescriptor.symbolicTraits
+
+        XCTAssertTrue(traits.contains(.traitBold))
+        XCTAssertTrue(traits.contains(.traitItalic))
+    }
+
+    func testMarkdownBlockQuoteNestedInlineStylesCompose() throws {
+        let attributedText = renderMarkdownText("> ***Quoted*** `id`")
+        let quoteFont = try XCTUnwrap(attributedText.font(containing: "Quoted"))
+        let quoteTraits = quoteFont.fontDescriptor.symbolicTraits
+        let codeRange = try XCTUnwrap(attributedText.range(of: "id"))
+        let paragraphStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Quoted"))
+
+        XCTAssertTrue(quoteTraits.contains(.traitBold))
+        XCTAssertTrue(quoteTraits.contains(.traitItalic))
+        XCTAssertGreaterThan(paragraphStyle.headIndent, 0.0)
+        XCTAssertNotNil(
+            attributedText.attribute(
                 .chatInlineCodeBackgroundColor,
                 at: codeRange.location,
                 effectiveRange: nil
@@ -885,5 +957,13 @@ private extension NSAttributedString {
         }
 
         return range
+    }
+
+    func font(containing text: String) -> UIFont? {
+        guard let range = range(of: text) else {
+            return nil
+        }
+
+        return attribute(.font, at: range.location, effectiveRange: nil) as? UIFont
     }
 }

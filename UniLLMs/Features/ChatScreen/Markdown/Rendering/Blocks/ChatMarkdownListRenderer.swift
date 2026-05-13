@@ -1,5 +1,5 @@
 //
-//  ChatMarkdownRenderer+Lists.swift
+//  ChatMarkdownListRenderer.swift
 //  UniLLMs
 //
 //  List Markdown rendering.
@@ -21,30 +21,35 @@ private enum ListMarker {
     case symbol(name: String)
 }
 
-final class ChatMarkdownListState {
-    fileprivate var depth = 0
-    fileprivate var orderedCounters: [Int] = []
-}
+final class ChatMarkdownListRenderer {
+    private let context: ChatMarkdownRenderingContext
+    private let inlineRenderer: ChatMarkdownInlineRenderer
+    private let renderBlock: (any Markup) -> NSMutableAttributedString
 
-extension ChatMarkdownRenderer {
-    mutating func renderUnorderedList(_ list: UnorderedList) -> NSMutableAttributedString {
-        listState.depth += 1
-        defer { listState.depth -= 1 }
+    init(
+        context: ChatMarkdownRenderingContext,
+        inlineRenderer: ChatMarkdownInlineRenderer,
+        renderBlock: @escaping (any Markup) -> NSMutableAttributedString
+    ) {
+        self.context = context
+        self.inlineRenderer = inlineRenderer
+        self.renderBlock = renderBlock
+    }
+
+    func renderUnorderedList(_ list: UnorderedList) -> NSMutableAttributedString {
+        context.pushUnorderedList()
+        defer { context.popUnorderedList() }
         return renderListItems(list.listItems, isOrdered: false)
     }
 
-    mutating func renderOrderedList(_ list: OrderedList) -> NSMutableAttributedString {
-        listState.depth += 1
-        listState.orderedCounters.append(Int(list.startIndex))
-        defer {
-            listState.orderedCounters.removeLast()
-            listState.depth -= 1
-        }
+    func renderOrderedList(_ list: OrderedList) -> NSMutableAttributedString {
+        context.pushOrderedList(startIndex: Int(list.startIndex))
+        defer { context.popOrderedList() }
 
         return renderListItems(list.listItems, isOrdered: true)
     }
 
-    private mutating func renderListItems<Items: Sequence>(
+    private func renderListItems<Items: Sequence>(
         _ items: Items,
         isOrdered: Bool
     ) -> NSMutableAttributedString where Items.Element == ListItem {
@@ -72,14 +77,14 @@ extension ChatMarkdownRenderer {
             )
         }
 
-        if listState.depth == 1 {
+        if context.listDepth == 1 {
             result.append(NSAttributedString(string: "\n"))
         }
 
         return result
     }
 
-    private mutating func marker(for item: ListItem, isOrdered: Bool) -> ListMarker {
+    private func marker(for item: ListItem, isOrdered: Bool) -> ListMarker {
         if let checkbox = item.checkbox {
             if isOrdered {
                 _ = advanceOrderedCounter()
@@ -97,15 +102,11 @@ extension ChatMarkdownRenderer {
         return .text("-")
     }
 
-    private mutating func advanceOrderedCounter() -> Int {
-        let current = listState.orderedCounters.last ?? 1
-        if !listState.orderedCounters.isEmpty {
-            listState.orderedCounters[listState.orderedCounters.count - 1] = current + 1
-        }
-        return current
+    private func advanceOrderedCounter() -> Int {
+        context.advanceOrderedListCounter()
     }
 
-    private mutating func renderListItem(
+    private func renderListItem(
         _ item: ListItem,
         marker: ListMarker,
         isOrdered: Bool,
@@ -133,8 +134,8 @@ extension ChatMarkdownRenderer {
             }
 
             if let paragraph = child as? Paragraph {
-                let paragraphText = renderInlineChildren(of: paragraph)
-                trimTrailingNewlines(in: paragraphText)
+                let paragraphText = inlineRenderer.renderChildren(of: paragraph)
+                context.trimTrailingNewlines(in: paragraphText)
                 guard paragraphText.length > 0 else {
                     continue
                 }
@@ -163,7 +164,7 @@ extension ChatMarkdownRenderer {
             }
 
             let childResult = renderBlock(child)
-            trimTrailingNewlines(in: childResult)
+            context.trimTrailingNewlines(in: childResult)
             guard childResult.length > 0 else {
                 continue
             }
@@ -209,9 +210,9 @@ extension ChatMarkdownRenderer {
         markerColumnWidth: CGFloat,
         to result: NSMutableAttributedString
     ) {
-        trimTrailingNewlines(in: paragraph)
-        appendNewlineIfNeeded(to: paragraph)
-        apply(
+        context.trimTrailingNewlines(in: paragraph)
+        context.appendNewlineIfNeeded(to: paragraph)
+        context.apply(
             [
                 .paragraphStyle: listParagraphStyle(
                     marker: marker,
@@ -229,8 +230,8 @@ extension ChatMarkdownRenderer {
         markerColumnWidth: CGFloat,
         to result: NSMutableAttributedString
     ) {
-        trimTrailingNewlines(in: attributedString)
-        appendNewlineIfNeeded(to: attributedString)
+        context.trimTrailingNewlines(in: attributedString)
+        context.appendNewlineIfNeeded(to: attributedString)
         applyListContinuationParagraphStyle(
             to: attributedString,
             markerColumnWidth: markerColumnWidth
@@ -264,14 +265,14 @@ extension ChatMarkdownRenderer {
         to attributedString: NSMutableAttributedString,
         markerColumnWidth: CGFloat
     ) {
-        offsetParagraphIndent(
+        context.offsetParagraphIndent(
             in: attributedString,
             by: listContentIndent(markerColumnWidth: markerColumnWidth)
         )
     }
 
     private var listBaseIndent: CGFloat {
-        CGFloat(max(0, listState.depth - 1)) * ListLayout.indent
+        CGFloat(max(0, context.listDepth - 1)) * ListLayout.indent
     }
 
     private func listContentIndent(markerColumnWidth: CGFloat) -> CGFloat {
@@ -282,7 +283,7 @@ extension ChatMarkdownRenderer {
         let result = NSMutableAttributedString()
         switch marker {
         case let .text(text):
-            result.append(NSAttributedString(string: text, attributes: bodyAttributes()))
+            result.append(NSAttributedString(string: text, attributes: context.bodyAttributes()))
             result.addAttribute(
                 .font,
                 value: listMarkerFont(isOrdered: isOrdered),
@@ -292,13 +293,13 @@ extension ChatMarkdownRenderer {
             if let image = symbolImage(named: name) {
                 let symbol = NSMutableAttributedString(attachment: NSTextAttachment(image: image))
                 symbol.addAttributes(
-                    bodyAttributes(),
+                    context.bodyAttributes(),
                     range: NSRange(location: 0, length: symbol.length)
                 )
                 result.append(symbol)
             }
         }
-        result.append(NSAttributedString(string: "\t", attributes: bodyAttributes()))
+        result.append(NSAttributedString(string: "\t", attributes: context.bodyAttributes()))
         return result
     }
 
@@ -317,20 +318,20 @@ extension ChatMarkdownRenderer {
 
     private func listMarkerFont(isOrdered: Bool) -> UIFont {
         guard isOrdered else {
-            return currentBodyFont()
+            return context.currentBodyFont()
         }
 
         return .monospacedDigitSystemFont(
-            ofSize: currentBodyFont().pointSize,
+            ofSize: context.currentBodyFont().pointSize,
             weight: .regular
         )
     }
 
     private func symbolImage(named name: String) -> UIImage? {
-        let configuration = UIImage.SymbolConfiguration(font: currentBodyFont(), scale: .medium)
+        let configuration = UIImage.SymbolConfiguration(font: context.currentBodyFont(), scale: .medium)
         return UIImage(systemName: name, withConfiguration: configuration)?
             .withTintColor(
-                currentTextColor.resolvedColor(with: traitCollection),
+                context.currentTextColor.resolvedColor(with: context.traitCollection),
                 renderingMode: .alwaysOriginal
             )
     }

@@ -9,46 +9,44 @@
 import Markdown
 import UIKit
 
-enum ChatMarkdownRenderedBlock {
-    case text(NSAttributedString)
-    case table(ChatMarkdownTableData)
-}
-
 struct ChatMarkdownRenderer {
     private static let parseLock = NSLock()
 
     let style: ChatMarkdownRenderStyle
     let traitCollection: UITraitCollection
-    let listState = ChatMarkdownListState()
-    let quoteState = ChatMarkdownQuoteState()
 
     init(style: ChatMarkdownRenderStyle = .assistant, traitCollection: UITraitCollection) {
         self.style = style
         self.traitCollection = traitCollection
     }
 
-    mutating func render(markdown: String) -> [ChatMarkdownRenderedBlock] {
+    func render(markdown: String) -> [ChatMarkdownRenderedBlock] {
         guard !markdown.isEmpty else {
             return []
         }
 
         let document = Self.parseDocument(markdown)
+        let context = ChatMarkdownRenderingContext(
+            style: style,
+            traitCollection: traitCollection
+        )
+        let blockRenderer = ChatMarkdownBlockRenderer(context: context)
         var blocks: [ChatMarkdownRenderedBlock] = []
         let result = NSMutableAttributedString()
 
         for child in document.children {
             if let table = child as? Table {
                 flushTextBlock(result, to: &blocks)
-                let tableData = renderTableData(table)
+                let tableData = blockRenderer.renderTableData(table)
                 if !tableData.isEmpty {
                     blocks.append(.table(tableData))
                 }
             } else {
-                result.append(renderBlock(child))
+                result.append(blockRenderer.renderBlock(child))
             }
         }
 
-        trimTrailingNewlines(in: result)
+        context.trimTrailingNewlines(in: result)
         flushTextBlock(result, to: &blocks)
         return blocks
     }

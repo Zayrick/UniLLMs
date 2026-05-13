@@ -8,7 +8,7 @@
 
 import UIKit
 
-extension ChatMarkdownRenderer {
+extension ChatMarkdownRenderingContext {
     func blockString(
         _ string: String,
         attributes: [NSAttributedString.Key: Any],
@@ -115,14 +115,24 @@ extension ChatMarkdownRenderer {
     }
 
     var currentTextColor: UIColor {
-        quoteState.depth > 0 ? style.secondaryTextColor : style.textColor
+        isInsideBlockQuote ? style.secondaryTextColor : style.textColor
     }
 
     func currentBodyFont() -> UIFont {
-        if quoteState.depth > 0 {
+        if isInsideBlockQuote {
             return style.calloutFont(compatibleWith: traitCollection)
         }
 
         return style.bodyFont(compatibleWith: traitCollection)
+    }
+
+    func imageDisplayText(source: String?, altText: String) -> String {
+        let label = altText.isEmpty ? "Image" : altText
+        guard let source,
+              !source.isEmpty else {
+            return "[\(label)]"
+        }
+
+        return "[\(label): \(source)]"
     }
 }
