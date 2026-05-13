@@ -73,6 +73,8 @@ final class UniLLMsTests: XCTestCase {
             switch block {
             case let .text(text):
                 result.append(text)
+            case .codeBlock:
+                XCTFail("Expected Markdown to render only text blocks.", file: file, line: line)
             case .table:
                 XCTFail("Expected Markdown to render only text blocks.", file: file, line: line)
             case .image:
@@ -663,6 +665,46 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertEqual(tableData.rows.count, 2)
         XCTAssertEqual(tableData.rows[0][0].accessibilityText, "Feature")
         XCTAssertEqual(tableData.rows[1][0].accessibilityText, "Tables")
+    }
+
+    func testMarkdownCodeBlockRendersAsDedicatedBlockWithLanguageFallback() throws {
+        var renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
+        let blocks = renderer.render(
+            markdown: """
+            Intro
+
+            ```swift
+            let value = 1
+            ```
+
+            ```
+            plain
+            ```
+            """
+        )
+
+        guard blocks.count == 3 else {
+            XCTFail("Expected text and two code blocks")
+            return
+        }
+        guard case let .text(introText) = blocks[0] else {
+            XCTFail("Expected leading text block")
+            return
+        }
+        guard case let .codeBlock(swiftCodeBlock) = blocks[1] else {
+            XCTFail("Expected Swift code block")
+            return
+        }
+        guard case let .codeBlock(fallbackCodeBlock) = blocks[2] else {
+            XCTFail("Expected fallback code block")
+            return
+        }
+
+        XCTAssertEqual(introText.string.trimmingCharacters(in: .whitespacesAndNewlines), "Intro")
+        XCTAssertEqual(swiftCodeBlock.displayLanguage, "swift")
+        XCTAssertEqual(swiftCodeBlock.code, "let value = 1")
+        XCTAssertEqual(fallbackCodeBlock.displayLanguage, "Code")
+        XCTAssertEqual(fallbackCodeBlock.code, "plain")
     }
 
     func testMarkdownStandaloneImageRendersAsDedicatedBlock() throws {

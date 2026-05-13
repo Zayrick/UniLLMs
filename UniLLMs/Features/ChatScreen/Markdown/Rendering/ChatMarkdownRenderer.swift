@@ -41,6 +41,9 @@ struct ChatMarkdownRenderer {
                 if !tableData.isEmpty {
                     blocks.append(.table(tableData))
                 }
+            } else if let codeBlock = child as? CodeBlock {
+                flushTextBlock(result, to: &blocks)
+                blocks.append(.codeBlock(renderCodeBlock(codeBlock)))
             } else if let imageBlock = standaloneImageBlock(from: child) {
                 flushTextBlock(result, to: &blocks)
                 blocks.append(.image(imageBlock))
@@ -52,6 +55,13 @@ struct ChatMarkdownRenderer {
         context.trimTrailingNewlines(in: result)
         flushTextBlock(result, to: &blocks)
         return blocks
+    }
+
+    private func renderCodeBlock(_ codeBlock: CodeBlock) -> ChatMarkdownCodeBlock {
+        ChatMarkdownCodeBlock(
+            code: codeBlock.code.trimmingCharacters(in: .newlines),
+            language: codeBlock.language
+        )
     }
 
     private static func parseDocument(_ markdown: String) -> Document {

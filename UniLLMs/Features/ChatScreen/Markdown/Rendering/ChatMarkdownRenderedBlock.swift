@@ -13,8 +13,23 @@ struct ChatMarkdownImageBlock: Equatable {
     let altText: String
 }
 
+struct ChatMarkdownCodeBlock: Equatable {
+    let code: String
+    let language: String?
+
+    var displayLanguage: String {
+        guard let language = language?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !language.isEmpty else {
+            return "Code"
+        }
+
+        return language
+    }
+}
+
 enum ChatMarkdownRenderedBlock {
     case text(NSAttributedString)
+    case codeBlock(ChatMarkdownCodeBlock)
     case table(ChatMarkdownTableData)
     case image(ChatMarkdownImageBlock)
 }

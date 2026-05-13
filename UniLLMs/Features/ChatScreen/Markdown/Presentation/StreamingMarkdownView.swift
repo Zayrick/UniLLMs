@@ -131,6 +131,14 @@ final class StreamingMarkdownView: UIView {
                 let textView = ChatMarkdownTextView(attributedText: attributedText)
                 stackView.addArrangedSubview(textView)
                 views.append(textView)
+            case let .codeBlock(codeBlock):
+                let codeBlockView = ChatMarkdownCodeBlockView(
+                    codeBlock: codeBlock,
+                    style: renderer.style,
+                    traitCollection: traitCollection
+                )
+                stackView.addArrangedSubview(codeBlockView)
+                views.append(codeBlockView)
             case let .table(tableData):
                 let tableView = ChatMarkdownTableView(
                     tableData: tableData,
