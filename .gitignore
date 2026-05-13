@@ -14,6 +14,7 @@ xcuserdata/
 *.xcuserdatad/
 
 # Xcode build products
+.DerivedData/
 DerivedData/
 build/
 Build/
