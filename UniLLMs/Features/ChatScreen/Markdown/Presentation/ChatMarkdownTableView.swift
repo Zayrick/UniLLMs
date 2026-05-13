@@ -151,7 +151,6 @@ private final class ChatMarkdownTableContentView: UIView {
             for (columnIndex, cell) in row.enumerated() {
                 let textView = ChatMarkdownTextView(attributedText: cell.attributedText)
                 textView.setMarkdownLineBreakMode(.byCharWrapping)
-                textView.isUserInteractionEnabled = false
                 textView.isAccessibilityElement = true
                 textView.accessibilityLabel = accessibilityLabel(
                     for: cell,

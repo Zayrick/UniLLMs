@@ -55,9 +55,8 @@ final class ChatMarkdownTextView: UITextView {
         backgroundColor = .clear
         isOpaque = false
         isEditable = false
-        isSelectable = false
-        isUserInteractionEnabled = true
         isScrollEnabled = false
+        dataDetectorTypes = [.link]
         textContainerInset = .zero
         markdownTextContainer.lineFragmentPadding = 0.0
         markdownLayoutManager.usesFontLeading = true

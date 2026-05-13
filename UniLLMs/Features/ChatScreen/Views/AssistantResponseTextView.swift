@@ -161,9 +161,8 @@ final class AssistantResponseTextView: UIView {
         textView.backgroundColor = .clear
         textView.isOpaque = false
         textView.isEditable = false
-        textView.isSelectable = false
-        textView.isUserInteractionEnabled = true
         textView.isScrollEnabled = false
+        textView.dataDetectorTypes = [.link]
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0.0
         textView.setContentCompressionResistancePriority(.required, for: .vertical)

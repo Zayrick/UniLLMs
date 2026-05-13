@@ -50,7 +50,6 @@ final class SentMessageBubbleView: UIView {
         setContentCompressionResistancePriority(.required, for: .vertical)
 
         glassView.backgroundColor = .clear
-        glassView.isUserInteractionEnabled = false
         glassView.cornerConfiguration = .capsule()
         glassView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(glassView)
@@ -117,7 +116,7 @@ final class SentMessageBubbleView: UIView {
 
     private static func makeGlassEffect() -> UIGlassEffect {
         let effect = UIGlassEffect(style: .regular)
-        effect.isInteractive = false
+        effect.isInteractive = true
         return effect
     }
 }
