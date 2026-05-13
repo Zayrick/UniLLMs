@@ -89,7 +89,7 @@ private final class ChatMarkdownTableContentView: UIView {
     private let layout: ChatMarkdownTableLayout
     private let style: ChatMarkdownRenderStyle
     private let traitCollectionForRendering: UITraitCollection
-    private var cellLabels: [UILabel] = []
+    private var cellTextViews: [ChatMarkdownTextView] = []
 
     init(
         tableData: ChatMarkdownTableData,
@@ -111,7 +111,7 @@ private final class ChatMarkdownTableContentView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        layoutCellLabels()
+        layoutCellTextViews()
     }
 
     override func draw(_ rect: CGRect) {
@@ -149,20 +149,17 @@ private final class ChatMarkdownTableContentView: UIView {
 
         for (rowIndex, row) in tableData.rows.enumerated() {
             for (columnIndex, cell) in row.enumerated() {
-                let label = UILabel()
-                label.attributedText = cell.attributedText
-                label.numberOfLines = 0
-                label.lineBreakMode = .byCharWrapping
-                label.textAlignment = cell.alignment
-                label.backgroundColor = .clear
-                label.isAccessibilityElement = true
-                label.accessibilityLabel = accessibilityLabel(
+                let textView = ChatMarkdownTextView(attributedText: cell.attributedText)
+                textView.setMarkdownLineBreakMode(.byCharWrapping)
+                textView.isUserInteractionEnabled = false
+                textView.isAccessibilityElement = true
+                textView.accessibilityLabel = accessibilityLabel(
                     for: cell,
                     rowIndex: rowIndex,
                     columnIndex: columnIndex
                 )
-                addSubview(label)
-                cellLabels.append(label)
+                addSubview(textView)
+                cellTextViews.append(textView)
             }
         }
     }
@@ -177,8 +174,8 @@ private final class ChatMarkdownTableContentView: UIView {
         return "\(role), row \(rowIndex + 1), column \(columnIndex + 1), \(text)"
     }
 
-    private func layoutCellLabels() {
-        var labelIndex = 0
+    private func layoutCellTextViews() {
+        var textViewIndex = 0
         var rowY = ChatMarkdownTableLayoutMetrics.verticalMargin
         for (rowIndex, rowHeight) in layout.rowHeights.enumerated() {
             guard tableData.rows.indices.contains(rowIndex) else {
@@ -190,13 +187,13 @@ private final class ChatMarkdownTableContentView: UIView {
             for (columnIndex, columnWidth) in layout.columnWidths.enumerated() {
                 defer { cellX += columnWidth }
                 guard row.indices.contains(columnIndex),
-                      cellLabels.indices.contains(labelIndex) else {
+                      cellTextViews.indices.contains(textViewIndex) else {
                     continue
                 }
 
-                let label = cellLabels[labelIndex]
-                labelIndex += 1
-                label.frame = CGRect(
+                let textView = cellTextViews[textViewIndex]
+                textViewIndex += 1
+                textView.frame = CGRect(
                     x: cellX + ChatMarkdownTableLayoutMetrics.cellHorizontalPadding,
                     y: rowY + ChatMarkdownTableLayoutMetrics.cellVerticalPadding,
                     width: max(

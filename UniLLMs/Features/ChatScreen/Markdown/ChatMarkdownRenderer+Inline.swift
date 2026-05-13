@@ -12,8 +12,22 @@ import UIKit
 extension ChatMarkdownRenderer {
     mutating func renderInlineChildren(of markup: any Markup) -> NSMutableAttributedString {
         let result = NSMutableAttributedString()
-        for child in markup.children {
-            result.append(renderInline(child))
+        let children = Array(markup.children)
+
+        for (index, child) in children.enumerated() {
+            if let inlineCode = child as? InlineCode {
+                result.append(
+                    renderInlineCode(
+                        inlineCode,
+                        needsLeadingMargin: needsInlineCodeMargin(before: result.string.last),
+                        needsTrailingMargin: needsInlineCodeMargin(
+                            after: firstVisibleCharacter(after: index, in: children)
+                        )
+                    )
+                )
+            } else {
+                result.append(renderInline(child))
+            }
         }
         return result
     }
@@ -35,13 +49,10 @@ extension ChatMarkdownRenderer {
             apply([.strikethroughStyle: NSUnderlineStyle.single.rawValue], to: result)
             return result
         case let inlineCode as InlineCode:
-            return NSMutableAttributedString(
-                string: inlineCode.code,
-                attributes: [
-                    .font: style.codeFont(compatibleWith: traitCollection),
-                    .foregroundColor: style.codeTextColor,
-                    .backgroundColor: style.codeBackgroundColor
-                ]
+            return renderInlineCode(
+                inlineCode,
+                needsLeadingMargin: false,
+                needsTrailingMargin: false
             )
         case let link as Link:
             let result = renderInlineChildren(of: link)
@@ -85,6 +96,104 @@ extension ChatMarkdownRenderer {
 
     private func italicFont(from font: UIFont) -> UIFont {
         font.withSymbolicTraits(.traitItalic) ?? .italicSystemFont(ofSize: font.pointSize)
+    }
+
+    private func renderInlineCode(
+        _ inlineCode: InlineCode,
+        needsLeadingMargin: Bool,
+        needsTrailingMargin: Bool
+    ) -> NSMutableAttributedString {
+        let result = NSMutableAttributedString()
+        let bodyAttrs = bodyAttributes()
+
+        if needsLeadingMargin {
+            result.append(
+                NSAttributedString(
+                    string: ChatMarkdownInlineCodeStyle.outerMargin,
+                    attributes: bodyAttrs
+                )
+            )
+        }
+
+        result.append(
+            NSAttributedString(
+                string: inlineCode.code,
+                attributes: [
+                    .font: style.codeFont(compatibleWith: traitCollection),
+                    .foregroundColor: style.codeTextColor,
+                    .chatInlineCodeBackgroundColor: style.codeBackgroundColor,
+                    .chatInlineCodeCornerRadius: ChatMarkdownInlineCodeStyle.cornerRadius
+                ]
+            )
+        )
+
+        if needsTrailingMargin {
+            result.append(
+                NSAttributedString(
+                    string: ChatMarkdownInlineCodeStyle.outerMargin,
+                    attributes: bodyAttrs
+                )
+            )
+        }
+
+        return result
+    }
+
+    private func needsInlineCodeMargin(before character: Character?) -> Bool {
+        guard let character else {
+            return false
+        }
+
+        return !isInlineCodeMarginBoundary(character)
+    }
+
+    private func needsInlineCodeMargin(after character: Character?) -> Bool {
+        guard let character else {
+            return false
+        }
+
+        return !isInlineCodeMarginBoundary(character)
+    }
+
+    private func isInlineCodeMarginBoundary(_ character: Character) -> Bool {
+        character.unicodeScalars.allSatisfy { CharacterSet.whitespacesAndNewlines.contains($0) }
+    }
+
+    private func firstVisibleCharacter(after index: Int, in children: [any Markup]) -> Character? {
+        guard index + 1 < children.count else {
+            return nil
+        }
+
+        for child in children[(index + 1)...] {
+            if let character = visibleText(in: child).first {
+                return character
+            }
+        }
+
+        return nil
+    }
+
+    private func visibleText(in markup: any Markup) -> String {
+        switch markup {
+        case let text as Text:
+            return text.string
+        case let inlineCode as InlineCode:
+            return inlineCode.code
+        case let image as Markdown.Image:
+            return imageDisplayText(source: image.source, altText: image.plainText)
+        case _ as SoftBreak:
+            return " "
+        case _ as LineBreak:
+            return "\n"
+        case let html as InlineHTML:
+            return html.rawHTML
+        default:
+            var result = ""
+            for child in markup.children {
+                result += visibleText(in: child)
+            }
+            return result
+        }
     }
 
     func imageDisplayText(source: String?, altText: String) -> String {

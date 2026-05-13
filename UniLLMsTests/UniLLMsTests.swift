@@ -576,6 +576,41 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertTrue(attributedText.containsTextAttachment)
     }
 
+    func testMarkdownInlineCodeUsesRoundedPillAttributesWithoutTextPadding() throws {
+        let attributedText = renderMarkdownText("Use `let value = 1` now")
+        let codeRange = try XCTUnwrap(attributedText.range(of: "let value = 1"))
+
+        XCTAssertEqual(attributedText.string, "Use let value = 1 now")
+        XCTAssertNotNil(
+            attributedText.attribute(
+                .chatInlineCodeBackgroundColor,
+                at: codeRange.location,
+                effectiveRange: nil
+            ) as? UIColor
+        )
+        let cornerRadius = try XCTUnwrap(
+            attributedText.attribute(
+                .chatInlineCodeCornerRadius,
+                at: codeRange.location,
+                effectiveRange: nil
+            ) as? CGFloat
+        )
+        XCTAssertEqual(cornerRadius, ChatMarkdownInlineCodeStyle.cornerRadius)
+        XCTAssertNil(
+            attributedText.attribute(
+                .backgroundColor,
+                at: codeRange.location,
+                effectiveRange: nil
+            )
+        )
+    }
+
+    func testMarkdownInlineCodeAddsOuterMarginWhenAdjacentToText() {
+        let attributedText = renderMarkdownText("A`code`B")
+
+        XCTAssertEqual(attributedText.string, "A code B")
+    }
+
     func testMarkdownTableRendersAsDedicatedBlock() throws {
         var renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let blocks = renderer.render(
@@ -596,6 +631,35 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertEqual(tableData.rows.count, 2)
         XCTAssertEqual(tableData.rows[0][0].accessibilityText, "Feature")
         XCTAssertEqual(tableData.rows[1][0].accessibilityText, "Tables")
+    }
+
+    func testMarkdownTableInlineCodeUsesRoundedPillAttributesAndCleanAccessibilityText() throws {
+        var renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
+        let blocks = renderer.render(
+            markdown: """
+            | Code |
+            | :-- |
+            | `id` |
+            """
+        )
+
+        let firstBlock = try XCTUnwrap(blocks.first)
+        guard case let .table(tableData) = firstBlock else {
+            XCTFail("Expected first rendered block to be a Markdown table")
+            return
+        }
+
+        let codeCell = tableData.rows[1][0]
+        let codeRange = try XCTUnwrap(codeCell.attributedText.range(of: "id"))
+
+        XCTAssertEqual(codeCell.accessibilityText, "id")
+        XCTAssertNotNil(
+            codeCell.attributedText.attribute(
+                .chatInlineCodeBackgroundColor,
+                at: codeRange.location,
+                effectiveRange: nil
+            ) as? UIColor
+        )
     }
 
     func testMarkdownNestedListRendersIncreasingIndents() throws {
@@ -812,5 +876,14 @@ private extension NSAttributedString {
         }
 
         return attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle
+    }
+
+    func range(of text: String) -> NSRange? {
+        let range = (string as NSString).range(of: text)
+        guard range.location != NSNotFound else {
+            return nil
+        }
+
+        return range
     }
 }

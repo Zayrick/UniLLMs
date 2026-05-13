@@ -94,7 +94,7 @@ final class StreamingMarkdownView: UIView {
                 guard attributedText.length > 0 else {
                     continue
                 }
-                stackView.addArrangedSubview(ChatMarkdownTextBlockView(attributedText: attributedText))
+                stackView.addArrangedSubview(ChatMarkdownTextView(attributedText: attributedText))
             case let .table(tableData):
                 stackView.addArrangedSubview(
                     ChatMarkdownTableView(
@@ -125,32 +125,5 @@ final class StreamingMarkdownView: UIView {
             )
             return height + ceil(fittingSize.height)
         }
-    }
-}
-
-private final class ChatMarkdownTextBlockView: UITextView {
-    init(attributedText: NSAttributedString) {
-        super.init(frame: .zero, textContainer: nil)
-        configure()
-        self.attributedText = attributedText
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        configure()
-    }
-
-    private func configure() {
-        backgroundColor = .clear
-        isOpaque = false
-        isEditable = false
-        isSelectable = false
-        isUserInteractionEnabled = true
-        isScrollEnabled = false
-        textContainerInset = .zero
-        textContainer.lineFragmentPadding = 0.0
-        setContentCompressionResistancePriority(.required, for: .vertical)
-        setContentHuggingPriority(.required, for: .vertical)
-        translatesAutoresizingMaskIntoConstraints = false
     }
 }
