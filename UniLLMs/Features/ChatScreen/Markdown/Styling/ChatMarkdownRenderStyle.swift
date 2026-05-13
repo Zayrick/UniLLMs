@@ -14,6 +14,7 @@ struct ChatMarkdownRenderStyle {
     var linkColor: UIColor
     var codeTextColor: UIColor
     var codeBackgroundColor: UIColor
+    var codeBlockBackgroundColor: UIColor
 
     static var assistant: ChatMarkdownRenderStyle {
         ChatMarkdownRenderStyle(
@@ -21,7 +22,8 @@ struct ChatMarkdownRenderStyle {
             secondaryTextColor: .secondaryLabel,
             linkColor: .systemBlue,
             codeTextColor: .label,
-            codeBackgroundColor: .secondarySystemFill
+            codeBackgroundColor: .secondarySystemFill,
+            codeBlockBackgroundColor: .quaternarySystemFill
         )
     }
 

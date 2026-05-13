@@ -56,7 +56,7 @@ final class ChatMarkdownLeafBlockRenderer {
             attributes: [
                 .font: context.style.codeFont(compatibleWith: context.traitCollection),
                 .foregroundColor: context.style.codeTextColor,
-                .backgroundColor: context.style.codeBackgroundColor
+                .backgroundColor: context.style.codeBlockBackgroundColor
             ]
         )
 

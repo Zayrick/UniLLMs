@@ -12,10 +12,10 @@ final class ChatMarkdownCodeBlockView: UIView {
     private enum Metrics {
         static let topMargin: CGFloat = 4.0
         static let bottomMargin: CGFloat = 8.0
-        static let cornerRadius: CGFloat = 12.0
-        static let headerTopInset: CGFloat = 6.0
-        static let headerHorizontalInset: CGFloat = 10.0
-        static let headerBottomSpacing: CGFloat = 4.0
+        static let cornerRadius: CGFloat = 18.0
+        static let headerTopInset: CGFloat = 8.0
+        static let headerHorizontalInset: CGFloat = 12.0
+        static let headerBottomSpacing: CGFloat = 8.0
         static let codeVerticalInset: CGFloat = 9.0
         static let codeLeadingInset: CGFloat = 12.0
         static let codeTrailingInset: CGFloat = 14.0
@@ -30,11 +30,8 @@ final class ChatMarkdownCodeBlockView: UIView {
     private let scrollView = ChatMarkdownCodeScrollView()
     private let codeLabel = UILabel()
     private let lineNumberLabel = UILabel()
-    private let headerSeparatorView = UIView()
-    private let separatorView = UIView()
 
     private let style: ChatMarkdownRenderStyle
-    private let traitCollectionForRendering: UITraitCollection
     private let displayLanguage: String
     private let codeAttributedText: NSAttributedString
     private let lineNumberAttributedText: NSAttributedString
@@ -48,7 +45,6 @@ final class ChatMarkdownCodeBlockView: UIView {
         traitCollection: UITraitCollection
     ) {
         self.style = style
-        traitCollectionForRendering = traitCollection
         displayLanguage = codeBlock.displayLanguage
 
         let code = Self.normalizedDisplayCode(codeBlock.code)
@@ -59,7 +55,7 @@ final class ChatMarkdownCodeBlockView: UIView {
             weight: .regular
         )
         let headerFont = UIFontMetrics(forTextStyle: .caption1).scaledFont(
-            for: .systemFont(ofSize: 11.0, weight: .semibold),
+            for: .systemFont(ofSize: 12.5, weight: .semibold),
             compatibleWith: traitCollection
         )
         let codeAttributes = Self.codeAttributes(
@@ -109,7 +105,6 @@ final class ChatMarkdownCodeBlockView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        updateResolvedColors()
 
         let width = max(1.0, bounds.width)
         containerView.frame = CGRect(
@@ -126,16 +121,7 @@ final class ChatMarkdownCodeBlockView: UIView {
             height: headerHeight
         )
 
-        let separatorWidth = lineWidth
-        let headerSeparatorY = Metrics.headerTopInset + headerHeight + Metrics.headerBottomSpacing
-        headerSeparatorView.frame = CGRect(
-            x: 0.0,
-            y: headerSeparatorY,
-            width: width,
-            height: separatorWidth
-        )
-
-        let codeViewportY = headerSeparatorY + separatorWidth
+        let codeViewportY = Metrics.headerTopInset + headerHeight + Metrics.headerBottomSpacing
         codeViewport.frame = CGRect(
             x: 0.0,
             y: codeViewportY,
@@ -143,7 +129,7 @@ final class ChatMarkdownCodeBlockView: UIView {
             height: codeAreaHeight
         )
 
-        let codeAreaX = lineNumberColumnWidth + separatorWidth
+        let codeAreaX = lineNumberColumnWidth
         let codeAreaWidth = max(1.0, width - codeAreaX)
 
         scrollView.frame = CGRect(
@@ -176,12 +162,6 @@ final class ChatMarkdownCodeBlockView: UIView {
             ),
             height: max(1.0, codeTextSize.height)
         )
-        separatorView.frame = CGRect(
-            x: lineNumberColumnWidth,
-            y: 0.0,
-            width: separatorWidth,
-            height: codeAreaHeight
-        )
 
         clampHorizontalOffset()
     }
@@ -193,8 +173,11 @@ final class ChatMarkdownCodeBlockView: UIView {
         translatesAutoresizingMaskIntoConstraints = false
 
         containerView.clipsToBounds = true
+        containerView.isOpaque = false
         containerView.layer.cornerCurve = .continuous
         containerView.layer.cornerRadius = Metrics.cornerRadius
+        containerView.layer.borderWidth = 0.0
+        containerView.backgroundColor = style.codeBlockBackgroundColor
         addSubview(containerView)
 
         languageLabel.text = displayLanguage
@@ -204,9 +187,6 @@ final class ChatMarkdownCodeBlockView: UIView {
         languageLabel.numberOfLines = 1
         languageLabel.lineBreakMode = .byTruncatingTail
         containerView.addSubview(languageLabel)
-
-        headerSeparatorView.isUserInteractionEnabled = false
-        containerView.addSubview(headerSeparatorView)
 
         codeViewport.clipsToBounds = true
         codeViewport.backgroundColor = .clear
@@ -237,25 +217,6 @@ final class ChatMarkdownCodeBlockView: UIView {
         lineNumberLabel.textAlignment = .right
         lineNumberLabel.isAccessibilityElement = false
         codeViewport.addSubview(lineNumberLabel)
-
-        separatorView.isUserInteractionEnabled = false
-        codeViewport.addSubview(separatorView)
-
-        updateResolvedColors()
-    }
-
-    private func updateResolvedColors() {
-        containerView.backgroundColor = style.codeBackgroundColor
-        containerView.layer.borderColor = UIColor.separator
-            .withAlphaComponent(0.35)
-            .resolvedColor(with: traitCollectionForRendering)
-            .cgColor
-        containerView.layer.borderWidth = lineWidth
-        let separatorColor = UIColor.separator
-            .withAlphaComponent(0.45)
-            .resolvedColor(with: traitCollectionForRendering)
-        headerSeparatorView.backgroundColor = separatorColor
-        separatorView.backgroundColor = separatorColor
     }
 
     private func clampHorizontalOffset() {
@@ -265,21 +226,12 @@ final class ChatMarkdownCodeBlockView: UIView {
         }
     }
 
-    private var displayScale: CGFloat {
-        let scale = traitCollectionForRendering.displayScale
-        return scale > 0.0 ? scale : 1.0
-    }
-
-    private var lineWidth: CGFloat {
-        1.0 / displayScale
-    }
-
     private var totalHeight: CGFloat {
         Metrics.topMargin + containerHeight + Metrics.bottomMargin
     }
 
     private var containerHeight: CGFloat {
-        Metrics.headerTopInset + headerHeight + Metrics.headerBottomSpacing + lineWidth + codeAreaHeight
+        Metrics.headerTopInset + headerHeight + Metrics.headerBottomSpacing + codeAreaHeight
     }
 
     private var codeAreaHeight: CGFloat {
