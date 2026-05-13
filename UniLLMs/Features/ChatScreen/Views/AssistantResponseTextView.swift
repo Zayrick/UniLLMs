@@ -184,6 +184,9 @@ final class AssistantResponseTextView: UIView {
     private func configureContentMarkdownView() {
         contentMarkdownView.backgroundColor = .clear
         contentMarkdownView.isOpaque = false
+        contentMarkdownView.onNeedsHeightUpdate = { [weak self] in
+            self?.updateTextViewHeights()
+        }
         contentMarkdownView.setContentCompressionResistancePriority(.required, for: .vertical)
         contentMarkdownView.setContentHuggingPriority(.required, for: .vertical)
         contentMarkdownView.translatesAutoresizingMaskIntoConstraints = false

@@ -75,6 +75,8 @@ final class UniLLMsTests: XCTestCase {
                 result.append(text)
             case .table:
                 XCTFail("Expected Markdown to render only text blocks.", file: file, line: line)
+            case .image:
+                XCTFail("Expected Markdown to render only text blocks.", file: file, line: line)
             }
         }
 
@@ -661,6 +663,113 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertEqual(tableData.rows.count, 2)
         XCTAssertEqual(tableData.rows[0][0].accessibilityText, "Feature")
         XCTAssertEqual(tableData.rows[1][0].accessibilityText, "Tables")
+    }
+
+    func testMarkdownStandaloneImageRendersAsDedicatedBlock() throws {
+        var renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
+        let blocks = renderer.render(
+            markdown: """
+            Intro
+
+            ![Architecture](https://example.com/diagram.png)
+
+            Outro
+            """
+        )
+
+        guard blocks.count == 3 else {
+            XCTFail("Expected text, image, and text blocks")
+            return
+        }
+        guard case let .text(introText) = blocks[0] else {
+            XCTFail("Expected leading text block")
+            return
+        }
+        guard case let .image(imageBlock) = blocks[1] else {
+            XCTFail("Expected standalone image block")
+            return
+        }
+        guard case let .text(outroText) = blocks[2] else {
+            XCTFail("Expected trailing text block")
+            return
+        }
+
+        XCTAssertEqual(introText.string.trimmingCharacters(in: .whitespacesAndNewlines), "Intro")
+        XCTAssertEqual(imageBlock.source, "https://example.com/diagram.png")
+        XCTAssertEqual(imageBlock.altText, "Architecture")
+        XCTAssertEqual(outroText.string, "Outro")
+    }
+
+    func testMarkdownStreamSegmenterCompletesStableBlocksAndLeavesCurrentTail() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        var update = segmenter.append("# Title\n")
+        XCTAssertEqual(update.completedSegments, ["# Title\n"])
+        XCTAssertNil(update.currentSegment)
+
+        update = segmenter.append("Intro")
+        XCTAssertTrue(update.completedSegments.isEmpty)
+        XCTAssertEqual(update.currentSegment, "Intro")
+
+        update = segmenter.append("\n\n![Alt](https://example.com/image.png)\nNext")
+        XCTAssertEqual(
+            update.completedSegments,
+            [
+                "Intro\n",
+                "![Alt](https://example.com/image.png)\n"
+            ]
+        )
+        XCTAssertEqual(update.currentSegment, "Next")
+    }
+
+    func testMarkdownStreamSegmenterKeepsBlockQuoteAsOutermostSegment() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append(
+            """
+            > Outer
+            > still quoted
+
+            Next
+            """
+        )
+
+        XCTAssertEqual(
+            update.completedSegments,
+            [
+                """
+                > Outer
+                > still quoted
+
+                """
+            ]
+        )
+        XCTAssertEqual(update.currentSegment, "Next")
+    }
+
+    func testMarkdownStreamSegmenterCompletesTableWhenNextSegmentStarts() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append(
+            """
+            | Feature | Count |
+            | :-- | --: |
+            | Tables | 2 |
+            After
+            """
+        )
+
+        XCTAssertEqual(
+            update.completedSegments,
+            [
+                """
+                | Feature | Count |
+                | :-- | --: |
+                | Tables | 2 |
+                """
+            ]
+        )
+        XCTAssertEqual(update.currentSegment, "After")
     }
 
     func testMarkdownTableInlineCodeUsesRoundedPillAttributesAndCleanAccessibilityText() throws {

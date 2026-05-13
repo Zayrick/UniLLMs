@@ -8,7 +8,13 @@
 
 import UIKit
 
+struct ChatMarkdownImageBlock: Equatable {
+    let source: String
+    let altText: String
+}
+
 enum ChatMarkdownRenderedBlock {
     case text(NSAttributedString)
     case table(ChatMarkdownTableData)
+    case image(ChatMarkdownImageBlock)
 }

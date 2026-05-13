@@ -28,7 +28,7 @@ Plain text can sit next to **bold**, *italic*, ***bold italic***, ~~strikethroug
 
 Links can be inline like [GitHub Flavored Markdown](https://github.github.com/gfm/), reference-style like [the reference link][gfm-reference], bare URLs such as https://github.com/openai, and email autolinks like <hello@example.com>.
 
-![Markdown fixture image alt text](https://example.com/markdown-fixture.png "Optional image title")
+![Markdown fixture image alt text](https://dummyimage.com/300x200.png "Optional image title")
 
 [gfm-reference]: https://github.github.com/gfm/
 

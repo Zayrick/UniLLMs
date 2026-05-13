@@ -2,7 +2,7 @@
 //  StreamingMarkdownView.swift
 //  UniLLMs
 //
-//  UIView that renders accumulated streamed Markdown as text and table blocks.
+//  UIView that renders accumulated streamed Markdown as presentation blocks.
 //  Created by Zayrick on 2026/5/12.
 //
 
@@ -10,8 +10,12 @@ import UIKit
 
 final class StreamingMarkdownView: UIView {
     private let stackView = UIStackView()
-    private var markdownText = ""
+    private var segmenter = ChatMarkdownStreamSegmenter()
+    private var completedSegmentMarkdown: [String] = []
+    private var currentSegmentMarkdown: String?
+    private var currentSegmentViews: [UIView] = []
     private var traitChangeRegistration: (any UITraitChangeRegistration)?
+    var onNeedsHeightUpdate: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -30,16 +34,18 @@ final class StreamingMarkdownView: UIView {
             return
         }
 
-        markdownText += string
-        renderMarkdown()
+        applyStreamUpdate(segmenter.append(string))
     }
 
     func finishStreamingContent() {
-        renderMarkdown()
+        applyStreamUpdate(segmenter.finish())
     }
 
     func resetMarkdown() {
-        markdownText = ""
+        segmenter.reset()
+        completedSegmentMarkdown = []
+        currentSegmentMarkdown = nil
+        currentSegmentViews = []
         removeRenderedBlocks()
     }
 
@@ -74,39 +80,80 @@ final class StreamingMarkdownView: UIView {
                 UITraitDisplayScale.self
             ]
         ) { (view: StreamingMarkdownView, _) in
-            view.renderMarkdown()
+            view.renderAllSegments()
         }
     }
 
-    private func renderMarkdown() {
-        guard !markdownText.isEmpty else {
-            removeRenderedBlocks()
-            return
+    private func applyStreamUpdate(_ update: ChatMarkdownStreamUpdate) {
+        removeCurrentSegmentViews()
+
+        for segment in update.completedSegments {
+            completedSegmentMarkdown.append(segment)
+            addRenderedSegment(segment)
         }
 
-        let renderer = ChatMarkdownRenderer(traitCollection: traitCollection)
-        let blocks = renderer.render(markdown: markdownText)
+        currentSegmentMarkdown = update.currentSegment
+        if let currentSegment = update.currentSegment {
+            currentSegmentViews = addRenderedSegment(currentSegment)
+        }
 
+        invalidateIntrinsicContentSize()
+        onNeedsHeightUpdate?()
+    }
+
+    private func renderAllSegments() {
         removeRenderedBlocks()
+
+        for segment in completedSegmentMarkdown {
+            addRenderedSegment(segment)
+        }
+
+        if let currentSegment = currentSegmentMarkdown {
+            currentSegmentViews = addRenderedSegment(currentSegment)
+        }
+
+        invalidateIntrinsicContentSize()
+        onNeedsHeightUpdate?()
+    }
+
+    @discardableResult
+    private func addRenderedSegment(_ markdown: String) -> [UIView] {
+        let renderer = ChatMarkdownRenderer(traitCollection: traitCollection)
+        let blocks = renderer.render(markdown: markdown)
+        var views: [UIView] = []
+
         for block in blocks {
             switch block {
             case let .text(attributedText):
                 guard attributedText.length > 0 else {
                     continue
                 }
-                stackView.addArrangedSubview(ChatMarkdownTextView(attributedText: attributedText))
+                let textView = ChatMarkdownTextView(attributedText: attributedText)
+                stackView.addArrangedSubview(textView)
+                views.append(textView)
             case let .table(tableData):
-                stackView.addArrangedSubview(
-                    ChatMarkdownTableView(
-                        tableData: tableData,
-                        style: renderer.style,
-                        traitCollection: traitCollection
-                    )
+                let tableView = ChatMarkdownTableView(
+                    tableData: tableData,
+                    style: renderer.style,
+                    traitCollection: traitCollection
                 )
+                stackView.addArrangedSubview(tableView)
+                views.append(tableView)
+            case let .image(imageBlock):
+                let imageView = ChatMarkdownImageView(
+                    imageBlock: imageBlock,
+                    style: renderer.style,
+                    traitCollection: traitCollection
+                )
+                imageView.onImageSizeDidChange = { [weak self] in
+                    self?.handleRenderedImageSizeChange()
+                }
+                stackView.addArrangedSubview(imageView)
+                views.append(imageView)
             }
         }
 
-        invalidateIntrinsicContentSize()
+        return views
     }
 
     private func removeRenderedBlocks() {
@@ -114,14 +161,31 @@ final class StreamingMarkdownView: UIView {
             stackView.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
+        currentSegmentViews = []
         invalidateIntrinsicContentSize()
+    }
+
+    private func removeCurrentSegmentViews() {
+        for view in currentSegmentViews {
+            stackView.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        currentSegmentViews = []
+    }
+
+    private func handleRenderedImageSizeChange() {
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
+        onNeedsHeightUpdate?()
     }
 
     private func fittingHeight(for width: CGFloat) -> CGFloat {
         let fittingWidth = max(1.0, width)
         return stackView.arrangedSubviews.reduce(0.0) { height, view in
-            let fittingSize = view.sizeThatFits(
-                CGSize(width: fittingWidth, height: CGFloat.greatestFiniteMagnitude)
+            let fittingSize = view.systemLayoutSizeFitting(
+                CGSize(width: fittingWidth, height: UIView.layoutFittingCompressedSize.height),
+                withHorizontalFittingPriority: .required,
+                verticalFittingPriority: .fittingSizeLevel
             )
             return height + ceil(fittingSize.height)
         }
