@@ -11,6 +11,8 @@ import UIKit
 final class ChatViewController: UIViewController {
     private enum HeaderLayout {
         static let defaultModuleSelectionTitle = "Select Model"
+        static let emptyConversationButtonSystemName = "app.dashed"
+        static let newConversationButtonSystemName = "plus.message"
         static let buttonSize: CGFloat = 44.0
         static let horizontalInset: CGFloat = 16.0
         static let itemSpacing: CGFloat = 8.0
@@ -78,7 +80,7 @@ final class ChatViewController: UIViewController {
         title: HeaderLayout.defaultModuleSelectionTitle
     )
     private let rightHeaderButton = ChatViewController.makeHeaderButton(
-        systemName: "app.dashed",
+        systemName: HeaderLayout.emptyConversationButtonSystemName,
         accessibilityLabel: "Layout"
     )
     private let messagesScrollView = UIScrollView()
@@ -251,6 +253,8 @@ final class ChatViewController: UIViewController {
 
         leftHeaderButton.addTarget(self, action: #selector(toggleSideMenu), for: .touchUpInside)
         moduleSelectionPillButton.addTarget(self, action: #selector(presentModelSelection), for: .touchUpInside)
+        rightHeaderButton.addTarget(self, action: #selector(startNewConversation), for: .touchUpInside)
+        updateRightHeaderButtonState(animated: false)
 
         NSLayoutConstraint.activate([
             headerGlassContainerView.topAnchor.constraint(
@@ -572,6 +576,18 @@ final class ChatViewController: UIViewController {
         present(navigationController, animated: true)
     }
 
+    @objc private func startNewConversation() {
+        guard activeResponseTask == nil,
+              hasChatContent else {
+            return
+        }
+
+        chatRuntime.resetConversation()
+        removeChatContent()
+        isMessagesBottomLocked = true
+        updateRightHeaderButtonState(animated: true)
+    }
+
     private func setSideMenuOpen(_ isOpen: Bool, animated: Bool) {
         guard isSideMenuOpen != isOpen else {
             return
@@ -850,6 +866,7 @@ final class ChatViewController: UIViewController {
     ) {
         guard activeResponseTask == nil else {
             setAssistantResponseError("Wait for the current response to finish.", in: responseView)
+            updateRightHeaderButtonState(animated: true)
             return
         }
 
@@ -858,6 +875,7 @@ final class ChatViewController: UIViewController {
             responseStream = try chatRuntime.startTurn(prompt: prompt)
         } catch {
             setAssistantResponseError(error.localizedDescription, in: responseView)
+            updateRightHeaderButtonState(animated: true)
             return
         }
 
@@ -908,6 +926,7 @@ final class ChatViewController: UIViewController {
                 }
             }
         }
+        updateRightHeaderButtonState(animated: true)
     }
 
     private func cancelAssistantResponseStream() {
@@ -993,6 +1012,7 @@ final class ChatViewController: UIViewController {
         activeResponseTask = nil
         composerView.isSendingEnabled = true
         composerView.setStreamingResponseActive(false, animated: true)
+        updateRightHeaderButtonState(animated: true)
     }
 
     private func updateMainPageShadowPath(cornerRadius: CGFloat? = nil) {
@@ -1072,6 +1092,61 @@ final class ChatViewController: UIViewController {
         moduleSelectionPillGlassView.invalidateIntrinsicContentSize()
         headerStackView.invalidateIntrinsicContentSize()
         headerGlassContainerView.invalidateIntrinsicContentSize()
+    }
+
+    private var hasChatContent: Bool {
+        !messagesStackView.arrangedSubviews.isEmpty
+    }
+
+    private func removeChatContent() {
+        let messageViews = messagesStackView.arrangedSubviews
+        guard !messageViews.isEmpty else {
+            return
+        }
+
+        messageViews.forEach {
+            messagesStackView.removeArrangedSubview($0)
+            $0.removeFromSuperview()
+        }
+        mainPageView.layoutIfNeeded()
+        scrollMessagesToBottom(animated: false)
+    }
+
+    private func updateRightHeaderButtonState(animated: Bool) {
+        let systemName = hasChatContent
+            ? HeaderLayout.newConversationButtonSystemName
+            : HeaderLayout.emptyConversationButtonSystemName
+        let accessibilityLabel = hasChatContent ? "New Chat" : "Layout"
+        let isEnabled = activeResponseTask == nil
+        let image = UIImage(
+            systemName: systemName,
+            withConfiguration: UIImage.SymbolConfiguration(
+                pointSize: HeaderLayout.iconPointSize,
+                weight: .semibold
+            )
+        )
+
+        let update = {
+            var configuration = self.rightHeaderButton.configuration
+            configuration?.image = image
+            self.rightHeaderButton.configuration = configuration
+            self.rightHeaderButton.accessibilityLabel = accessibilityLabel
+            self.rightHeaderButton.isEnabled = isEnabled
+        }
+
+        guard animated,
+              view.window != nil,
+              !UIAccessibility.isReduceMotionEnabled else {
+            update()
+            return
+        }
+
+        UIView.transition(
+            with: rightHeaderButton,
+            duration: HeaderLayout.moduleSelectionTextAnimationDuration,
+            options: [.transitionCrossDissolve, .beginFromCurrentState, .allowUserInteraction, .allowAnimatedContent],
+            animations: update
+        )
     }
 
     private static func makeHeaderButton(systemName: String, accessibilityLabel: String) -> UIButton {
