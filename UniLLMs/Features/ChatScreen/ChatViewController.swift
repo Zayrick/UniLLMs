@@ -88,6 +88,14 @@ final class ChatViewController: UIViewController {
     )
     private let messagesScrollView = UIScrollView()
     private let messagesContentView = UIView()
+    /// Empty title label sitting in the chat header band. It is placed behind
+    /// the three header glass elements and in front of the messages scroll
+    /// view, and also hosts the messages scroll view's top
+    /// `UIScrollEdgeElementContainerInteraction`. Because the host view is a
+    /// plain non-glass `UILabel` (mirroring `SideMenuView`'s `titleLabel`),
+    /// the system renders the `.soft` scroll edge effect — a progressive
+    /// blur + fade — directly over this region.
+    private let topTitleLabel = UILabel()
     private let messagesStackView = UIStackView()
     private var messagesContentMinimumHeightConstraint: NSLayoutConstraint!
     private let composerView = GlassComposerBarView()
@@ -399,12 +407,10 @@ final class ChatViewController: UIViewController {
                 equalTo: mainPageView.topAnchor
             ),
             messagesScrollView.leadingAnchor.constraint(
-                equalTo: mainPageView.safeAreaLayoutGuide.leadingAnchor,
-                constant: MessagesLayout.horizontalInset
+                equalTo: mainPageView.leadingAnchor
             ),
             messagesScrollView.trailingAnchor.constraint(
-                equalTo: mainPageView.safeAreaLayoutGuide.trailingAnchor,
-                constant: -MessagesLayout.horizontalInset
+                equalTo: mainPageView.trailingAnchor
             ),
             messagesScrollView.bottomAnchor.constraint(
                 equalTo: mainPageView.bottomAnchor
@@ -417,8 +423,14 @@ final class ChatViewController: UIViewController {
             messagesContentView.widthAnchor.constraint(equalTo: messagesScrollView.frameLayoutGuide.widthAnchor),
             messagesContentMinimumHeightConstraint,
 
-            messagesStackView.leadingAnchor.constraint(equalTo: messagesContentView.leadingAnchor),
-            messagesStackView.trailingAnchor.constraint(equalTo: messagesContentView.trailingAnchor),
+            messagesStackView.leadingAnchor.constraint(
+                equalTo: messagesContentView.safeAreaLayoutGuide.leadingAnchor,
+                constant: MessagesLayout.horizontalInset
+            ),
+            messagesStackView.trailingAnchor.constraint(
+                equalTo: messagesContentView.safeAreaLayoutGuide.trailingAnchor,
+                constant: -MessagesLayout.horizontalInset
+            ),
             messagesStackView.bottomAnchor.constraint(
                 equalTo: messagesContentView.bottomAnchor,
                 constant: -MessagesLayout.verticalInset
@@ -432,9 +444,37 @@ final class ChatViewController: UIViewController {
         mainPageView.bringSubviewToFront(headerGlassContainerView)
         mainPageView.bringSubviewToFront(rightHeaderButton)
         mainPageView.bringSubviewToFront(composerView)
-        addScrollEdgeInteraction(to: headerGlassContainerView, edge: .top)
-        addScrollEdgeInteraction(to: rightHeaderButton, edge: .top)
+        configureTopScrollEdgeAnchor()
         addScrollEdgeInteraction(to: composerView, edge: .bottom)
+    }
+
+    /// Add an empty title label across the chat header band, sitting in front
+    /// of the messages scroll view and behind all three header glass elements
+    /// (left button, module pill, right button). The label also hosts the
+    /// messages scroll view's top `UIScrollEdgeElementContainerInteraction`,
+    /// which makes the system render the `.soft` scroll edge effect
+    /// (progressive blur + fade) directly over this region — matching the
+    /// look of `SideMenuView`'s title label.
+    private func configureTopScrollEdgeAnchor() {
+        topTitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        topTitleLabel.text = ""
+        topTitleLabel.backgroundColor = .clear
+        topTitleLabel.isUserInteractionEnabled = false
+        topTitleLabel.isAccessibilityElement = false
+        // Insert the label in front of the messages scroll view but behind the
+        // three header glass elements. `headerGlassContainerView` is currently
+        // the front-most header subview, so inserting below it is sufficient
+        // to stay behind every header glass surface.
+        mainPageView.insertSubview(topTitleLabel, belowSubview: headerGlassContainerView)
+
+        NSLayoutConstraint.activate([
+            topTitleLabel.topAnchor.constraint(equalTo: mainPageView.topAnchor),
+            topTitleLabel.leadingAnchor.constraint(equalTo: mainPageView.leadingAnchor),
+            topTitleLabel.trailingAnchor.constraint(equalTo: mainPageView.trailingAnchor),
+            topTitleLabel.bottomAnchor.constraint(equalTo: headerGlassContainerView.bottomAnchor)
+        ])
+
+        addScrollEdgeInteraction(to: topTitleLabel, edge: .top)
     }
 
     private func addScrollEdgeInteraction(to view: UIView, edge: UIRectEdge) {
@@ -695,12 +735,12 @@ final class ChatViewController: UIViewController {
 
         messagesStackView.addArrangedSubview(bubbleView)
         bubbleView.widthAnchor.constraint(
-            lessThanOrEqualTo: messagesScrollView.frameLayoutGuide.widthAnchor,
+            lessThanOrEqualTo: messagesStackView.widthAnchor,
             multiplier: MessagesLayout.maximumBubbleWidthRatio
         ).isActive = true
         messagesStackView.addArrangedSubview(responseView)
         responseView.widthAnchor.constraint(
-            equalTo: messagesScrollView.frameLayoutGuide.widthAnchor
+            equalTo: messagesStackView.widthAnchor
         ).isActive = true
 
         mainPageView.layoutIfNeeded()
@@ -1231,7 +1271,7 @@ final class ChatViewController: UIViewController {
 
         messagesStackView.addArrangedSubview(bubbleView)
         bubbleView.widthAnchor.constraint(
-            lessThanOrEqualTo: messagesScrollView.frameLayoutGuide.widthAnchor,
+            lessThanOrEqualTo: messagesStackView.widthAnchor,
             multiplier: MessagesLayout.maximumBubbleWidthRatio
         ).isActive = true
     }
@@ -1247,7 +1287,7 @@ final class ChatViewController: UIViewController {
         responseView.setContentCompressionResistancePriority(.required, for: .vertical)
         messagesStackView.addArrangedSubview(responseView)
         responseView.widthAnchor.constraint(
-            equalTo: messagesScrollView.frameLayoutGuide.widthAnchor
+            equalTo: messagesStackView.widthAnchor
         ).isActive = true
         responseView.append(content: text, reasoning: "")
         responseView.finishStreamingContent()
