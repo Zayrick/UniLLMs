@@ -819,6 +819,7 @@ final class ChatViewController: UIViewController {
 
         let animatedBubbleView = SentMessageBubbleView(text: transition.text)
         animatedBubbleView.frame = sourceBackgroundFrame
+        animatedBubbleView.alpha = 0.0
         animatedBubbleView.isUserInteractionEnabled = false
         animatedBubbleView.layoutIfNeeded()
         mainPageView.addSubview(animatedBubbleView)
@@ -828,6 +829,7 @@ final class ChatViewController: UIViewController {
             dampingRatio: MessagesLayout.sendAnimationDampingRatio
         ) {
             animatedBubbleView.frame = targetBubbleFrame
+            animatedBubbleView.alpha = 1.0
             animatedBubbleView.layoutIfNeeded()
         }
         animator.isInterruptible = true

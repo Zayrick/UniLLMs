@@ -313,13 +313,10 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         }
 
         layoutIfNeeded()
-        textView.layoutIfNeeded()
 
-        let sourceTextBounds = currentTextBounds()
-        let sourceBackgroundBounds = sourceBubbleBounds(around: sourceTextBounds)
         let transition = SendTransition(
             text: messageText,
-            backgroundGlobalFrame: textView.convert(sourceBackgroundBounds, to: nil)
+            backgroundGlobalFrame: capsuleGlassView.convert(capsuleGlassView.bounds, to: nil)
         )
 
         textView.text = ""
@@ -329,42 +326,6 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
 
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         onSend?(transition)
-    }
-
-    private func currentTextBounds() -> CGRect {
-        textView.layoutManager.ensureLayout(for: textView.textContainer)
-
-        let usedRect = textView.layoutManager.usedRect(for: textView.textContainer)
-        let textBounds = CGRect(
-            x: usedRect.minX + textView.textContainerInset.left,
-            y: usedRect.minY + textView.textContainerInset.top,
-            width: usedRect.width,
-            height: usedRect.height
-        ).insetBy(dx: -1.0, dy: -1.0)
-
-        let visibleTextBounds = textBounds.integral.intersection(textView.bounds)
-        guard !visibleTextBounds.isNull,
-              visibleTextBounds.width > 0.0,
-              visibleTextBounds.height > 0.0 else {
-            return textView.bounds
-        }
-
-        return visibleTextBounds
-    }
-
-    private func sourceBubbleBounds(around textBounds: CGRect) -> CGRect {
-        var bubbleBounds = textBounds.insetBy(
-            dx: -Metrics.capsuleHorizontalInset,
-            dy: -Metrics.capsuleVerticalInset
-        )
-
-        if bubbleBounds.height < Metrics.controlHeight {
-            let heightDelta = Metrics.controlHeight - bubbleBounds.height
-            bubbleBounds.origin.y -= heightDelta * 0.5
-            bubbleBounds.size.height = Metrics.controlHeight
-        }
-
-        return bubbleBounds.integral
     }
 
     private func updateInputMode(hasText: Bool, animated: Bool) {

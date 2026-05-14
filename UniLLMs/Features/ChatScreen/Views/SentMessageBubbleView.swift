@@ -8,7 +8,7 @@
 
 import UIKit
 
-final class SentMessageBubbleView: UIView {
+final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
     private enum Metrics {
         static let controlHeight: CGFloat = 44.0
         static let horizontalInset: CGFloat = 12.0
@@ -16,8 +16,10 @@ final class SentMessageBubbleView: UIView {
         static let multilineCornerRadius: CGFloat = 22.0
     }
 
+    private static let contextMenuIdentifier = "SentMessageBubbleView.message" as NSString
+
     private let messageText: String
-    private let glassView = UIVisualEffectView(effect: SentMessageBubbleView.makeGlassEffect())
+    private let backgroundView = UIView()
     private let label = UILabel()
     private var traitChangeRegistration: (any UITraitChangeRegistration)?
 
@@ -52,27 +54,28 @@ final class SentMessageBubbleView: UIView {
         setContentHuggingPriority(.required, for: .vertical)
         setContentCompressionResistancePriority(.required, for: .vertical)
 
-        glassView.backgroundColor = .clear
-        glassView.cornerConfiguration = .capsule()
-        glassView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(glassView)
+        backgroundView.backgroundColor = .systemBlue
+        backgroundView.layer.cornerCurve = .continuous
+        backgroundView.layer.cornerRadius = Metrics.controlHeight * 0.5
+        backgroundView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(backgroundView)
 
         label.font = .preferredFont(forTextStyle: .body, compatibleWith: traitCollection)
         label.adjustsFontForContentSizeCategory = true
-        label.textColor = .label
+        label.textColor = .white
         label.numberOfLines = 0
         label.lineBreakMode = .byWordWrapping
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         label.setContentHuggingPriority(.defaultLow, for: .vertical)
         label.setContentCompressionResistancePriority(.required, for: .vertical)
         label.translatesAutoresizingMaskIntoConstraints = false
-        glassView.contentView.addSubview(label)
+        addSubview(label)
 
         NSLayoutConstraint.activate([
-            glassView.topAnchor.constraint(equalTo: topAnchor),
-            glassView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            glassView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            glassView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            backgroundView.topAnchor.constraint(equalTo: topAnchor),
+            backgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            backgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            backgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
             heightAnchor.constraint(greaterThanOrEqualToConstant: Metrics.controlHeight),
             label.leadingAnchor.constraint(
                 equalTo: leadingAnchor,
@@ -93,6 +96,7 @@ final class SentMessageBubbleView: UIView {
         ])
 
         applyMessageText()
+        addInteraction(UIContextMenuInteraction(delegate: self))
     }
 
     private func configureTraitObservation() {
@@ -117,20 +121,14 @@ final class SentMessageBubbleView: UIView {
             string: messageText,
             attributes: [
                 .font: font,
-                .foregroundColor: UIColor.label,
+                .foregroundColor: UIColor.white,
                 .paragraphStyle: paragraphStyle
             ]
         )
     }
 
     private func updateCornerConfiguration() {
-        if isSingleLineLayout {
-            glassView.cornerConfiguration = .capsule()
-        } else {
-            glassView.cornerConfiguration = .corners(
-                radius: .fixed(Double(Metrics.multilineCornerRadius))
-            )
-        }
+        backgroundView.layer.cornerRadius = currentCornerRadius
     }
 
     private var isSingleLineLayout: Bool {
@@ -146,10 +144,52 @@ final class SentMessageBubbleView: UIView {
         return fittingSize.height <= ceil(font.lineHeight * 1.25)
     }
 
-    private static func makeGlassEffect() -> UIGlassEffect {
-        let effect = UIGlassEffect(style: .regular)
-        effect.isInteractive = true
-        return effect
+    private func makeTargetedPreview() -> UITargetedPreview {
+        let parameters = UIPreviewParameters()
+        let visiblePath = UIBezierPath(
+            roundedRect: bounds,
+            cornerRadius: currentCornerRadius
+        )
+        parameters.backgroundColor = .clear
+        parameters.visiblePath = visiblePath
+        parameters.shadowPath = visiblePath
+
+        return UITargetedPreview(view: self, parameters: parameters)
+    }
+
+    func contextMenuInteraction(
+        _ interaction: UIContextMenuInteraction,
+        configurationForMenuAtLocation location: CGPoint
+    ) -> UIContextMenuConfiguration? {
+        UIContextMenuConfiguration(
+            identifier: Self.contextMenuIdentifier,
+            previewProvider: nil
+        ) { [messageText] _ in
+            let copyAction = UIAction(
+                title: "Copy",
+                image: UIImage(systemName: "doc.on.doc")
+            ) { _ in
+                UIPasteboard.general.string = messageText
+            }
+
+            return UIMenu(title: "", children: [copyAction])
+        }
+    }
+
+    func contextMenuInteraction(
+        _ interaction: UIContextMenuInteraction,
+        configuration: UIContextMenuConfiguration,
+        highlightPreviewForItemWithIdentifier identifier: any NSCopying
+    ) -> UITargetedPreview? {
+        makeTargetedPreview()
+    }
+
+    func contextMenuInteraction(
+        _ interaction: UIContextMenuInteraction,
+        configuration: UIContextMenuConfiguration,
+        dismissalPreviewForItemWithIdentifier identifier: any NSCopying
+    ) -> UITargetedPreview? {
+        makeTargetedPreview()
     }
 
     private static func systemParagraphSpacing(for font: UIFont) -> CGFloat {
