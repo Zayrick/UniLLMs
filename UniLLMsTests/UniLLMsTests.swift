@@ -921,6 +921,27 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertGreaterThan(innerStyle.headIndent, outerStyle.headIndent)
     }
 
+    func testMarkdownBlockQuoteStoresBarPositionAtLeadingMargin() throws {
+        let attributedText = renderMarkdownText("> Quote")
+        let positions = try XCTUnwrap(attributedText.blockQuoteBarPositions(containing: "Quote"))
+
+        XCTAssertEqual(positions.count, 1)
+        XCTAssertEqual(positions[0], ChatMarkdownBlockQuoteStyle.barLeading, accuracy: 0.001)
+    }
+
+    func testMarkdownNestedBlockQuoteStoresBarPositionForEachLevel() throws {
+        let attributedText = renderMarkdownText("> Outer\n>\n> > Inner")
+        let positions = try XCTUnwrap(attributedText.blockQuoteBarPositions(containing: "Inner"))
+
+        XCTAssertEqual(positions.count, 2)
+        XCTAssertEqual(positions[0], ChatMarkdownBlockQuoteStyle.barLeading, accuracy: 0.001)
+        XCTAssertEqual(
+            positions[1],
+            ChatMarkdownBlockQuoteStyle.barLeading + ChatMarkdownBlockQuoteStyle.indentPerLevel,
+            accuracy: 0.001
+        )
+    }
+
     func testMarkdownListContinuationPreservesNestedBlockQuoteIndent() throws {
         let attributedText = renderMarkdownText("- Item\n  > Quote")
 
@@ -929,6 +950,31 @@ final class UniLLMsTests: XCTestCase {
 
         XCTAssertGreaterThan(quoteStyle.firstLineHeadIndent, itemStyle.headIndent)
         XCTAssertGreaterThan(quoteStyle.headIndent, itemStyle.headIndent)
+    }
+
+    func testMarkdownListContinuationOffsetsNestedBlockQuoteBarPosition() throws {
+        let attributedText = renderMarkdownText("- Item\n  > Quote")
+
+        let itemStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Item"))
+        let positions = try XCTUnwrap(attributedText.blockQuoteBarPositions(containing: "Quote"))
+
+        XCTAssertEqual(positions.count, 1)
+        XCTAssertEqual(
+            positions[0],
+            itemStyle.headIndent + ChatMarkdownBlockQuoteStyle.barLeading,
+            accuracy: 0.001
+        )
+    }
+
+    func testMarkdownBlockQuoteKeepsOuterBarBeforeNestedListMarker() throws {
+        let attributedText = renderMarkdownText("> - Item")
+
+        let itemStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Item"))
+        let positions = try XCTUnwrap(attributedText.blockQuoteBarPositions(containing: "Item"))
+
+        XCTAssertEqual(positions.count, 1)
+        XCTAssertEqual(positions[0], ChatMarkdownBlockQuoteStyle.barLeading, accuracy: 0.001)
+        XCTAssertGreaterThan(itemStyle.firstLineHeadIndent, positions[0])
     }
 
     func testMarkdownOrderedListUsesStableContentIndentAcrossDigitWidths() throws {
@@ -1116,5 +1162,17 @@ private extension NSAttributedString {
         }
 
         return attribute(.font, at: range.location, effectiveRange: nil) as? UIFont
+    }
+
+    func blockQuoteBarPositions(containing text: String) -> [CGFloat]? {
+        guard let range = range(of: text) else {
+            return nil
+        }
+
+        return attribute(
+            .chatBlockQuoteBarPositions,
+            at: range.location,
+            effectiveRange: nil
+        ) as? [CGFloat]
     }
 }

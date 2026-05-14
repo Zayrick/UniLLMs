@@ -10,12 +10,12 @@ import UIKit
 
 final class ChatMarkdownTextView: UITextView {
     private let markdownTextStorage: NSTextStorage
-    private let markdownLayoutManager: ChatMarkdownInlineCodeLayoutManager
+    private let markdownLayoutManager: ChatMarkdownLayoutManager
     private let markdownTextContainer: NSTextContainer
 
     init(attributedText: NSAttributedString) {
         let textStorage = NSTextStorage()
-        let layoutManager = ChatMarkdownInlineCodeLayoutManager()
+        let layoutManager = ChatMarkdownLayoutManager()
         let textContainer = NSTextContainer(size: .zero)
 
         textStorage.addLayoutManager(layoutManager)
@@ -66,10 +66,74 @@ final class ChatMarkdownTextView: UITextView {
     }
 }
 
-private final class ChatMarkdownInlineCodeLayoutManager: NSLayoutManager {
+private final class ChatMarkdownLayoutManager: NSLayoutManager {
     override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: CGPoint) {
+        drawBlockQuoteBars(forGlyphRange: glyphsToShow, at: origin)
         drawInlineCodeBackgrounds(forGlyphRange: glyphsToShow, at: origin)
         super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
+    }
+
+    private func drawBlockQuoteBars(forGlyphRange glyphsToShow: NSRange, at origin: CGPoint) {
+        guard let textStorage else {
+            return
+        }
+
+        ChatMarkdownBlockQuoteStyle.barColor.setFill()
+
+        enumerateLineFragments(forGlyphRange: glyphsToShow) { lineFragmentRect, _, _, lineGlyphRange, _ in
+            let visibleGlyphRange = NSIntersectionRange(lineGlyphRange, glyphsToShow)
+            guard visibleGlyphRange.length > 0 else {
+                return
+            }
+
+            let lineCharacterRange = self.characterRange(
+                forGlyphRange: visibleGlyphRange,
+                actualGlyphRange: nil
+            )
+            guard lineCharacterRange.length > 0 else {
+                return
+            }
+
+            let barPositions = self.blockQuoteBarPositions(
+                in: lineCharacterRange,
+                textStorage: textStorage
+            )
+            guard !barPositions.isEmpty else {
+                return
+            }
+
+            let lineRect = lineFragmentRect.offsetBy(dx: origin.x, dy: origin.y)
+            for barPosition in barPositions {
+                let barRect = CGRect(
+                    x: lineRect.minX + barPosition,
+                    y: lineRect.minY,
+                    width: ChatMarkdownBlockQuoteStyle.barWidth,
+                    height: lineRect.height
+                )
+                UIRectFill(barRect)
+            }
+        }
+    }
+
+    private func blockQuoteBarPositions(
+        in characterRange: NSRange,
+        textStorage: NSTextStorage
+    ) -> [CGFloat] {
+        var result: [CGFloat] = []
+        textStorage.enumerateAttribute(
+            .chatBlockQuoteBarPositions,
+            in: characterRange
+        ) { value, _, _ in
+            guard let positions = value as? [CGFloat] else {
+                return
+            }
+
+            for position in positions where !result.contains(position) {
+                result.append(position)
+            }
+        }
+
+        return result.sorted()
     }
 
     private func drawInlineCodeBackgrounds(forGlyphRange glyphsToShow: NSRange, at origin: CGPoint) {

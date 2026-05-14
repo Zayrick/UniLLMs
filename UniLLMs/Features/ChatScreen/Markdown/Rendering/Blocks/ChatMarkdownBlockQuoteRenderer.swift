@@ -9,11 +9,6 @@
 import Markdown
 import UIKit
 
-private enum BlockQuoteLayout {
-    static let indent: CGFloat = 12.0
-    static let paragraphSpacing: CGFloat = 4.0
-}
-
 final class ChatMarkdownBlockQuoteRenderer {
     private let context: ChatMarkdownRenderingContext
     private let renderChildBlocks: (MarkupChildren) -> NSMutableAttributedString
@@ -27,23 +22,57 @@ final class ChatMarkdownBlockQuoteRenderer {
     }
 
     func render(_ quote: BlockQuote) -> NSMutableAttributedString {
-        context.pushBlockQuote()
-        defer { context.popBlockQuote() }
-
         let result = renderChildBlocks(quote.children)
-
         context.trimTrailingNewlines(in: result)
-        context.appendNewlineIfNeeded(to: result)
-        applyBlockQuoteIndent(to: result)
 
+        applyBlockQuoteIndent(to: result)
+        addBlockQuoteBar(to: result)
+
+        context.appendNewlineIfNeeded(to: result)
         return result
     }
 
     private func applyBlockQuoteIndent(to attributedString: NSMutableAttributedString) {
         context.offsetParagraphIndent(
             in: attributedString,
-            by: BlockQuoteLayout.indent,
-            minimumParagraphSpacing: BlockQuoteLayout.paragraphSpacing
+            by: ChatMarkdownBlockQuoteStyle.indentPerLevel,
+            minimumParagraphSpacing: ChatMarkdownBlockQuoteStyle.paragraphSpacing
         )
+    }
+
+    private func addBlockQuoteBar(to attributedString: NSMutableAttributedString) {
+        guard attributedString.length > 0 else {
+            return
+        }
+
+        let fullRange = NSRange(location: 0, length: attributedString.length)
+        var updates: [(positions: [CGFloat], range: NSRange)] = []
+        attributedString.enumerateAttribute(.chatBlockQuoteBarPositions, in: fullRange) { value, range, _ in
+            let existingPositions = (value as? [CGFloat]) ?? []
+            let positions = blockQuoteBarPositions(
+                adding: ChatMarkdownBlockQuoteStyle.barLeading,
+                to: existingPositions
+            )
+            updates.append((positions, range))
+        }
+
+        for update in updates {
+            attributedString.addAttribute(
+                .chatBlockQuoteBarPositions,
+                value: update.positions,
+                range: update.range
+            )
+        }
+    }
+
+    private func blockQuoteBarPositions(
+        adding position: CGFloat,
+        to existingPositions: [CGFloat]
+    ) -> [CGFloat] {
+        var result = existingPositions
+        if !result.contains(position) {
+            result.append(position)
+        }
+        return result.sorted()
     }
 }

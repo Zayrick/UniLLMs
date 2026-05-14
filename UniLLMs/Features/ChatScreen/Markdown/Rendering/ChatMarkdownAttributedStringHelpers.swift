@@ -76,6 +76,34 @@ extension ChatMarkdownRenderingContext {
                 )
             }
         }
+        shiftBlockQuoteBars(in: attributedString, by: offset)
+    }
+
+    private func shiftBlockQuoteBars(
+        in attributedString: NSMutableAttributedString,
+        by offset: CGFloat
+    ) {
+        guard attributedString.length > 0 else {
+            return
+        }
+
+        let fullRange = NSRange(location: 0, length: attributedString.length)
+        var updates: [(positions: [CGFloat], range: NSRange)] = []
+        attributedString.enumerateAttribute(.chatBlockQuoteBarPositions, in: fullRange) { value, range, _ in
+            guard let positions = value as? [CGFloat], !positions.isEmpty else {
+                return
+            }
+
+            updates.append((positions.map { $0 + offset }, range))
+        }
+
+        for update in updates {
+            attributedString.addAttribute(
+                .chatBlockQuoteBarPositions,
+                value: update.positions,
+                range: update.range
+            )
+        }
     }
 
     func appendNewlineIfNeeded(to attributedString: NSMutableAttributedString) {
@@ -115,15 +143,11 @@ extension ChatMarkdownRenderingContext {
     }
 
     var currentTextColor: UIColor {
-        isInsideBlockQuote ? style.secondaryTextColor : style.textColor
+        style.textColor
     }
 
     func currentBodyFont() -> UIFont {
-        if isInsideBlockQuote {
-            return style.calloutFont(compatibleWith: traitCollection)
-        }
-
-        return style.bodyFont(compatibleWith: traitCollection)
+        style.bodyFont(compatibleWith: traitCollection)
     }
 
     func imageDisplayText(source: String?, altText: String) -> String {
