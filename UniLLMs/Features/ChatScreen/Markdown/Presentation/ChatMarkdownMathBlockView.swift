@@ -61,9 +61,9 @@ final class ChatMarkdownMathBlockView: UIView {
         isAccessibilityElement = true
         translatesAutoresizingMaskIntoConstraints = false
 
-        scrollView.backgroundColor = UIColor.secondarySystemFill.withAlphaComponent(0.45)
-        scrollView.layer.cornerRadius = Metrics.cornerRadius
-        scrollView.layer.masksToBounds = true
+        scrollView.backgroundColor = .clear
+        scrollView.layer.cornerRadius = 0
+        scrollView.layer.masksToBounds = false
         scrollView.showsVerticalScrollIndicator = false
         scrollView.showsHorizontalScrollIndicator = true
         scrollView.alwaysBounceVertical = false
