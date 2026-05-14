@@ -26,7 +26,7 @@ final class SideMenuView: UIView {
         static let historyBottomSpacing: CGFloat = 12.0
         static let historyCellHeight: CGFloat = 48.0
         static let historyHeaderHeight: CGFloat = 30.0
-        static let bottomSpacing: CGFloat = 10.0
+        static let keyboardBottomSpacing: CGFloat = 8.0
         static let controlHeight: CGFloat = 48.0
         static let controlSpacing: CGFloat = 10.0
         static let searchHorizontalInset: CGFloat = 16.0
@@ -39,6 +39,7 @@ final class SideMenuView: UIView {
     var onSessionDeleted: ((ChatSession) -> Void)?
 
     private let titleLabel = UILabel()
+    private let visibleHistoryLayoutGuide = UILayoutGuide()
     private let historyTableView = GroundedTableView(frame: .zero, style: .plain)
     private let emptyHistoryLabel = UILabel()
     private let bottomGlassContainerView = UIVisualEffectView(effect: SideMenuView.makeContainerEffect())
@@ -89,6 +90,12 @@ final class SideMenuView: UIView {
         configureHistoryList()
         configureSearchField()
         configureSettingsButton()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+
+        updateHistoryContentInsets()
     }
 
     private func configureTitle() {
@@ -152,7 +159,7 @@ final class SideMenuView: UIView {
             ),
             bottomGlassContainerView.bottomAnchor.constraint(
                 equalTo: keyboardLayoutGuide.topAnchor,
-                constant: -Metrics.bottomSpacing
+                constant: -Metrics.keyboardBottomSpacing
             ),
 
             bottomStackView.topAnchor.constraint(equalTo: bottomGlassContainerView.contentView.topAnchor),
@@ -168,20 +175,26 @@ final class SideMenuView: UIView {
     }
 
     private func configureHistoryList() {
+        addLayoutGuide(visibleHistoryLayoutGuide)
+
         historyTableView.register(HistoryCell.self, forCellReuseIdentifier: HistoryCell.reuseIdentifier)
         historyTableView.dataSource = self
         historyTableView.delegate = self
         historyTableView.backgroundColor = .clear
         historyTableView.separatorStyle = .none
         historyTableView.contentInset = .zero
+        historyTableView.contentInsetAdjustmentBehavior = .never
+        historyTableView.clipsToBounds = false
         historyTableView.rowHeight = Metrics.historyCellHeight
         historyTableView.estimatedRowHeight = Metrics.historyCellHeight
         historyTableView.sectionHeaderTopPadding = 0.0
         historyTableView.showsVerticalScrollIndicator = false
         historyTableView.showsHorizontalScrollIndicator = false
         historyTableView.keyboardDismissMode = .onDrag
+        historyTableView.topEdgeEffect.style = .soft
+        historyTableView.bottomEdgeEffect.style = .soft
         historyTableView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(historyTableView)
+        insertSubview(historyTableView, at: 0)
 
         emptyHistoryLabel.text = "No Chats"
         emptyHistoryLabel.font = .preferredFont(forTextStyle: .callout)
@@ -192,19 +205,28 @@ final class SideMenuView: UIView {
         addSubview(emptyHistoryLabel)
 
         NSLayoutConstraint.activate([
-            historyTableView.topAnchor.constraint(
+            visibleHistoryLayoutGuide.topAnchor.constraint(
                 equalTo: titleLabel.bottomAnchor,
                 constant: Metrics.historyTopSpacing
             ),
-            historyTableView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
-            historyTableView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            historyTableView.bottomAnchor.constraint(
+            visibleHistoryLayoutGuide.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
+            visibleHistoryLayoutGuide.trailingAnchor.constraint(equalTo: trailingAnchor),
+            visibleHistoryLayoutGuide.bottomAnchor.constraint(
                 equalTo: bottomGlassContainerView.topAnchor,
                 constant: -Metrics.historyBottomSpacing
             ),
 
+            historyTableView.topAnchor.constraint(
+                equalTo: topAnchor
+            ),
+            historyTableView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
+            historyTableView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            historyTableView.bottomAnchor.constraint(
+                equalTo: bottomAnchor
+            ),
+
             emptyHistoryLabel.centerXAnchor.constraint(equalTo: historyTableView.centerXAnchor),
-            emptyHistoryLabel.centerYAnchor.constraint(equalTo: historyTableView.centerYAnchor),
+            emptyHistoryLabel.centerYAnchor.constraint(equalTo: visibleHistoryLayoutGuide.centerYAnchor),
             emptyHistoryLabel.leadingAnchor.constraint(
                 greaterThanOrEqualTo: safeAreaLayoutGuide.leadingAnchor,
                 constant: Metrics.horizontalInset
@@ -215,7 +237,45 @@ final class SideMenuView: UIView {
             )
         ])
 
+        addScrollEdgeInteraction(to: titleLabel, edge: .top)
+        addScrollEdgeInteraction(to: bottomGlassContainerView, edge: .bottom)
         updateEmptyHistoryState()
+    }
+
+    private func addScrollEdgeInteraction(to view: UIView, edge: UIRectEdge) {
+        let interaction = UIScrollEdgeElementContainerInteraction()
+        interaction.scrollView = historyTableView
+        interaction.edge = edge
+        view.addInteraction(interaction)
+    }
+
+    private func updateHistoryContentInsets() {
+        guard historyTableView.superview != nil else {
+            return
+        }
+
+        let topInset = max(0.0, titleLabel.frame.maxY + Metrics.historyTopSpacing)
+        let bottomInset = max(
+            0.0,
+            bounds.maxY - bottomGlassContainerView.frame.minY + Metrics.historyBottomSpacing
+        )
+        let contentInsets = UIEdgeInsets(top: topInset, left: 0.0, bottom: bottomInset, right: 0.0)
+        let previousInsets = historyTableView.contentInset
+
+        guard previousInsets != contentInsets else {
+            return
+        }
+
+        let wasPinnedToTop = historyTableView.contentOffset.y <= -previousInsets.top + CGFloat.ulpOfOne
+        historyTableView.contentInset = contentInsets
+        historyTableView.scrollIndicatorInsets = contentInsets
+
+        if wasPinnedToTop {
+            historyTableView.contentOffset = CGPoint(
+                x: historyTableView.contentOffset.x,
+                y: -contentInsets.top
+            )
+        }
     }
 
     private func configureSearchField() {
@@ -442,7 +502,7 @@ private final class HistoryCell: UITableViewCell {
         static let selectedCornerRadius: CGFloat = 14.0
     }
 
-    private var title = ""
+    private let titleLabel = UILabel()
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -455,8 +515,8 @@ private final class HistoryCell: UITableViewCell {
     }
 
     func configure(with session: ChatSession) {
-        let title = session.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.title = title.isEmpty ? "New Chat" : title
+        let trimmed = session.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        titleLabel.text = trimmed.isEmpty ? "New Chat" : trimmed
         setNeedsUpdateConfiguration()
     }
 
@@ -466,24 +526,38 @@ private final class HistoryCell: UITableViewCell {
         selectionStyle = .none
         automaticallyUpdatesBackgroundConfiguration = false
         automaticallyUpdatesContentConfiguration = false
+
+        titleLabel.font = .preferredFont(forTextStyle: .body)
+        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.textColor = .label
+        titleLabel.numberOfLines = 1
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(titleLabel)
+
+        NSLayoutConstraint.activate([
+            titleLabel.leadingAnchor.constraint(
+                equalTo: contentView.leadingAnchor,
+                constant: Metrics.horizontalContentInset
+            ),
+            titleLabel.trailingAnchor.constraint(
+                equalTo: contentView.trailingAnchor,
+                constant: -Metrics.horizontalContentInset
+            ),
+            titleLabel.topAnchor.constraint(
+                equalTo: contentView.topAnchor,
+                constant: Metrics.verticalContentInset
+            ),
+            titleLabel.bottomAnchor.constraint(
+                equalTo: contentView.bottomAnchor,
+                constant: -Metrics.verticalContentInset
+            )
+        ])
+
         updateConfiguration(using: configurationState)
     }
 
     override func updateConfiguration(using state: UICellConfigurationState) {
-        var content = defaultContentConfiguration()
-        content.text = title
-        content.textProperties.font = .preferredFont(forTextStyle: .body)
-        content.textProperties.color = .label
-        content.textProperties.numberOfLines = 1
-        content.textProperties.lineBreakMode = .byTruncatingTail
-        content.directionalLayoutMargins = NSDirectionalEdgeInsets(
-            top: Metrics.verticalContentInset,
-            leading: Metrics.horizontalContentInset,
-            bottom: Metrics.verticalContentInset,
-            trailing: Metrics.horizontalContentInset
-        )
-        contentConfiguration = content
-
         var background = defaultBackgroundConfiguration()
         background.backgroundColor = state.isSelected || state.isHighlighted
             ? Self.selectionBackgroundColor
