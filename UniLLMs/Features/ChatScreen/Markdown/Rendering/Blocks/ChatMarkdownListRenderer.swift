@@ -13,7 +13,6 @@ private enum ListLayout {
     static let indent: CGFloat = 24.0
     static let markerMinWidth: CGFloat = 20.0
     static let markerSpacing: CGFloat = 6.0
-    static let itemSpacing: CGFloat = 2.0
 }
 
 private enum ListMarker {
@@ -251,13 +250,13 @@ final class ChatMarkdownListRenderer {
             contentIndent - ListLayout.markerSpacing - markerWidth(marker, isOrdered: isOrdered)
         )
 
-        paragraphStyle.lineSpacing = 1.0
+        paragraphStyle.lineSpacing = context.style.bodyLineSpacing(compatibleWith: context.traitCollection)
         paragraphStyle.firstLineHeadIndent = markerIndent
         paragraphStyle.headIndent = contentIndent
         paragraphStyle.tabStops = [
             NSTextTab(textAlignment: .left, location: contentIndent)
         ]
-        paragraphStyle.paragraphSpacing = ListLayout.itemSpacing
+        paragraphStyle.paragraphSpacing = context.style.listItemSpacing(compatibleWith: context.traitCollection)
         return paragraphStyle
     }
 

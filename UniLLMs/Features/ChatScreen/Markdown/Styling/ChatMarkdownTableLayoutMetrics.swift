@@ -16,5 +16,4 @@ enum ChatMarkdownTableLayoutMetrics {
     static let minRowHeight: CGFloat = 34.0
     static let verticalMargin: CGFloat = 4.0
     static let cornerRadius: CGFloat = 7.0
-    static let paragraphSpacing: CGFloat = 7.0
 }

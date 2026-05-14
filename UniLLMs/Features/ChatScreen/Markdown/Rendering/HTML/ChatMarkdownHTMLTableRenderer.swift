@@ -202,7 +202,7 @@ final class ChatMarkdownHTMLTableRenderer {
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.alignment = alignment
         paragraphStyle.lineBreakMode = .byCharWrapping
-        paragraphStyle.lineSpacing = 1.0
+        paragraphStyle.lineSpacing = context.style.compactLineSpacing(compatibleWith: context.traitCollection)
         paragraphStyle.paragraphSpacing = 0.0
         attributedString.addAttribute(
             .paragraphStyle,

@@ -84,7 +84,9 @@ struct ChatMarkdownRenderer {
                 flushTextBlock(result, to: &blocks)
                 blocks.append(.image(imageBlock))
             } else {
-                result.append(blockRenderer.renderBlock(child))
+                let renderedText = blockRenderer.renderBlock(child)
+                context.trimTrailingNewlines(in: renderedText)
+                flushTextBlock(renderedText, to: &blocks)
             }
 
             index += 1

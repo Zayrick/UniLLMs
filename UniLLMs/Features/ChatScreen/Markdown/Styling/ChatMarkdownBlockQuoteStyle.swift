@@ -12,7 +12,6 @@ enum ChatMarkdownBlockQuoteStyle {
     static let indentPerLevel: CGFloat = 12.0
     static let barWidth: CGFloat = 3.0
     static let barLeading: CGFloat = 2.0
-    static let paragraphSpacing: CGFloat = 4.0
 
     static var barColor: UIColor {
         UIColor.tertiaryLabel

@@ -539,7 +539,7 @@ private struct HTMLTextMode {
             attributes[.backgroundColor] = backgroundColor
         }
         if alignment != nil || blockQuoteDepth > 0 {
-            attributes[.paragraphStyle] = paragraphStyle
+            attributes[.paragraphStyle] = paragraphStyle(context: context)
         }
         if blockQuoteDepth > 0 {
             attributes[.chatBlockQuoteBarPositions] = blockQuoteBarPositions
@@ -560,10 +560,12 @@ private struct HTMLTextMode {
         return attributes
     }
 
-    private var paragraphStyle: NSParagraphStyle {
+    private func paragraphStyle(context: ChatMarkdownRenderingContext) -> NSParagraphStyle {
         let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = 1.0
-        paragraphStyle.paragraphSpacing = blockQuoteDepth > 0 ? ChatMarkdownBlockQuoteStyle.paragraphSpacing : 4.0
+        paragraphStyle.lineSpacing = context.style.bodyLineSpacing(compatibleWith: context.traitCollection)
+        paragraphStyle.paragraphSpacing = blockQuoteDepth > 0
+            ? context.style.blockQuoteParagraphSpacing(compatibleWith: context.traitCollection)
+            : context.style.bodyParagraphSpacing(compatibleWith: context.traitCollection)
         if let alignment {
             paragraphStyle.alignment = alignment
         }

@@ -139,7 +139,7 @@ final class ChatMarkdownTableRenderer {
         context.transformParagraphStyles(in: attributedString) { paragraphStyle in
             paragraphStyle.alignment = alignment
             paragraphStyle.lineBreakMode = .byCharWrapping
-            paragraphStyle.lineSpacing = 1.0
+            paragraphStyle.lineSpacing = context.style.compactLineSpacing(compatibleWith: context.traitCollection)
             paragraphStyle.paragraphSpacing = 0.0
         }
     }
@@ -162,9 +162,9 @@ final class ChatMarkdownTableRenderer {
 
     private var tableParagraphStyle: NSParagraphStyle {
         let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = 0.0
-        paragraphStyle.paragraphSpacingBefore = 4.0
-        paragraphStyle.paragraphSpacing = ChatMarkdownTableLayoutMetrics.paragraphSpacing
+        paragraphStyle.lineSpacing = context.style.compactLineSpacing(compatibleWith: context.traitCollection)
+        paragraphStyle.paragraphSpacingBefore = context.style.bodyParagraphSpacing(compatibleWith: context.traitCollection)
+        paragraphStyle.paragraphSpacing = context.style.bodyParagraphSpacing(compatibleWith: context.traitCollection)
         return paragraphStyle
     }
 }

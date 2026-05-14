@@ -116,7 +116,7 @@ final class ChatMarkdownDetailsView: UIView {
 
         contentStackView.axis = .vertical
         contentStackView.alignment = .fill
-        contentStackView.spacing = 0.0
+        contentStackView.spacing = UIStackView.spacingUseSystem
         contentStackView.setContentCompressionResistancePriority(.required, for: .vertical)
         contentStackView.setContentHuggingPriority(.required, for: .vertical)
         contentRow.addArrangedSubview(contentStackView)
@@ -238,15 +238,11 @@ final class ChatMarkdownDetailsView: UIView {
                 - contentRow.spacing
                 - Metrics.ruleWidth
         )
-        let visibleContentSubviews = contentStackView.arrangedSubviews.filter { !$0.isHidden }
-        let contentHeight = visibleContentSubviews.reduce(0.0) { height, view in
-            let fittingSize = view.systemLayoutSizeFitting(
-                CGSize(width: contentWidth, height: UIView.layoutFittingCompressedSize.height),
-                withHorizontalFittingPriority: .required,
-                verticalFittingPriority: .fittingSizeLevel
-            )
-            return height + ceil(fittingSize.height)
-        } + CGFloat(max(0, visibleContentSubviews.count - 1)) * contentStackView.spacing
+        let contentHeight = contentStackView.systemLayoutSizeFitting(
+            CGSize(width: contentWidth, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        ).height
         let rowHeight = contentRow.directionalLayoutMargins.top
             + contentHeight
             + contentRow.directionalLayoutMargins.bottom

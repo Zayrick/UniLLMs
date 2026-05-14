@@ -19,6 +19,7 @@ final class SentMessageBubbleView: UIView {
     private let messageText: String
     private let glassView = UIVisualEffectView(effect: SentMessageBubbleView.makeGlassEffect())
     private let label = UILabel()
+    private var traitChangeRegistration: (any UITraitChangeRegistration)?
 
     var currentCornerRadius: CGFloat {
         isSingleLineLayout ? bounds.height * 0.5 : Metrics.multilineCornerRadius
@@ -28,12 +29,14 @@ final class SentMessageBubbleView: UIView {
         messageText = text
         super.init(frame: .zero)
         configure()
+        configureTraitObservation()
     }
 
     required init?(coder: NSCoder) {
         messageText = ""
         super.init(coder: coder)
         configure()
+        configureTraitObservation()
     }
 
     override func layoutSubviews() {
@@ -54,8 +57,7 @@ final class SentMessageBubbleView: UIView {
         glassView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(glassView)
 
-        label.text = messageText
-        label.font = .preferredFont(forTextStyle: .body)
+        label.font = .preferredFont(forTextStyle: .body, compatibleWith: traitCollection)
         label.adjustsFontForContentSizeCategory = true
         label.textColor = .label
         label.numberOfLines = 0
@@ -89,6 +91,36 @@ final class SentMessageBubbleView: UIView {
                 constant: -Metrics.verticalInset
             )
         ])
+
+        applyMessageText()
+    }
+
+    private func configureTraitObservation() {
+        traitChangeRegistration = registerForTraitChanges(
+            [UITraitPreferredContentSizeCategory.self]
+        ) { (view: SentMessageBubbleView, _) in
+            view.applyMessageText()
+            view.invalidateIntrinsicContentSize()
+            view.setNeedsLayout()
+        }
+    }
+
+    private func applyMessageText() {
+        let font = UIFont.preferredFont(forTextStyle: .body, compatibleWith: traitCollection)
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineBreakMode = .byWordWrapping
+        paragraphStyle.lineSpacing = Self.systemLineSpacing(for: font)
+        paragraphStyle.paragraphSpacing = Self.systemParagraphSpacing(for: font)
+
+        label.font = font
+        label.attributedText = NSAttributedString(
+            string: messageText,
+            attributes: [
+                .font: font,
+                .foregroundColor: UIColor.label,
+                .paragraphStyle: paragraphStyle
+            ]
+        )
     }
 
     private func updateCornerConfiguration() {
@@ -118,5 +150,13 @@ final class SentMessageBubbleView: UIView {
         let effect = UIGlassEffect(style: .regular)
         effect.isInteractive = true
         return effect
+    }
+
+    private static func systemParagraphSpacing(for font: UIFont) -> CGFloat {
+        ceil(max(font.leading, font.lineHeight - font.pointSize))
+    }
+
+    private static func systemLineSpacing(for font: UIFont) -> CGFloat {
+        ceil(max(font.leading, font.lineHeight - font.pointSize))
     }
 }

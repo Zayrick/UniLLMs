@@ -60,7 +60,7 @@ final class StreamingMarkdownView: UIView {
 
         stackView.axis = .vertical
         stackView.alignment = .fill
-        stackView.spacing = 0.0
+        stackView.spacing = UIStackView.spacingUseSystem
         stackView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stackView)
 
@@ -200,13 +200,12 @@ final class StreamingMarkdownView: UIView {
 
     private func fittingHeight(for width: CGFloat) -> CGFloat {
         let fittingWidth = max(1.0, width)
-        return stackView.arrangedSubviews.reduce(0.0) { height, view in
-            let fittingSize = view.systemLayoutSizeFitting(
+        return ceil(
+            stackView.systemLayoutSizeFitting(
                 CGSize(width: fittingWidth, height: UIView.layoutFittingCompressedSize.height),
                 withHorizontalFittingPriority: .required,
                 verticalFittingPriority: .fittingSizeLevel
-            )
-            return height + ceil(fittingSize.height)
-        }
+            ).height
+        )
     }
 }

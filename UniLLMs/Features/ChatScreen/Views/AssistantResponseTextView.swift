@@ -285,10 +285,24 @@ final class AssistantResponseTextView: UIView {
     }
 
     private var reasoningAttributes: [NSAttributedString.Key: Any] {
-        [
-            .font: UIFont.preferredFont(forTextStyle: .callout),
-            .foregroundColor: UIColor.secondaryLabel
+        let font = UIFont.preferredFont(forTextStyle: .callout, compatibleWith: traitCollection)
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineSpacing = Self.systemLineSpacing(for: font)
+        paragraphStyle.paragraphSpacing = Self.systemParagraphSpacing(for: font)
+
+        return [
+            NSAttributedString.Key.font: font,
+            NSAttributedString.Key.foregroundColor: UIColor.secondaryLabel,
+            NSAttributedString.Key.paragraphStyle: paragraphStyle
         ]
+    }
+
+    private static func systemParagraphSpacing(for font: UIFont) -> CGFloat {
+        ceil(max(font.leading, font.lineHeight - font.pointSize))
+    }
+
+    private static func systemLineSpacing(for font: UIFont) -> CGFloat {
+        ceil(max(font.leading, font.lineHeight - font.pointSize))
     }
 
     private final class StreamingTextView: UITextView {

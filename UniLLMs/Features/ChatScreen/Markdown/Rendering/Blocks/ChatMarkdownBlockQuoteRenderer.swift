@@ -36,7 +36,9 @@ final class ChatMarkdownBlockQuoteRenderer {
         context.offsetParagraphIndent(
             in: attributedString,
             by: ChatMarkdownBlockQuoteStyle.indentPerLevel,
-            minimumParagraphSpacing: ChatMarkdownBlockQuoteStyle.paragraphSpacing
+            minimumParagraphSpacing: context.style.blockQuoteParagraphSpacing(
+                compatibleWith: context.traitCollection
+            )
         )
     }
 

@@ -32,9 +32,18 @@ final class ChatMarkdownLeafBlockRenderer {
         context.appendNewlineIfNeeded(to: result)
 
         let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = 1.0
-        paragraphStyle.paragraphSpacingBefore = heading.level == 1 ? 7.0 : 5.0
-        paragraphStyle.paragraphSpacing = 4.0
+        paragraphStyle.lineSpacing = context.style.headingLineSpacing(
+            level: heading.level,
+            compatibleWith: context.traitCollection
+        )
+        paragraphStyle.paragraphSpacingBefore = context.style.headingParagraphSpacingBefore(
+            level: heading.level,
+            compatibleWith: context.traitCollection
+        )
+        paragraphStyle.paragraphSpacing = context.style.headingParagraphSpacingAfter(
+            level: heading.level,
+            compatibleWith: context.traitCollection
+        )
 
         context.apply([.paragraphStyle: paragraphStyle], to: result)
         return result
@@ -43,7 +52,7 @@ final class ChatMarkdownLeafBlockRenderer {
     func renderParagraph(_ paragraph: Paragraph) -> NSMutableAttributedString {
         let result = inlineRenderer.renderChildren(of: paragraph)
         context.appendNewlineIfNeeded(to: result)
-        context.applyParagraphStyle(to: result, spacing: 4.0)
+        context.applyParagraphStyle(to: result)
         return result
     }
 
@@ -63,9 +72,9 @@ final class ChatMarkdownLeafBlockRenderer {
         )
 
         let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = 2.0
-        paragraphStyle.paragraphSpacingBefore = 4.0
-        paragraphStyle.paragraphSpacing = 6.0
+        paragraphStyle.lineSpacing = context.style.codeLineSpacing(compatibleWith: context.traitCollection)
+        paragraphStyle.paragraphSpacingBefore = context.style.bodyParagraphSpacing(compatibleWith: context.traitCollection)
+        paragraphStyle.paragraphSpacing = context.style.bodyParagraphSpacing(compatibleWith: context.traitCollection)
         context.apply([.paragraphStyle: paragraphStyle], to: result)
         return result
     }
@@ -82,8 +91,8 @@ final class ChatMarkdownLeafBlockRenderer {
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.minimumLineHeight = HorizontalRuleTextAttachment.totalHeight
         paragraphStyle.maximumLineHeight = HorizontalRuleTextAttachment.totalHeight
-        paragraphStyle.paragraphSpacingBefore = 6.0
-        paragraphStyle.paragraphSpacing = 6.0
+        paragraphStyle.paragraphSpacingBefore = context.style.bodyParagraphSpacing(compatibleWith: context.traitCollection)
+        paragraphStyle.paragraphSpacing = context.style.bodyParagraphSpacing(compatibleWith: context.traitCollection)
         context.apply([.paragraphStyle: paragraphStyle], to: result)
         return result
     }

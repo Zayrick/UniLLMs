@@ -21,7 +21,6 @@ final class ChatMarkdownCodeBlockView: UIView {
         static let codeTrailingInset: CGFloat = 14.0
         static let lineNumberLeadingInset: CGFloat = 10.0
         static let lineNumberTrailingInset: CGFloat = 9.0
-        static let codeLineSpacing: CGFloat = 2.0
     }
 
     private let containerView = UIView()
@@ -54,17 +53,22 @@ final class ChatMarkdownCodeBlockView: UIView {
             ofSize: codeFont.pointSize,
             weight: .regular
         )
-        let headerFont = UIFontMetrics(forTextStyle: .caption1).scaledFont(
-            for: .systemFont(ofSize: 12.5, weight: .semibold),
-            compatibleWith: traitCollection
+        let headerFont = ChatMarkdownFontTraits.adding(
+            .traitBold,
+            to: UIFont.preferredFont(
+                forTextStyle: .caption1,
+                compatibleWith: traitCollection
+            )
         )
         let codeAttributes = Self.codeAttributes(
             font: codeFont,
-            color: style.codeTextColor
+            color: style.codeTextColor,
+            lineSpacing: style.codeLineSpacing(compatibleWith: traitCollection)
         )
         let lineNumberAttributes = Self.lineNumberAttributes(
             font: lineNumberFont,
-            color: style.secondaryTextColor.withAlphaComponent(0.72)
+            color: style.secondaryTextColor.withAlphaComponent(0.72),
+            lineSpacing: style.codeLineSpacing(compatibleWith: traitCollection)
         )
 
         codeAttributedText = NSAttributedString(string: code, attributes: codeAttributes)
@@ -257,11 +261,12 @@ final class ChatMarkdownCodeBlockView: UIView {
 
     private static func codeAttributes(
         font: UIFont,
-        color: UIColor
+        color: UIColor,
+        lineSpacing: CGFloat
     ) -> [NSAttributedString.Key: Any] {
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineBreakMode = .byClipping
-        paragraphStyle.lineSpacing = Metrics.codeLineSpacing
+        paragraphStyle.lineSpacing = lineSpacing
 
         return [
             .font: font,
@@ -272,12 +277,13 @@ final class ChatMarkdownCodeBlockView: UIView {
 
     private static func lineNumberAttributes(
         font: UIFont,
-        color: UIColor
+        color: UIColor,
+        lineSpacing: CGFloat
     ) -> [NSAttributedString.Key: Any] {
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.alignment = .right
         paragraphStyle.lineBreakMode = .byClipping
-        paragraphStyle.lineSpacing = Metrics.codeLineSpacing
+        paragraphStyle.lineSpacing = lineSpacing
 
         return [
             .font: font,

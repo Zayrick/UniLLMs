@@ -12,17 +12,20 @@ extension ChatMarkdownRenderingContext {
     func blockString(
         _ string: String,
         attributes: [NSAttributedString.Key: Any],
-        paragraphSpacing: CGFloat = 4.0
+        paragraphSpacing: CGFloat? = nil
     ) -> NSMutableAttributedString {
         let result = NSMutableAttributedString(string: string, attributes: attributes)
         applyParagraphStyle(to: result, spacing: paragraphSpacing)
         return result
     }
 
-    func applyParagraphStyle(to attributedString: NSMutableAttributedString, spacing: CGFloat) {
+    func applyParagraphStyle(
+        to attributedString: NSMutableAttributedString,
+        spacing: CGFloat? = nil
+    ) {
         let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = 1.0
-        paragraphStyle.paragraphSpacing = spacing
+        paragraphStyle.lineSpacing = style.bodyLineSpacing(compatibleWith: traitCollection)
+        paragraphStyle.paragraphSpacing = spacing ?? style.bodyParagraphSpacing(compatibleWith: traitCollection)
         apply([.paragraphStyle: paragraphStyle], to: attributedString)
     }
 
