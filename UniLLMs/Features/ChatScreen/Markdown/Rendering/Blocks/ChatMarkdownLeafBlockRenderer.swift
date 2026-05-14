@@ -12,6 +12,7 @@ import UIKit
 final class ChatMarkdownLeafBlockRenderer {
     private let context: ChatMarkdownRenderingContext
     private let inlineRenderer: ChatMarkdownInlineRenderer
+    private let htmlBlockRenderer: ChatMarkdownHTMLBlockRenderer
 
     init(
         context: ChatMarkdownRenderingContext,
@@ -19,6 +20,7 @@ final class ChatMarkdownLeafBlockRenderer {
     ) {
         self.context = context
         self.inlineRenderer = inlineRenderer
+        htmlBlockRenderer = ChatMarkdownHTMLBlockRenderer(context: context)
     }
 
     func renderHeading(_ heading: Heading) -> NSMutableAttributedString {
@@ -87,10 +89,7 @@ final class ChatMarkdownLeafBlockRenderer {
     }
 
     func renderHTMLBlock(_ htmlBlock: HTMLBlock) -> NSMutableAttributedString {
-        context.blockString(
-            htmlBlock.rawHTML + "\n",
-            attributes: context.secondaryAttributes()
-        )
+        htmlBlockRenderer.renderHTMLBlock(htmlBlock.rawHTML)
     }
 
     func renderImage(_ image: Markdown.Image) -> NSMutableAttributedString {
@@ -101,7 +100,7 @@ final class ChatMarkdownLeafBlockRenderer {
     }
 }
 
-private final class HorizontalRuleTextAttachment: NSTextAttachment {
+final class HorizontalRuleTextAttachment: NSTextAttachment {
     static let totalHeight: CGFloat = 14.0
 
     init(color: UIColor, traitCollection: UITraitCollection) {

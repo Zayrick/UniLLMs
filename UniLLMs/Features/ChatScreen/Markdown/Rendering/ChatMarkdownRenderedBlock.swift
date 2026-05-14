@@ -27,9 +27,16 @@ struct ChatMarkdownCodeBlock: Equatable {
     }
 }
 
+struct ChatMarkdownDetailsBlock {
+    let summary: String
+    let isOpen: Bool
+    let children: [ChatMarkdownRenderedBlock]
+}
+
 enum ChatMarkdownRenderedBlock {
     case text(NSAttributedString)
     case codeBlock(ChatMarkdownCodeBlock)
     case table(ChatMarkdownTableData)
     case image(ChatMarkdownImageBlock)
+    case details(ChatMarkdownDetailsBlock)
 }

@@ -94,6 +94,9 @@ struct ChatMarkdownStreamSegmenter {
         if isBlockQuoteLine(firstLine.text) {
             return blockQuoteEnd(in: lines, finishing: finishing)
         }
+        if startsHTMLDetailsBlock(firstLine.text) {
+            return htmlDetailsEnd(in: lines, finishing: finishing)
+        }
         if isTableStart(in: lines) {
             return tableEnd(in: lines, finishing: finishing)
         }
@@ -156,6 +159,39 @@ struct ChatMarkdownStreamSegmenter {
             }
 
             return SegmentEnd(segmentLineCount: index, consumedLineCount: index)
+        }
+
+        return finishing ? SegmentEnd(segmentLineCount: lines.count, consumedLineCount: lines.count) : nil
+    }
+
+    private static func htmlDetailsEnd(in lines: [Line], finishing: Bool) -> SegmentEnd? {
+        var depth = 0
+        var didStart = false
+
+        for index in lines.indices {
+            let line = lines[index]
+            guard line.isComplete else {
+                return finishing ? SegmentEnd(segmentLineCount: lines.count, consumedLineCount: lines.count) : nil
+            }
+
+            let balance = ChatMarkdownHTMLSupport.detailsTagBalance(inHTML: line.text)
+            depth += balance.openingCount
+            depth = max(0, depth - balance.closingCount)
+            didStart = didStart || balance.openingCount > 0
+
+            guard didStart, depth == 0 else {
+                continue
+            }
+
+            let consumedLineCount: Int
+            if index + 1 < lines.count,
+               lines[index + 1].isComplete,
+               isBlank(lines[index + 1].text) {
+                consumedLineCount = index + 2
+            } else {
+                consumedLineCount = index + 1
+            }
+            return SegmentEnd(segmentLineCount: index + 1, consumedLineCount: consumedLineCount)
         }
 
         return finishing ? SegmentEnd(segmentLineCount: lines.count, consumedLineCount: lines.count) : nil
@@ -286,6 +322,10 @@ struct ChatMarkdownStreamSegmenter {
 
     private static func isBlockQuoteLine(_ line: String) -> Bool {
         line.trimmingCharacters(in: .whitespaces).hasPrefix(">")
+    }
+
+    private static func startsHTMLDetailsBlock(_ line: String) -> Bool {
+        ChatMarkdownHTMLSupport.startsWithOpeningDetailsTag(line)
     }
 
     private static func isFencedCodeOpening(_ line: String) -> Bool {

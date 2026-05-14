@@ -21,6 +21,9 @@ private struct ChatMarkdownInlineRenderingMode {
     var linkURL: URL?
     var isUnderlined: Bool
     var isStrikethrough: Bool
+    var baselineOffset: CGFloat
+    var backgroundColor: UIColor?
+    var isCode: Bool
 
     static func body(context: ChatMarkdownRenderingContext) -> ChatMarkdownInlineRenderingMode {
         base(
@@ -36,7 +39,10 @@ private struct ChatMarkdownInlineRenderingMode {
             symbolicTraits: font.fontDescriptor.symbolicTraits.intersection(composableFontTraits),
             linkURL: nil,
             isUnderlined: false,
-            isStrikethrough: false
+            isStrikethrough: false,
+            baselineOffset: 0.0,
+            backgroundColor: nil,
+            isCode: false
         )
     }
 
@@ -55,9 +61,39 @@ private struct ChatMarkdownInlineRenderingMode {
         return copy
     }
 
+    func underlined() -> ChatMarkdownInlineRenderingMode {
+        var copy = self
+        copy.isUnderlined = true
+        return copy
+    }
+
     func struckThrough() -> ChatMarkdownInlineRenderingMode {
         var copy = self
         copy.isStrikethrough = true
+        return copy
+    }
+
+    func coded() -> ChatMarkdownInlineRenderingMode {
+        var copy = self
+        copy.isCode = true
+        return copy
+    }
+
+    func scaledFont(by scale: CGFloat) -> ChatMarkdownInlineRenderingMode {
+        var copy = self
+        copy.font = UIFont(descriptor: font.fontDescriptor, size: max(8.0, font.pointSize * scale))
+        return copy
+    }
+
+    func offsetBaseline(by offset: CGFloat) -> ChatMarkdownInlineRenderingMode {
+        var copy = self
+        copy.baselineOffset += offset
+        return copy
+    }
+
+    func marked() -> ChatMarkdownInlineRenderingMode {
+        var copy = self
+        copy.backgroundColor = UIColor.systemYellow.withAlphaComponent(0.35)
         return copy
     }
 
@@ -67,11 +103,17 @@ private struct ChatMarkdownInlineRenderingMode {
             .foregroundColor: foregroundColor
         ]
 
+        if let backgroundColor {
+            attributes[.backgroundColor] = backgroundColor
+        }
         if isUnderlined {
             attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
         }
         if isStrikethrough {
             attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+        }
+        if baselineOffset != 0.0 {
+            attributes[.baselineOffset] = baselineOffset
         }
         if let linkURL {
             attributes[.link] = linkURL
@@ -113,13 +155,17 @@ final class ChatMarkdownInlineRenderer {
     ) -> NSMutableAttributedString {
         let result = NSMutableAttributedString()
         let children = Array(markup.children)
+        var htmlState = ChatMarkdownInlineHTMLState(mode: mode, context: context)
 
         for (index, child) in children.enumerated() {
-            if let inlineCode = child as? InlineCode {
+            let activeMode = htmlState.mode
+            if let html = child as? InlineHTML {
+                result.append(htmlState.render(html.rawHTML))
+            } else if let inlineCode = child as? InlineCode {
                 result.append(
                     inlineCodeRenderer.render(
                         inlineCode,
-                        mode: mode,
+                        mode: activeMode,
                         needsLeadingMargin: inlineCodeRenderer.needsMargin(before: result.string.last),
                         needsTrailingMargin: inlineCodeRenderer.needsMargin(
                             after: visibleTextExtractor.firstVisibleCharacter(after: index, in: children)
@@ -127,7 +173,7 @@ final class ChatMarkdownInlineRenderer {
                     )
                 )
             } else {
-                result.append(render(child, mode: mode))
+                result.append(render(child, mode: activeMode))
             }
         }
 
@@ -140,6 +186,9 @@ final class ChatMarkdownInlineRenderer {
     ) -> NSMutableAttributedString {
         switch markup {
         case let text as Text:
+            if mode.isCode {
+                return inlineCodeRenderer.renderText(text.string, mode: mode)
+            }
             return NSMutableAttributedString(string: text.string, attributes: mode.attributes())
         case let strong as Strong:
             return renderChildren(
@@ -178,7 +227,8 @@ final class ChatMarkdownInlineRenderer {
         case _ as LineBreak:
             return NSMutableAttributedString(string: "\n", attributes: mode.attributes())
         case let html as InlineHTML:
-            return NSMutableAttributedString(string: html.rawHTML, attributes: context.secondaryAttributes())
+            var htmlState = ChatMarkdownInlineHTMLState(mode: mode, context: context)
+            return htmlState.render(html.rawHTML)
         default:
             return renderChildren(of: markup, mode: mode)
         }
@@ -244,6 +294,16 @@ private final class ChatMarkdownInlineCodeRenderer {
         return !isMarginBoundary(character)
     }
 
+    func renderText(
+        _ text: String,
+        mode: ChatMarkdownInlineRenderingMode
+    ) -> NSMutableAttributedString {
+        NSMutableAttributedString(
+            string: text,
+            attributes: attributes(mode: mode)
+        )
+    }
+
     private func attributes(mode: ChatMarkdownInlineRenderingMode) -> [NSAttributedString.Key: Any] {
         let codeFont = context.style.codeFont(compatibleWith: context.traitCollection)
         let resolvedCodeFont = ChatMarkdownFontTraits.adding(mode.symbolicTraits, to: codeFont)
@@ -260,6 +320,12 @@ private final class ChatMarkdownInlineCodeRenderer {
         }
         if mode.isStrikethrough {
             attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+        }
+        if mode.baselineOffset != 0.0 {
+            attributes[.baselineOffset] = mode.baselineOffset
+        }
+        if let backgroundColor = mode.backgroundColor {
+            attributes[.backgroundColor] = backgroundColor
         }
         if let linkURL = mode.linkURL {
             attributes[.link] = linkURL
@@ -307,13 +373,224 @@ private final class ChatMarkdownVisibleTextExtractor {
         case _ as LineBreak:
             return "\n"
         case let html as InlineHTML:
-            return html.rawHTML
+            return visibleInlineHTMLText(html.rawHTML)
         default:
             var result = ""
             for child in markup.children {
                 result += visibleText(in: child)
             }
             return result
+        }
+    }
+
+    private func visibleInlineHTMLText(_ rawHTML: String) -> String {
+        var result = ""
+        var filteredRawHTMLTagStack: [String] = []
+
+        for token in ChatMarkdownHTMLSupport.tokens(in: rawHTML) {
+            if !filteredRawHTMLTagStack.isEmpty {
+                result += visibleFilteredRawHTMLText(token, stack: &filteredRawHTMLTagStack)
+                continue
+            }
+
+            switch token {
+            case let .text(text), let .cdata(text):
+                result += ChatMarkdownHTMLSupport.decodeEntities(in: text)
+            case .comment, .declaration, .processingInstruction:
+                continue
+            case let .tag(tag):
+                if ChatMarkdownHTMLSupport.disallowedRawHTMLTagNames.contains(tag.name) {
+                    if !tag.isClosing, !tag.isSelfClosing {
+                        filteredRawHTMLTagStack.append(tag.name)
+                    }
+                    result += tag.rawHTML
+                } else if tag.name == "br" {
+                    result += "\n"
+                } else if tag.name == "img",
+                          let imageBlock = ChatMarkdownHTMLSupport.imageBlock(from: tag) {
+                    result += context.imageDisplayText(source: imageBlock.source, altText: imageBlock.altText)
+                }
+            }
+        }
+        return result
+    }
+
+    private func visibleFilteredRawHTMLText(
+        _ token: ChatMarkdownHTMLToken,
+        stack: inout [String]
+    ) -> String {
+        switch token {
+        case let .text(text), let .cdata(text):
+            return text
+        case let .comment(raw), let .declaration(raw), let .processingInstruction(raw):
+            return raw
+        case let .tag(tag):
+            if tag.isClosing, tag.name == stack.last {
+                stack.removeLast()
+            }
+            return tag.rawHTML
+        }
+    }
+}
+
+private struct ChatMarkdownInlineHTMLState {
+    private struct StackEntry {
+        let tagName: String
+        let mode: ChatMarkdownInlineRenderingMode
+    }
+
+    private let context: ChatMarkdownRenderingContext
+    private var stack: [StackEntry] = []
+    private var filteredRawHTMLTagStack: [String] = []
+    var mode: ChatMarkdownInlineRenderingMode
+
+    init(mode: ChatMarkdownInlineRenderingMode, context: ChatMarkdownRenderingContext) {
+        self.mode = mode
+        self.context = context
+    }
+
+    mutating func render(_ rawHTML: String) -> NSMutableAttributedString {
+        let result = NSMutableAttributedString()
+        for token in ChatMarkdownHTMLSupport.tokens(in: rawHTML) {
+            if !filteredRawHTMLTagStack.isEmpty {
+                result.append(renderFilteredRawHTMLToken(token))
+                continue
+            }
+
+            switch token {
+            case let .text(text), let .cdata(text):
+                result.append(
+                    NSAttributedString(
+                        string: ChatMarkdownHTMLSupport.decodeEntities(in: text),
+                        attributes: mode.attributes()
+                    )
+                )
+            case .comment, .declaration, .processingInstruction:
+                continue
+            case let .tag(tag):
+                result.append(render(tag))
+            }
+        }
+
+        return result
+    }
+
+    private mutating func render(_ tag: ChatMarkdownHTMLTag) -> NSAttributedString {
+        if ChatMarkdownHTMLSupport.disallowedRawHTMLTagNames.contains(tag.name) {
+            if !tag.isClosing, !tag.isSelfClosing {
+                filteredRawHTMLTagStack.append(tag.name)
+            }
+            return NSAttributedString(string: tag.rawHTML, attributes: context.secondaryAttributes())
+        }
+
+        if tag.isClosing {
+            if tag.name == "q" {
+                restoreMode(closing: tag.name)
+                return NSAttributedString(string: "\"", attributes: mode.attributes())
+            }
+            restoreMode(closing: tag.name)
+            return NSAttributedString()
+        }
+
+        switch tag.name {
+        case "br":
+            return NSAttributedString(string: "\n", attributes: mode.attributes())
+        case "img":
+            guard let imageBlock = ChatMarkdownHTMLSupport.imageBlock(from: tag) else {
+                return NSAttributedString()
+            }
+            return NSAttributedString(
+                string: context.imageDisplayText(source: imageBlock.source, altText: imageBlock.altText),
+                attributes: context.secondaryAttributes()
+            )
+        case "input":
+            guard tag.attribute("type")?.lowercased() == "checkbox" else {
+                return NSAttributedString()
+            }
+            let isChecked = tag.attributes.keys.contains("checked")
+            return NSAttributedString(string: isChecked ? "☑" : "☐", attributes: mode.attributes())
+        case "q":
+            let quote = NSAttributedString(string: "\"", attributes: mode.attributes())
+            guard !tag.isSelfClosing else {
+                return quote
+            }
+            let previousMode = mode
+            stack.append(StackEntry(tagName: tag.name, mode: previousMode))
+            return quote
+        case "source", "track", "param", "meta", "link", "base", "col", "wbr":
+            return NSAttributedString()
+        default:
+            break
+        }
+
+        guard !tag.isSelfClosing else {
+            return NSAttributedString()
+        }
+
+        let previousMode = mode
+        mode = transformedMode(opening: tag)
+        stack.append(StackEntry(tagName: tag.name, mode: previousMode))
+        return NSAttributedString()
+    }
+
+    private mutating func renderFilteredRawHTMLToken(_ token: ChatMarkdownHTMLToken) -> NSAttributedString {
+        switch token {
+        case let .text(text), let .cdata(text):
+            return NSAttributedString(string: text, attributes: context.secondaryAttributes())
+        case let .comment(raw), let .declaration(raw), let .processingInstruction(raw):
+            return NSAttributedString(string: raw, attributes: context.secondaryAttributes())
+        case let .tag(tag):
+            if tag.isClosing, tag.name == filteredRawHTMLTagStack.last {
+                filteredRawHTMLTagStack.removeLast()
+            }
+            return NSAttributedString(string: tag.rawHTML, attributes: context.secondaryAttributes())
+        }
+    }
+
+    private mutating func restoreMode(closing tagName: String) {
+        guard let index = stack.lastIndex(where: { $0.tagName == tagName }) else {
+            return
+        }
+
+        mode = stack[index].mode
+        stack.removeSubrange(index...)
+    }
+
+    private func transformedMode(opening tag: ChatMarkdownHTMLTag) -> ChatMarkdownInlineRenderingMode {
+        switch tag.name {
+        case "strong", "b":
+            return mode.addingSymbolicTraits(.traitBold)
+        case "em", "i", "cite", "dfn", "var":
+            return mode.addingSymbolicTraits(.traitItalic)
+        case "del", "s", "strike":
+            return mode.struckThrough()
+        case "ins", "u":
+            return mode.underlined()
+        case "code", "kbd", "samp", "tt":
+            return mode.coded()
+        case "sub":
+            return mode.scaledFont(by: 0.82).offsetBaseline(by: -context.currentBodyFont().pointSize * 0.22)
+        case "sup":
+            return mode.scaledFont(by: 0.82).offsetBaseline(by: context.currentBodyFont().pointSize * 0.34)
+        case "small":
+            return mode.scaledFont(by: 0.86)
+        case "big":
+            return mode.scaledFont(by: 1.12)
+        case "mark":
+            return mode.marked()
+        case "a":
+            guard let href = tag.attribute("href"),
+                  let url = URL(string: href) else {
+                return mode
+            }
+            return mode.linked(
+                to: url,
+                color: context.style.linkColor
+            )
+        case "abbr":
+            return mode.underlined()
+        default:
+            return mode
         }
     }
 }

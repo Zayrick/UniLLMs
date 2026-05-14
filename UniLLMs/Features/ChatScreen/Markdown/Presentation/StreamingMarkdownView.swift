@@ -158,6 +158,17 @@ final class StreamingMarkdownView: UIView {
                 }
                 stackView.addArrangedSubview(imageView)
                 views.append(imageView)
+            case let .details(detailsBlock):
+                let detailsView = ChatMarkdownDetailsView(
+                    detailsBlock: detailsBlock,
+                    style: renderer.style,
+                    traitCollection: traitCollection
+                )
+                detailsView.onNeedsHeightUpdate = { [weak self] in
+                    self?.handleRenderedImageSizeChange()
+                }
+                stackView.addArrangedSubview(detailsView)
+                views.append(detailsView)
             }
         }
 
