@@ -63,6 +63,9 @@ final class ChatViewController: UIViewController {
     private var chatRuntime: ChatRuntime {
         dependencies.chatRuntime
     }
+    private var chatHistoryStore: UserDefaultsChatStore {
+        dependencies.chatHistoryStore
+    }
     private let sideMenuView = SideMenuView()
     private let sideMenuDismissControl = UIControl()
     private let mainPageContainerView = UIView()
@@ -94,6 +97,9 @@ final class ChatViewController: UIViewController {
     private var composerRestingBottomConstraint: NSLayoutConstraint!
     private var keyboardObservation: NotificationCenter.ObservationToken?
     private var selectedModelSelectionObservation: NSObjectProtocol?
+    private var chatHistoryObservation: NSObjectProtocol?
+    private var historyReloadTask: Task<Void, Never>?
+    private var historySelectionTask: Task<Void, Never>?
     private var isKeyboardVisible = false
     private var isSideMenuOpen = false
     private var selectedModelSelection: ChatModelSelection?
@@ -119,16 +125,23 @@ final class ChatViewController: UIViewController {
         configureSideMenuDismissControl()
         installKeyboardObserver()
         installSelectedModelSelectionObserver()
+        installChatHistoryObserver()
         reloadSelectedModelSelection(animated: false)
+        reloadHistorySessions(selectedSessionID: nil)
     }
 
     deinit {
         activeResponseTask?.cancel()
+        historyReloadTask?.cancel()
+        historySelectionTask?.cancel()
         if let keyboardObservation {
             NotificationCenter.default.removeObserver(keyboardObservation)
         }
         if let selectedModelSelectionObservation {
             NotificationCenter.default.removeObserver(selectedModelSelectionObservation)
+        }
+        if let chatHistoryObservation {
+            NotificationCenter.default.removeObserver(chatHistoryObservation)
         }
     }
 
@@ -172,6 +185,12 @@ final class ChatViewController: UIViewController {
         sideMenuView.alpha = 0.0
         sideMenuView.isUserInteractionEnabled = false
         sideMenuView.addSettingsTarget(self, action: #selector(presentSettings))
+        sideMenuView.onSessionSelected = { [weak self] session in
+            self?.selectHistorySession(session)
+        }
+        sideMenuView.onSessionDeleted = { [weak self] session in
+            self?.deleteHistorySession(session)
+        }
         view.addSubview(sideMenuView)
 
         NSLayoutConstraint.activate([
@@ -586,6 +605,7 @@ final class ChatViewController: UIViewController {
         removeChatContent()
         isMessagesBottomLocked = true
         updateRightHeaderButtonState(animated: true)
+        reloadHistorySessions(selectedSessionID: nil)
     }
 
     private func setSideMenuOpen(_ isOpen: Bool, animated: Bool) {
@@ -1027,6 +1047,92 @@ final class ChatViewController: UIViewController {
         view.window?.windowScene?.screen.displayCornerRadius ?? 0.0
     }
 
+    private func installChatHistoryObserver() {
+        chatHistoryObservation = NotificationCenter.default.addObserver(
+            forName: ChatRuntime.historyDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else {
+                return
+            }
+
+            self.reloadHistorySessions(selectedSessionID: self.chatRuntime.currentSessionID)
+        }
+    }
+
+    private func reloadHistorySessions(selectedSessionID: UUID?) {
+        historyReloadTask?.cancel()
+        historyReloadTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            let sessions = (try? await self.chatHistoryStore.fetchSessions()) ?? []
+            guard !Task.isCancelled else {
+                return
+            }
+
+            self.sideMenuView.reloadHistory(
+                sessions: sessions,
+                selectedSessionID: selectedSessionID
+            )
+        }
+    }
+
+    private func selectHistorySession(_ session: ChatSession) {
+        guard activeResponseTask == nil else {
+            return
+        }
+
+        historySelectionTask?.cancel()
+        historySelectionTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            let messages = (try? await self.chatHistoryStore.fetchMessages(sessionID: session.id)) ?? []
+            guard !Task.isCancelled else {
+                return
+            }
+
+            self.chatRuntime.loadConversation(session: session, messages: messages)
+            self.renderConversationMessages(messages)
+            self.isMessagesBottomLocked = true
+            self.updateRightHeaderButtonState(animated: true)
+            self.reloadHistorySessions(selectedSessionID: session.id)
+            self.setSideMenuOpen(false, animated: true)
+        }
+    }
+
+    private func deleteHistorySession(_ session: ChatSession) {
+        guard activeResponseTask == nil || session.id != chatRuntime.currentSessionID else {
+            return
+        }
+
+        historySelectionTask?.cancel()
+        historySelectionTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            try? await self.chatHistoryStore.deleteSession(id: session.id)
+            guard !Task.isCancelled else {
+                return
+            }
+
+            if session.id == self.chatRuntime.currentSessionID {
+                self.chatRuntime.resetConversation()
+                self.removeChatContent()
+                self.isMessagesBottomLocked = true
+                self.updateRightHeaderButtonState(animated: true)
+                self.reloadHistorySessions(selectedSessionID: nil)
+            } else {
+                self.reloadHistorySessions(selectedSessionID: self.chatRuntime.currentSessionID)
+            }
+        }
+    }
+
     private func installSelectedModelSelectionObserver() {
         selectedModelSelectionObservation = NotificationCenter.default.addObserver(
             forName: LLMsProviderStore.selectedModelSelectionDidChangeNotification,
@@ -1096,6 +1202,55 @@ final class ChatViewController: UIViewController {
 
     private var hasChatContent: Bool {
         !messagesStackView.arrangedSubviews.isEmpty
+    }
+
+    private func renderConversationMessages(_ messages: [ChatMessage]) {
+        removeChatContent()
+
+        let sortedMessages = messages.sorted { $0.createdAt < $1.createdAt }
+        for message in sortedMessages {
+            switch message.role {
+            case .user:
+                appendStoredUserMessage(message.content)
+            case .assistant:
+                appendStoredAssistantMessage(message.content)
+            case .system:
+                continue
+            }
+        }
+
+        mainPageView.layoutIfNeeded()
+        scrollMessagesToBottom(animated: false)
+    }
+
+    private func appendStoredUserMessage(_ text: String) {
+        let bubbleView = SentMessageBubbleView(text: text)
+        bubbleView.translatesAutoresizingMaskIntoConstraints = false
+        bubbleView.setContentHuggingPriority(.required, for: .vertical)
+        bubbleView.setContentCompressionResistancePriority(.required, for: .vertical)
+
+        messagesStackView.addArrangedSubview(bubbleView)
+        bubbleView.widthAnchor.constraint(
+            lessThanOrEqualTo: messagesScrollView.frameLayoutGuide.widthAnchor,
+            multiplier: MessagesLayout.maximumBubbleWidthRatio
+        ).isActive = true
+    }
+
+    private func appendStoredAssistantMessage(_ text: String) {
+        guard !text.isEmpty else {
+            return
+        }
+
+        let responseView = AssistantResponseTextView()
+        responseView.translatesAutoresizingMaskIntoConstraints = false
+        responseView.setContentHuggingPriority(.required, for: .vertical)
+        responseView.setContentCompressionResistancePriority(.required, for: .vertical)
+        messagesStackView.addArrangedSubview(responseView)
+        responseView.widthAnchor.constraint(
+            equalTo: messagesScrollView.frameLayoutGuide.widthAnchor
+        ).isActive = true
+        responseView.append(content: text, reasoning: "")
+        responseView.finishStreamingContent()
     }
 
     private func removeChatContent() {

@@ -26,24 +26,34 @@ enum ChatRuntimeError: LocalizedError, Equatable {
 }
 
 final class ChatRuntime {
+    static let historyDidChangeNotification = Notification.Name("ChatRuntimeHistoryDidChangeNotification")
+
     private let providerStore: LLMsProviderStore
     private let providerManager: LLMsProviderManager
     private let contextBuilder: ChatContextBuilder
     private let turnRunner: ChatTurnRunner
+    private let historyStore: (any ChatHistoryStore)?
     private var currentSession = ChatSession(title: "New Chat")
     private var conversationMessages: [ChatMessage] = []
     private var activeTurnID: UUID?
+    private var historyPersistenceTask: Task<Void, Never>?
 
     init(
         providerStore: LLMsProviderStore,
         providerManager: LLMsProviderManager,
         contextBuilder: ChatContextBuilder,
-        turnRunner: ChatTurnRunner
+        turnRunner: ChatTurnRunner,
+        historyStore: (any ChatHistoryStore)? = nil
     ) {
         self.providerStore = providerStore
         self.providerManager = providerManager
         self.contextBuilder = contextBuilder
         self.turnRunner = turnRunner
+        self.historyStore = historyStore
+    }
+
+    var currentSessionID: UUID {
+        currentSession.id
     }
 
     func startTurn(prompt: String) throws -> AsyncThrowingStream<ChatResponseDelta, Error> {
@@ -60,10 +70,18 @@ final class ChatRuntime {
         }
 
         let turnID = UUID()
-        let userMessage = ChatMessage(role: .user, content: prompt)
+        let sentAt = Date()
+        if conversationMessages.isEmpty {
+            currentSession.title = Self.makeSessionTitle(from: prompt)
+            currentSession.createdAt = sentAt
+        }
+        currentSession.updatedAt = sentAt
+
+        let userMessage = ChatMessage(role: .user, content: prompt, createdAt: sentAt)
         let requestMessages = conversationMessages + [userMessage]
         conversationMessages.append(userMessage)
         activeTurnID = turnID
+        persistCurrentHistorySnapshot()
 
         return AsyncThrowingStream { continuation in
             let task = Task { @MainActor [weak self] in
@@ -128,6 +146,15 @@ final class ChatRuntime {
         currentSession = ChatSession(title: "New Chat")
     }
 
+    func loadConversation(session: ChatSession, messages: [ChatMessage]) {
+        guard activeTurnID == nil else {
+            return
+        }
+
+        currentSession = session
+        conversationMessages = messages.sorted { $0.createdAt < $1.createdAt }
+    }
+
     private func finishTurn(
         id turnID: UUID,
         userMessageID: UUID,
@@ -146,7 +173,46 @@ final class ChatRuntime {
             conversationMessages.removeAll { $0.id == userMessageID }
         }
 
-        currentSession.updatedAt = Date()
         activeTurnID = nil
+        persistCurrentHistorySnapshot()
+    }
+
+    private func persistCurrentHistorySnapshot() {
+        guard let historyStore else {
+            return
+        }
+
+        let session = currentSession
+        let messages = conversationMessages
+        let previousTask = historyPersistenceTask
+        historyPersistenceTask = Task { @MainActor [previousTask, historyStore] in
+            if let previousTask {
+                await previousTask.value
+            }
+
+            if messages.isEmpty {
+                try? await historyStore.deleteSession(id: session.id)
+            } else {
+                try? await historyStore.saveSession(session)
+                try? await historyStore.saveMessages(messages, sessionID: session.id)
+            }
+            NotificationCenter.default.post(
+                name: Self.historyDidChangeNotification,
+                object: nil
+            )
+        }
+    }
+
+    private static func makeSessionTitle(from prompt: String) -> String {
+        let collapsedPrompt = prompt
+            .components(separatedBy: .newlines)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !collapsedPrompt.isEmpty else {
+            return "New Chat"
+        }
+
+        return collapsedPrompt
     }
 }

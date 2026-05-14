@@ -16,6 +16,7 @@ final class AppDependencyContainer {
     let toolRegistry: ToolRegistry
     let toolManager: ToolManager
     let memoryManager: MemoryManager
+    let chatHistoryStore: UserDefaultsChatStore
     let chatRuntime: ChatRuntime
     let mcpServerManager: MCPServerManager
     let archiveStore: ArchiveStore
@@ -40,6 +41,7 @@ final class AppDependencyContainer {
         )
         toolManager = ToolManager(registry: toolRegistry)
         memoryManager = MemoryManager()
+        chatHistoryStore = UserDefaultsChatStore()
         mcpServerManager = MCPServerManager()
         archiveStore = InMemoryArchiveStore()
 
@@ -53,7 +55,8 @@ final class AppDependencyContainer {
             providerStore: providerStore,
             providerManager: providerManager,
             contextBuilder: contextBuilder,
-            turnRunner: turnRunner
+            turnRunner: turnRunner,
+            historyStore: chatHistoryStore
         )
     }
 }
