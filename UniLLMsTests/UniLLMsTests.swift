@@ -75,6 +75,8 @@ final class UniLLMsTests: XCTestCase {
                 result.append(text)
             case .codeBlock:
                 XCTFail("Expected Markdown to render only text blocks.", file: file, line: line)
+            case .mathBlock:
+                XCTFail("Expected Markdown to render only text blocks.", file: file, line: line)
             case .table:
                 XCTFail("Expected Markdown to render only text blocks.", file: file, line: line)
             case .image:
@@ -647,6 +649,58 @@ final class UniLLMsTests: XCTestCase {
         )
     }
 
+    func testMarkdownInlineLatexRendersAsInlineAttachment() throws {
+        let attributedText = renderMarkdownText("Euler has $e^{i\\pi}+1=0$ inline.")
+
+        XCTAssertTrue(attributedText.string.contains("Euler has "))
+        XCTAssertTrue(attributedText.string.contains(" inline."))
+        XCTAssertFalse(attributedText.string.contains("$e^{i\\pi}+1=0$"))
+        XCTAssertEqual(attributedText.textAttachmentCount, 1)
+    }
+
+    func testMarkdownEscapedDollarDoesNotStartInlineLatex() {
+        let attributedText = renderMarkdownText("Price is \\$5 and math is $x+1$.")
+
+        XCTAssertTrue(attributedText.string.contains("$5"))
+        XCTAssertEqual(attributedText.textAttachmentCount, 1)
+    }
+
+    func testMarkdownDisplayLatexRendersAsDedicatedBlock() throws {
+        var renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
+        let blocks = renderer.render(
+            markdown: """
+            Before
+
+            $$
+            \\frac{a}{b}=c
+            $$
+
+            After
+            """
+        )
+
+        guard blocks.count == 3 else {
+            XCTFail("Expected text, display math, and text blocks")
+            return
+        }
+        guard case let .text(beforeText) = blocks[0] else {
+            XCTFail("Expected leading text block")
+            return
+        }
+        guard case let .mathBlock(mathBlock) = blocks[1] else {
+            XCTFail("Expected display math block")
+            return
+        }
+        guard case let .text(afterText) = blocks[2] else {
+            XCTFail("Expected trailing text block")
+            return
+        }
+
+        XCTAssertEqual(beforeText.string.trimmingCharacters(in: .whitespacesAndNewlines), "Before")
+        XCTAssertEqual(mathBlock.latex, "\\frac{a}{b}=c")
+        XCTAssertEqual(afterText.string.trimmingCharacters(in: .whitespacesAndNewlines), "After")
+    }
+
     func testMarkdownTableRendersAsDedicatedBlock() throws {
         var renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let blocks = renderer.render(
@@ -764,6 +818,32 @@ final class UniLLMsTests: XCTestCase {
             ]
         )
         XCTAssertEqual(update.currentSegment, "Next")
+    }
+
+    func testMarkdownStreamSegmenterCompletesDisplayLatexBlock() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append(
+            """
+            $$
+            x^2 + y^2 = z^2
+            $$
+
+            Next paragraph
+            """
+        )
+
+        XCTAssertEqual(
+            update.completedSegments,
+            [
+                """
+                $$
+                x^2 + y^2 = z^2
+                $$
+                """
+            ]
+        )
+        XCTAssertEqual(update.currentSegment, "Next paragraph")
     }
 
     func testMarkdownStreamSegmenterKeepsBlockQuoteAsOutermostSegment() {

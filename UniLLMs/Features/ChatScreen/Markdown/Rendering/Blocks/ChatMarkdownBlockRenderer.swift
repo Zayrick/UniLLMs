@@ -74,11 +74,32 @@ final class ChatMarkdownBlockRenderer {
         tableRenderer.renderData(table)
     }
 
+    func renderDisplayMathBlock(_ paragraph: Paragraph) -> ChatMarkdownMathBlock? {
+        ChatMarkdownMathDelimiterScanner.standaloneDisplayMath(
+            in: rawInlineText(in: paragraph)
+        )
+    }
+
     private func renderChildBlocks(_ children: MarkupChildren) -> NSMutableAttributedString {
         let result = NSMutableAttributedString()
         for child in children {
             result.append(renderBlock(child))
         }
         return result
+    }
+
+    private func rawInlineText(in markup: any Markup) -> String {
+        switch markup {
+        case let text as Text:
+            return text.string
+        case let inlineCode as InlineCode:
+            return inlineCode.code
+        case _ as SoftBreak, _ as LineBreak:
+            return "\n"
+        case let html as InlineHTML:
+            return html.rawHTML
+        default:
+            return markup.children.map { rawInlineText(in: $0) }.joined()
+        }
     }
 }

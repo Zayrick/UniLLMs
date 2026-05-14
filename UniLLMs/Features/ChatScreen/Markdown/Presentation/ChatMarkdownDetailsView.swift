@@ -146,6 +146,12 @@ final class ChatMarkdownDetailsView: UIView {
                 style: style,
                 traitCollection: renderingTraitCollection
             )
+        case let .mathBlock(mathBlock):
+            return ChatMarkdownMathBlockView(
+                mathBlock: mathBlock,
+                style: style,
+                traitCollection: renderingTraitCollection
+            )
         case let .table(tableData):
             return ChatMarkdownTableView(
                 tableData: tableData,

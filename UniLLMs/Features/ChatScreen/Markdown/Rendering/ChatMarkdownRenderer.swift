@@ -25,19 +25,32 @@ struct ChatMarkdownRenderer {
             return []
         }
 
-        let document = Self.parseDocument(markdown)
         let context = ChatMarkdownRenderingContext(
             style: style,
             traitCollection: traitCollection
         )
         let blockRenderer = ChatMarkdownBlockRenderer(context: context)
         let htmlTableRenderer = ChatMarkdownHTMLTableRenderer(context: context)
-        return renderBlocks(
-            from: Array(document.children),
-            context: context,
-            blockRenderer: blockRenderer,
-            htmlTableRenderer: htmlTableRenderer
-        )
+        var blocks: [ChatMarkdownRenderedBlock] = []
+
+        for segment in ChatMarkdownMathBlockSplitter.segments(in: markdown) {
+            switch segment {
+            case let .markdown(markdownSegment):
+                let document = Self.parseDocument(markdownSegment)
+                blocks.append(
+                    contentsOf: renderBlocks(
+                        from: Array(document.children),
+                        context: context,
+                        blockRenderer: blockRenderer,
+                        htmlTableRenderer: htmlTableRenderer
+                    )
+                )
+            case let .displayMath(mathBlock):
+                blocks.append(.mathBlock(mathBlock))
+            }
+        }
+
+        return blocks
     }
 
     private func renderBlocks(
@@ -58,6 +71,10 @@ struct ChatMarkdownRenderer {
                 if !tableData.isEmpty {
                     blocks.append(.table(tableData))
                 }
+            } else if let paragraph = child as? Paragraph,
+                      let mathBlock = blockRenderer.renderDisplayMathBlock(paragraph) {
+                flushTextBlock(result, to: &blocks)
+                blocks.append(.mathBlock(mathBlock))
             } else if let detailsResult = detailsBlock(
                 startingAt: index,
                 in: children,

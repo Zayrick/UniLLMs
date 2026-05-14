@@ -91,6 +91,9 @@ struct ChatMarkdownStreamSegmenter {
         if isFencedCodeOpening(firstLine.text) {
             return fencedCodeEnd(in: lines, finishing: finishing)
         }
+        if isDisplayMathOpening(firstLine.text) {
+            return displayMathEnd(in: lines, finishing: finishing)
+        }
         if isBlockQuoteLine(firstLine.text) {
             return blockQuoteEnd(in: lines, finishing: finishing)
         }
@@ -125,6 +128,32 @@ struct ChatMarkdownStreamSegmenter {
         }
 
         return finishing ? SegmentEnd(segmentLineCount: lines.count, consumedLineCount: lines.count) : nil
+    }
+
+    private static func displayMathEnd(in lines: [Line], finishing: Bool) -> SegmentEnd? {
+        for index in lines.indices {
+            let line = lines[index]
+            guard line.isComplete || finishing else {
+                return nil
+            }
+
+            let candidate = markdown(from: Array(lines.prefix(index + 1)))
+            guard ChatMarkdownMathDelimiterScanner.standaloneDisplayMath(in: candidate) != nil else {
+                continue
+            }
+
+            let consumedLineCount: Int
+            if index + 1 < lines.count,
+               lines[index + 1].isComplete,
+               isBlank(lines[index + 1].text) {
+                consumedLineCount = index + 2
+            } else {
+                consumedLineCount = index + 1
+            }
+            return SegmentEnd(segmentLineCount: index + 1, consumedLineCount: consumedLineCount)
+        }
+
+        return nil
     }
 
     private static func blockQuoteEnd(in lines: [Line], finishing: Bool) -> SegmentEnd? {
@@ -221,6 +250,7 @@ struct ChatMarkdownStreamSegmenter {
     private static func isInterruptingBlockStart(at index: Int, in lines: [Line]) -> Bool {
         let line = lines[index]
         if isFencedCodeOpening(line.text) ||
+            isDisplayMathOpening(line.text) ||
             isBlockQuoteLine(line.text) ||
             isSingleLineBlock(line.text) {
             return true
@@ -330,6 +360,14 @@ struct ChatMarkdownStreamSegmenter {
 
     private static func isFencedCodeOpening(_ line: String) -> Bool {
         fenceInfo(in: line) != nil
+    }
+
+    private static func isDisplayMathOpening(_ line: String) -> Bool {
+        let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+        return trimmedLine == "$$" ||
+            trimmedLine == "\\[" ||
+            (trimmedLine.hasPrefix("$$") && trimmedLine.count > 2) ||
+            (trimmedLine.hasPrefix("\\[") && trimmedLine.count > 2)
     }
 
     private static func fenceInfo(in line: String) -> (marker: Character, count: Int)? {

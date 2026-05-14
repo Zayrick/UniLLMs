@@ -36,6 +36,7 @@ struct ChatMarkdownDetailsBlock {
 enum ChatMarkdownRenderedBlock {
     case text(NSAttributedString)
     case codeBlock(ChatMarkdownCodeBlock)
+    case mathBlock(ChatMarkdownMathBlock)
     case table(ChatMarkdownTableData)
     case image(ChatMarkdownImageBlock)
     case details(ChatMarkdownDetailsBlock)

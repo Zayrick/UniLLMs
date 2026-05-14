@@ -189,7 +189,7 @@ final class ChatMarkdownInlineRenderer {
             if mode.isCode {
                 return inlineCodeRenderer.renderText(text.string, mode: mode)
             }
-            return NSMutableAttributedString(string: text.string, attributes: mode.attributes())
+            return renderText(text.string, mode: mode)
         case let strong as Strong:
             return renderChildren(
                 of: strong,
@@ -232,6 +232,63 @@ final class ChatMarkdownInlineRenderer {
         default:
             return renderChildren(of: markup, mode: mode)
         }
+    }
+
+    private func renderText(
+        _ text: String,
+        mode: ChatMarkdownInlineRenderingMode
+    ) -> NSMutableAttributedString {
+        let spans = ChatMarkdownMathDelimiterScanner.inlineSpans(in: text)
+        guard !spans.isEmpty else {
+            return NSMutableAttributedString(string: text, attributes: mode.attributes())
+        }
+
+        let result = NSMutableAttributedString()
+        var cursor = text.startIndex
+
+        for span in spans {
+            if cursor < span.range.lowerBound {
+                result.append(
+                    NSAttributedString(
+                        string: String(text[cursor..<span.range.lowerBound]),
+                        attributes: mode.attributes()
+                    )
+                )
+            }
+
+            if let renderedImage = ChatMarkdownMathImageRenderer.renderInline(
+                latex: span.latex,
+                font: mode.font,
+                textColor: mode.foregroundColor,
+                traitCollection: context.traitCollection
+            ) {
+                result.append(
+                    NSAttributedString(
+                        attachment: ChatMarkdownMathTextAttachment(renderedImage: renderedImage)
+                    )
+                )
+            } else {
+                result.append(
+                    NSAttributedString(
+                        string: String(text[span.range]),
+                        attributes: mode.attributes()
+                    )
+                )
+            }
+
+            cursor = span.range.upperBound
+        }
+
+        if cursor < text.endIndex {
+            result.append(
+                NSAttributedString(
+                    string: String(text[cursor..<text.endIndex]),
+                    attributes: mode.attributes()
+                )
+            )
+        }
+
+        return result
     }
 }
 
