@@ -1308,25 +1308,30 @@ final class ChatViewController: UIViewController {
     }
 
     private func updateRightHeaderButtonState(animated: Bool) {
+        let isGeneratingResponse = activeResponseTask != nil
         let systemName = hasChatContent
             ? HeaderLayout.newConversationButtonSystemName
             : HeaderLayout.emptyConversationButtonSystemName
-        let accessibilityLabel = hasChatContent ? "New Chat" : "Layout"
-        let isEnabled = activeResponseTask == nil
-        let image = UIImage(
-            systemName: systemName,
-            withConfiguration: UIImage.SymbolConfiguration(
-                pointSize: HeaderLayout.iconPointSize,
-                weight: .semibold
+        let accessibilityLabel = isGeneratingResponse
+            ? "Generating response"
+            : (hasChatContent ? "New Chat" : "Layout")
+        let image = isGeneratingResponse
+            ? nil
+            : UIImage(
+                systemName: systemName,
+                withConfiguration: UIImage.SymbolConfiguration(
+                    pointSize: HeaderLayout.iconPointSize,
+                    weight: .semibold
+                )
             )
-        )
 
         let update = {
             var configuration = self.rightHeaderButton.configuration
             configuration?.image = image
+            configuration?.showsActivityIndicator = isGeneratingResponse
             self.rightHeaderButton.configuration = configuration
             self.rightHeaderButton.accessibilityLabel = accessibilityLabel
-            self.rightHeaderButton.isEnabled = isEnabled
+            self.rightHeaderButton.isEnabled = true
         }
 
         guard animated,
