@@ -433,6 +433,20 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertEqual(providers.map(\.id), [second.id])
     }
 
+    func testMovingProviderPersistsProviderOrder() throws {
+        let first = try addOpenRouterProvider()
+        let second = try addOpenRouterProvider()
+        let third = try addOpenRouterProvider()
+
+        store.moveProvider(from: 0, to: 2)
+
+        XCTAssertEqual(store.fetchProviders().map(\.id), [second.id, third.id, first.id])
+
+        store.moveProvider(from: 2, to: 0)
+
+        XCTAssertEqual(store.fetchProviders().map(\.id), [first.id, second.id, third.id])
+    }
+
     func testFetchingProviderByIDReturnsMatchingProvider() throws {
         _ = try addOpenRouterProvider()
         let second = try addOpenRouterProvider()

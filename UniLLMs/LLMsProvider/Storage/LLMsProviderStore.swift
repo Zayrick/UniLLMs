@@ -88,6 +88,19 @@ final class LLMsProviderStore {
         saveProvider(provider)
     }
 
+    func moveProvider(from sourceIndex: Int, to destinationIndex: Int) {
+        var providers = fetchProviders()
+        guard providers.indices.contains(sourceIndex),
+              providers.indices.contains(destinationIndex),
+              sourceIndex != destinationIndex else {
+            return
+        }
+
+        let provider = providers.remove(at: sourceIndex)
+        providers.insert(provider, at: destinationIndex)
+        save(providers)
+    }
+
     func updateProviderModels(
         id: UUID,
         models: [LLMsProviderModel],
