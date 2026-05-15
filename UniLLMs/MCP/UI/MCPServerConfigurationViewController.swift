@@ -11,8 +11,8 @@ import UIKit
 final class MCPServerConfigurationViewController: UITableViewController {
     private enum Section: Int, CaseIterable {
         case availability
-        case connection
         case metadata
+        case connection
     }
 
     private enum ConnectionRow: Int, CaseIterable {
@@ -105,25 +105,10 @@ final class MCPServerConfigurationViewController: UITableViewController {
         switch section {
         case .availability:
             return nil
+        case .metadata:
+            return nil
         case .connection:
             return "Connection"
-        case .metadata:
-            return "Metadata"
-        }
-    }
-
-    override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        guard let section = Section(rawValue: section) else {
-            return nil
-        }
-
-        switch section {
-        case .availability:
-            return "Disabled servers stay saved but are not exposed to the model."
-        case .connection:
-            return connectionValidationMessage
-        case .metadata:
-            return nil
         }
     }
 
@@ -164,7 +149,6 @@ final class MCPServerConfigurationViewController: UITableViewController {
         let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
         var contentConfiguration = cell.defaultContentConfiguration()
         contentConfiguration.text = "Enable Server"
-        contentConfiguration.secondaryText = "Expose this server when Tools is enabled"
         contentConfiguration.image = UIImage(systemName: "power")
         cell.contentConfiguration = contentConfiguration
 
@@ -273,8 +257,6 @@ final class MCPServerConfigurationViewController: UITableViewController {
 
     private func updateAfterFieldChange() {
         updateSaveButtonState()
-        tableView.footerView(forSection: Section.connection.rawValue)?.textLabel?.text = connectionValidationMessage
-        tableView.footerView(forSection: Section.connection.rawValue)?.setNeedsLayout()
     }
 
     private func configureSaveButton() {
@@ -336,24 +318,6 @@ final class MCPServerConfigurationViewController: UITableViewController {
             isEnabled: isServerEnabled
         )
         return updatedServer
-    }
-
-    private var connectionValidationMessage: String? {
-        let trimmedEndpoint = endpointText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmedEndpoint.isEmpty {
-            return "Endpoint is required."
-        }
-        if !Self.isValidEndpoint(trimmedEndpoint) {
-            return "Endpoint must be an http or https URL without query or fragment."
-        }
-        if Self.parseHeaders(headersText) == nil {
-            return "Headers must be a JSON object with string keys and string values."
-        }
-        if Self.parseTimeout(timeoutText) == nil {
-            return "Timeout must be a positive number of seconds."
-        }
-
-        return "Only Streamable HTTP MCP endpoints are supported."
     }
 
     private static func isValidEndpoint(_ endpoint: String) -> Bool {
