@@ -162,6 +162,7 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertEqual(draft.name, "OpenAI Compatible")
         XCTAssertEqual(draft.configuration[OpenAICompatibleProvider.ConfigurationKey.apiBase], "")
         XCTAssertEqual(draft.configuration[OpenAICompatibleProvider.ConfigurationKey.apiKey], "")
+        XCTAssertEqual(draft.configuration[OpenAICompatibleProvider.ConfigurationKey.toolsEnabled], "false")
         XCTAssertTrue(draft.models.isEmpty)
 
         switch manager.modelSource(for: .openAICompatible) {
@@ -210,9 +211,15 @@ final class UniLLMsTests: XCTestCase {
     func testProviderManagerReportsToolCapabilityFromAdapter() throws {
         let manager = makeProviderManager()
         let openRouterProvider = try manager.makeProviderDraft(kind: .openRouter)
+        var openAICompatibleProvider = try manager.makeProviderDraft(kind: .openAICompatible)
         let fakeProvider = try manager.makeProviderDraft(kind: .fake)
 
         XCTAssertTrue(manager.provider(openRouterProvider, supports: .tools))
+        XCTAssertFalse(manager.provider(openAICompatibleProvider, supports: .tools))
+
+        openAICompatibleProvider.configuration[OpenAICompatibleProvider.ConfigurationKey.toolsEnabled] = "true"
+
+        XCTAssertTrue(manager.provider(openAICompatibleProvider, supports: .tools))
         XCTAssertFalse(manager.provider(fakeProvider, supports: .tools))
     }
 

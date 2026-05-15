@@ -168,6 +168,7 @@ nonisolated struct LLMsProviderConfigurationField: Equatable, Identifiable {
         case plain
         case secret
         case url
+        case toggle
     }
 
     var id: String
@@ -240,6 +241,7 @@ protocol LLMsProviderAdapter {
     var staticModels: [LLMsProviderModel] { get }
 
     func configurationSummary(for configuration: LLMsProviderConfiguration) -> String?
+    func supports(_ capability: LLMsProviderCapability, configuration: LLMsProviderConfiguration) -> Bool
     func validateChatConfiguration(_ configuration: LLMsProviderConfiguration) throws
     func fetchModels(configuration: LLMsProviderConfiguration) async throws -> [LLMsProviderModel]
     func streamChat(
@@ -251,6 +253,10 @@ protocol LLMsProviderAdapter {
 extension LLMsProviderAdapter {
     func configurationSummary(for configuration: LLMsProviderConfiguration) -> String? {
         nil
+    }
+
+    func supports(_ capability: LLMsProviderCapability, configuration: LLMsProviderConfiguration) -> Bool {
+        capabilities.contains(capability)
     }
 
     func validateChatConfiguration(_ configuration: LLMsProviderConfiguration) throws {}
@@ -370,8 +376,7 @@ final class LLMsProviderManager {
         supports capability: LLMsProviderCapability
     ) -> Bool {
         registry.adapter(for: provider.kind)?
-            .capabilities
-            .contains(capability) == true
+            .supports(capability, configuration: provider.configuration) == true
     }
 
     func fetchSelectedModelSelection() -> ChatModelSelection? {

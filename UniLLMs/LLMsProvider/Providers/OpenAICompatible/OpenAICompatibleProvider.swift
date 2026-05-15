@@ -20,6 +20,7 @@ struct OpenAICompatibleProvider: LLMsProviderAdapter {
     enum ConfigurationKey {
         static let apiBase = "apiBase"
         static let apiKey = "apiKey"
+        static let toolsEnabled = "toolsEnabled"
     }
 
     let apiClient: OpenRouterAPIClient
@@ -42,14 +43,15 @@ struct OpenAICompatibleProvider: LLMsProviderAdapter {
     }
 
     var capabilities: Set<LLMsProviderCapability> {
-        [.streamingChat, .tools]
+        [.streamingChat]
     }
 
     var defaultConfiguration: LLMsProviderConfiguration {
         LLMsProviderConfiguration(
             values: [
                 ConfigurationKey.apiBase: "",
-                ConfigurationKey.apiKey: ""
+                ConfigurationKey.apiKey: "",
+                ConfigurationKey.toolsEnabled: "false"
             ]
         )
     }
@@ -77,6 +79,13 @@ struct OpenAICompatibleProvider: LLMsProviderAdapter {
                 placeholder: "OpenAI API Key",
                 binding: .configurationValue(ConfigurationKey.apiKey),
                 inputKind: .secret
+            ),
+            LLMsProviderConfigurationField(
+                id: ConfigurationKey.toolsEnabled,
+                title: "Tools",
+                placeholder: "Send tool definitions and execute model-requested tool calls",
+                binding: .configurationValue(ConfigurationKey.toolsEnabled),
+                inputKind: .toggle
             )
         ]
     }
@@ -95,12 +104,26 @@ struct OpenAICompatibleProvider: LLMsProviderAdapter {
         }
     }
 
+    func supports(
+        _ capability: LLMsProviderCapability,
+        configuration: LLMsProviderConfiguration
+    ) -> Bool {
+        switch capability {
+        case .tools:
+            return Self.isToolsEnabled(configuration)
+        default:
+            return capabilities.contains(capability)
+        }
+    }
+
     func streamChat(
         request: ChatRequest,
         configuration: LLMsProviderConfiguration
     ) -> AsyncThrowingStream<ChatResponseDelta, Error> {
         let messages = request.messages.map(OpenRouterChatMessage.init(message:))
-        let tools = request.context.availableTools.map(OpenRouterChatTool.init(definition:))
+        let tools = Self.isToolsEnabled(configuration)
+            ? request.context.availableTools.map(OpenRouterChatTool.init(definition:))
+            : []
         let stream = apiClient.streamChatCompletion(
             apiBase: configuration[ConfigurationKey.apiBase],
             apiKey: configuration[ConfigurationKey.apiKey],
@@ -133,6 +156,13 @@ struct OpenAICompatibleProvider: LLMsProviderAdapter {
                 task.cancel()
             }
         }
+    }
+
+    private static func isToolsEnabled(_ configuration: LLMsProviderConfiguration) -> Bool {
+        let value = configuration[ConfigurationKey.toolsEnabled]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return ["true", "1", "yes", "on"].contains(value)
     }
 }
 

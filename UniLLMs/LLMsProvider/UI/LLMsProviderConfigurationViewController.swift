@@ -160,6 +160,11 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
 
         switch section {
         case .configuration:
+            guard configurationFields.indices.contains(indexPath.row),
+                  configurationFields[indexPath.row].inputKind != .toggle else {
+                return
+            }
+
             (tableView.cellForRow(at: indexPath) as? ProviderTextFieldCell)?.activateTextField()
         case .models:
             handleModelSelection(at: indexPath)
@@ -203,15 +208,22 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
     }
 
     private func configurationCell(for indexPath: IndexPath) -> UITableViewCell {
-        guard configurationFields.indices.contains(indexPath.row),
-              let cell = tableView.dequeueReusableCell(
-                withIdentifier: ProviderTextFieldCell.reuseIdentifier,
-                for: indexPath
-              ) as? ProviderTextFieldCell else {
+        guard configurationFields.indices.contains(indexPath.row) else {
             return UITableViewCell()
         }
 
         let field = configurationFields[indexPath.row]
+        guard field.inputKind != .toggle else {
+            return toggleConfigurationCell(for: field)
+        }
+
+        guard let cell = tableView.dequeueReusableCell(
+            withIdentifier: ProviderTextFieldCell.reuseIdentifier,
+            for: indexPath
+        ) as? ProviderTextFieldCell else {
+            return UITableViewCell()
+        }
+
         cell.configure(
             title: field.title,
             text: value(for: field),
@@ -223,6 +235,31 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
         cell.onTextChange = { [weak self] text in
             self?.setValue(text, for: field)
         }
+        return cell
+    }
+
+    private func toggleConfigurationCell(for field: LLMsProviderConfigurationField) -> UITableViewCell {
+        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        var contentConfiguration = cell.defaultContentConfiguration()
+        contentConfiguration.text = field.title
+        contentConfiguration.secondaryText = field.placeholder
+        contentConfiguration.image = UIImage(systemName: "hammer")
+        cell.contentConfiguration = contentConfiguration
+
+        let toggle = UISwitch()
+        toggle.isOn = booleanValue(for: field)
+        toggle.addAction(
+            UIAction { [weak self, weak toggle, field] _ in
+                guard let toggle else {
+                    return
+                }
+
+                self?.setValue(toggle.isOn ? "true" : "false", for: field)
+            },
+            for: .valueChanged
+        )
+        cell.accessoryView = toggle
+        cell.selectionStyle = .none
         return cell
     }
 
@@ -348,6 +385,13 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
         provider.configurationValue(for: field.binding)
     }
 
+    private func booleanValue(for field: LLMsProviderConfigurationField) -> Bool {
+        let normalizedValue = value(for: field)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return ["true", "1", "yes", "on"].contains(normalizedValue)
+    }
+
     private func setValue(_ text: String, for field: LLMsProviderConfigurationField) {
         provider.setConfigurationValue(text, for: field.binding)
 
@@ -369,6 +413,8 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
             return .asciiCapable
         case .url:
             return .URL
+        case .toggle:
+            return .default
         }
     }
 
@@ -382,6 +428,8 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
             return .password
         case .url:
             return .URL
+        case .toggle:
+            return nil
         }
     }
 
