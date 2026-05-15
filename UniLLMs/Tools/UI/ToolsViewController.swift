@@ -75,8 +75,16 @@ final class ToolsViewController: UITableViewController {
     }
 
     private func reloadServers() {
-        servers = dependencies.mcpServerManager.configuredServers()
-        tableView.reloadData()
+        let loadedServers = dependencies.mcpServerManager.configuredServers()
+        guard loadedServers != servers else {
+            return
+        }
+
+        servers = loadedServers
+        tableView.reloadSections(
+            IndexSet(integer: Section.mcpServers.rawValue),
+            with: .automatic
+        )
     }
 
     @objc private func addMCPServer() {
