@@ -136,7 +136,7 @@ final class ToolsViewController: UITableViewController {
 
         switch section {
         case .masterSwitch:
-            return "When tools are enabled and at least one MCP server exposes tools, compatible chat requests include tool definitions and execute model-requested tool calls."
+            return nil
         case .mcpServers:
             return servers.isEmpty ? "Add a Streamable HTTP MCP server to expose tools to the selected model." : nil
         }
@@ -277,14 +277,13 @@ final class ToolsViewController: UITableViewController {
         dependencies.mcpServerManager.isToolsEnabled = sender.isOn
     }
 
-    private func serverSubtitle(for server: MCPServerRecord) -> String {
+    private func serverSubtitle(for server: MCPServerRecord) -> String? {
         let endpoint = server.configuration.endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
-        let status = server.configuration.isEnabled ? "Enabled" : "Disabled"
         guard !endpoint.isEmpty else {
-            return status
+            return nil
         }
 
-        return "\(status) • \(endpoint)"
+        return endpoint
     }
 
     @discardableResult
