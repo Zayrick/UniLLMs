@@ -83,7 +83,7 @@ struct OpenAICompatibleProvider: LLMsProviderAdapter {
             LLMsProviderConfigurationField(
                 id: ConfigurationKey.toolsEnabled,
                 title: "Tools",
-                placeholder: "Send tool definitions and execute model-requested tool calls",
+                placeholder: "",
                 binding: .configurationValue(ConfigurationKey.toolsEnabled),
                 inputKind: .toggle
             )

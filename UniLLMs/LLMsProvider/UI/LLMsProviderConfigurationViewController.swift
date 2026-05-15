@@ -239,11 +239,9 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
     }
 
     private func toggleConfigurationCell(for field: LLMsProviderConfigurationField) -> UITableViewCell {
-        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
         var contentConfiguration = cell.defaultContentConfiguration()
         contentConfiguration.text = field.title
-        contentConfiguration.secondaryText = field.placeholder
-        contentConfiguration.image = UIImage(systemName: "hammer")
         cell.contentConfiguration = contentConfiguration
 
         let toggle = UISwitch()
