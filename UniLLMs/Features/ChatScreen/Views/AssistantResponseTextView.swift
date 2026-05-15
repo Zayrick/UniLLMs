@@ -22,12 +22,23 @@ final class AssistantResponseTextView: UIView {
         static let copyAppearAnimationDampingRatio: CGFloat = 0.88
     }
 
+    private enum TimelineSegmentKind {
+        case toolStatus
+        case reasoning
+        case content
+    }
+
+    private struct TimelineSegment {
+        var kind: TimelineSegmentKind
+        var view: UIView
+        var heightConstraint: NSLayoutConstraint
+    }
+
     private let stackView = UIStackView()
     private let loadingView = UIStackView()
     private let loadingIndicatorView = UIActivityIndicatorView(style: .medium)
     private let loadingLabel = UILabel()
-    private let reasoningTextView = StreamingTextView()
-    private let contentMarkdownView = StreamingMarkdownView()
+    private let timelineStackView = UIStackView()
     private let copyButtonContainerView = UIView()
     private let copyMarkdownButton = CopyMarkdownButton(
         symbolConfiguration: UIImage.SymbolConfiguration(
@@ -36,10 +47,7 @@ final class AssistantResponseTextView: UIView {
         )
     )
     private let errorLabel = UILabel()
-    private var reasoningHeightConstraint: NSLayoutConstraint!
-    private var contentHeightConstraint: NSLayoutConstraint!
-    private var hasReasoningText = false
-    private var hasContentText = false
+    private var timelineSegments: [TimelineSegment] = []
     private var isResponseFinished = false
     private var rawContentMarkdown = ""
     private var isLoading = false
@@ -70,29 +78,45 @@ final class AssistantResponseTextView: UIView {
         errorLabel.text = nil
 
         if !reasoningDelta.isEmpty {
-            hasReasoningText = true
-            reasoningTextView.append(reasoningDelta, attributes: reasoningAttributes)
+            appendPlainTimelineSegment(
+                kind: .reasoning,
+                text: reasoningDelta,
+                attributes: reasoningAttributes
+            )
         }
         if !contentDelta.isEmpty {
-            hasContentText = true
             rawContentMarkdown += contentDelta
-            contentMarkdownView.appendMarkdown(contentDelta)
+            appendContentTimelineSegment(contentDelta)
         }
 
+        updateVisibility()
+    }
+
+    func append(toolStatus statusDelta: String) {
+        guard !statusDelta.isEmpty else {
+            return
+        }
+
+        isLoading = false
+        errorLabel.text = nil
+        appendPlainTimelineSegment(
+            kind: .toolStatus,
+            text: statusDelta,
+            attributes: toolStatusAttributes
+        )
         updateVisibility()
     }
 
     func setError(_ message: String) {
         isLoading = false
         isResponseFinished = true
-        contentMarkdownView.finishStreamingContent()
+        finishContentTimelineSegments()
         errorLabel.text = message
         updateVisibility()
     }
 
     func showLoadingIfNeeded() {
-        guard !hasReasoningText,
-              !hasContentText,
+        guard timelineSegments.isEmpty,
               (errorLabel.text ?? "").isEmpty else {
             return
         }
@@ -112,7 +136,7 @@ final class AssistantResponseTextView: UIView {
 
     func finishStreamingContent() {
         isResponseFinished = true
-        contentMarkdownView.finishStreamingContent()
+        finishContentTimelineSegments()
         updateVisibility()
     }
 
@@ -128,28 +152,20 @@ final class AssistantResponseTextView: UIView {
         addSubview(stackView)
 
         configureLoadingView()
-
-        configurePlainTextView(reasoningTextView, textStyle: .callout, color: .secondaryLabel)
-        configureContentMarkdownView()
+        configureTimelineStackView()
         configureCopyMarkdownButton()
         configureLabel(errorLabel, textStyle: .callout, color: .systemRed)
 
         stackView.addArrangedSubview(loadingView)
-        stackView.addArrangedSubview(reasoningTextView)
-        stackView.addArrangedSubview(contentMarkdownView)
+        stackView.addArrangedSubview(timelineStackView)
         stackView.addArrangedSubview(copyButtonContainerView)
         stackView.addArrangedSubview(errorLabel)
-
-        reasoningHeightConstraint = reasoningTextView.heightAnchor.constraint(equalToConstant: 0.0)
-        contentHeightConstraint = contentMarkdownView.heightAnchor.constraint(equalToConstant: 0.0)
 
         NSLayoutConstraint.activate([
             stackView.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.verticalInset),
             stackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.horizontalInset),
             stackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.horizontalInset),
-            stackView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Metrics.verticalInset),
-            reasoningHeightConstraint,
-            contentHeightConstraint
+            stackView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Metrics.verticalInset)
         ])
 
         updateVisibility()
@@ -178,6 +194,80 @@ final class AssistantResponseTextView: UIView {
         loadingView.addArrangedSubview(loadingLabel)
     }
 
+    private func configureTimelineStackView() {
+        timelineStackView.axis = .vertical
+        timelineStackView.alignment = .fill
+        timelineStackView.spacing = Metrics.sectionSpacing
+        timelineStackView.setContentCompressionResistancePriority(.required, for: .vertical)
+        timelineStackView.setContentHuggingPriority(.required, for: .vertical)
+        timelineStackView.translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    private func appendPlainTimelineSegment(
+        kind: TimelineSegmentKind,
+        text: String,
+        attributes: [NSAttributedString.Key: Any]
+    ) {
+        guard !text.isEmpty else {
+            return
+        }
+
+        if let lastSegment = timelineSegments.last,
+           lastSegment.kind == kind,
+           let textView = lastSegment.view as? StreamingTextView {
+            textView.append(text, attributes: attributes)
+            return
+        }
+
+        let textView = StreamingTextView()
+        configurePlainTextView(textView, textStyle: .callout, color: .secondaryLabel)
+        timelineStackView.addArrangedSubview(textView)
+
+        let heightConstraint = textView.heightAnchor.constraint(equalToConstant: 0.0)
+        heightConstraint.isActive = true
+        timelineSegments.append(
+            TimelineSegment(
+                kind: kind,
+                view: textView,
+                heightConstraint: heightConstraint
+            )
+        )
+        textView.append(text, attributes: attributes)
+    }
+
+    private func appendContentTimelineSegment(_ markdown: String) {
+        guard !markdown.isEmpty else {
+            return
+        }
+
+        if let lastSegment = timelineSegments.last,
+           lastSegment.kind == .content,
+           let markdownView = lastSegment.view as? StreamingMarkdownView {
+            markdownView.appendMarkdown(markdown)
+            return
+        }
+
+        let markdownView = makeContentMarkdownView()
+        timelineStackView.addArrangedSubview(markdownView)
+
+        let heightConstraint = markdownView.heightAnchor.constraint(equalToConstant: 0.0)
+        heightConstraint.isActive = true
+        timelineSegments.append(
+            TimelineSegment(
+                kind: .content,
+                view: markdownView,
+                heightConstraint: heightConstraint
+            )
+        )
+        markdownView.appendMarkdown(markdown)
+    }
+
+    private func finishContentTimelineSegments() {
+        for segment in timelineSegments where segment.kind == .content {
+            (segment.view as? StreamingMarkdownView)?.finishStreamingContent()
+        }
+    }
+
     private func configureTextView(_ textView: UITextView) {
         textView.backgroundColor = .clear
         textView.isOpaque = false
@@ -202,7 +292,8 @@ final class AssistantResponseTextView: UIView {
         textView.textColor = color
     }
 
-    private func configureContentMarkdownView() {
+    private func makeContentMarkdownView() -> StreamingMarkdownView {
+        let contentMarkdownView = StreamingMarkdownView()
         contentMarkdownView.backgroundColor = .clear
         contentMarkdownView.isOpaque = false
         contentMarkdownView.onNeedsHeightUpdate = { [weak self] in
@@ -211,6 +302,7 @@ final class AssistantResponseTextView: UIView {
         contentMarkdownView.setContentCompressionResistancePriority(.required, for: .vertical)
         contentMarkdownView.setContentHuggingPriority(.required, for: .vertical)
         contentMarkdownView.translatesAutoresizingMaskIntoConstraints = false
+        return contentMarkdownView
     }
 
     private func configureCopyMarkdownButton() {
@@ -263,13 +355,12 @@ final class AssistantResponseTextView: UIView {
             loadingIndicatorView.stopAnimating()
         }
 
-        reasoningTextView.isHidden = !hasReasoningText
-        contentMarkdownView.isHidden = !hasContentText
+        timelineStackView.isHidden = timelineSegments.isEmpty
         let shouldShowCopyButton = shouldShowCopyMarkdownButton
         let shouldAnimateCopyButtonAppearance = copyButtonContainerView.isHidden && shouldShowCopyButton
         copyButtonContainerView.isHidden = !shouldShowCopyButton
         errorLabel.isHidden = (errorLabel.text ?? "").isEmpty
-        isHidden = !isLoading && !hasReasoningText && !hasContentText && errorLabel.isHidden
+        isHidden = !isLoading && timelineSegments.isEmpty && errorLabel.isHidden
         updateTextViewHeights()
 
         if shouldAnimateCopyButtonAppearance {
@@ -337,8 +428,13 @@ final class AssistantResponseTextView: UIView {
             return
         }
 
-        updateTextViewHeight(reasoningTextView, constraint: reasoningHeightConstraint, width: width)
-        updateContentHeight(contentMarkdownView, constraint: contentHeightConstraint, width: width)
+        for segment in timelineSegments {
+            if let textView = segment.view as? UITextView {
+                updateTextViewHeight(textView, constraint: segment.heightConstraint, width: width)
+            } else {
+                updateContentHeight(segment.view, constraint: segment.heightConstraint, width: width)
+            }
+        }
         lastMeasuredTextWidth = width
         invalidateIntrinsicContentSize()
     }
@@ -385,6 +481,19 @@ final class AssistantResponseTextView: UIView {
     }
 
     private var reasoningAttributes: [NSAttributedString.Key: Any] {
+        let font = UIFont.preferredFont(forTextStyle: .callout, compatibleWith: traitCollection)
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineSpacing = Self.systemLineSpacing(for: font)
+        paragraphStyle.paragraphSpacing = Self.systemParagraphSpacing(for: font)
+
+        return [
+            NSAttributedString.Key.font: font,
+            NSAttributedString.Key.foregroundColor: UIColor.secondaryLabel,
+            NSAttributedString.Key.paragraphStyle: paragraphStyle
+        ]
+    }
+
+    private var toolStatusAttributes: [NSAttributedString.Key: Any] {
         let font = UIFont.preferredFont(forTextStyle: .callout, compatibleWith: traitCollection)
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = Self.systemLineSpacing(for: font)

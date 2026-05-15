@@ -13,18 +13,67 @@ nonisolated struct OpenRouterChatMessage: Codable, Equatable {
         case user
         case assistant
         case system
+        case tool
+    }
+
+    nonisolated struct ToolCall: Codable, Equatable {
+        nonisolated struct Function: Codable, Equatable {
+            var name: String
+            var arguments: String
+        }
+
+        var id: String
+        var type: String
+        var function: Function
     }
 
     var role: Role
-    var content: String
+    var content: String?
+    var toolCalls: [ToolCall]?
+    var toolCallID: String?
+
+    nonisolated private enum CodingKeys: String, CodingKey {
+        case role
+        case content
+        case toolCalls = "tool_calls"
+        case toolCallID = "tool_call_id"
+    }
+}
+
+nonisolated struct OpenRouterChatTool: Encodable, Equatable {
+    nonisolated struct Function: Encodable, Equatable {
+        var name: String
+        var description: String
+        var parameters: JSONValue
+    }
+
+    var type = "function"
+    var function: Function
+
+    init(definition: ToolDefinition) {
+        function = Function(
+            name: definition.name,
+            description: definition.summary,
+            parameters: definition.parameters
+        )
+    }
+}
+
+nonisolated struct OpenRouterToolCallDelta: Equatable {
+    var index: Int
+    var id: String?
+    var name: String?
+    var argumentsFragment: String
 }
 
 nonisolated struct OpenRouterChatStreamDelta: Equatable {
     var content: String = ""
     var reasoning: String = ""
+    var toolCallDeltas: [OpenRouterToolCallDelta] = []
+    var toolCalls: [ChatToolCall] = []
 
     var isEmpty: Bool {
-        content.isEmpty && reasoning.isEmpty
+        content.isEmpty && reasoning.isEmpty && toolCallDeltas.isEmpty && toolCalls.isEmpty
     }
 }
 
@@ -56,6 +105,7 @@ nonisolated struct OpenRouterAPIClient {
         var model: String
         var messages: [OpenRouterChatMessage]
         var stream: Bool
+        var tools: [OpenRouterChatTool]?
     }
 
     nonisolated private struct ChatCompletionChunk: Decodable {
@@ -77,12 +127,14 @@ nonisolated struct OpenRouterAPIClient {
             var reasoning: String?
             var reasoningContent: String?
             var reasoningDetails: [ReasoningDetail]?
+            var toolCalls: [ToolCall]?
 
             nonisolated private enum CodingKeys: String, CodingKey {
                 case content
                 case reasoning
                 case reasoningContent = "reasoning_content"
                 case reasoningDetails = "reasoning_details"
+                case toolCalls = "tool_calls"
             }
         }
 
@@ -90,6 +142,18 @@ nonisolated struct OpenRouterAPIClient {
             var type: String?
             var text: String?
             var summary: String?
+        }
+
+        nonisolated struct ToolCall: Decodable {
+            var index: Int?
+            var id: String?
+            var type: String?
+            var function: Function?
+
+            nonisolated struct Function: Decodable {
+                var name: String?
+                var arguments: String?
+            }
         }
 
         nonisolated struct ResponseError: Decodable {
@@ -124,13 +188,15 @@ nonisolated struct OpenRouterAPIClient {
         apiBase: String,
         apiKey: String,
         model: String,
-        messages: [OpenRouterChatMessage]
+        messages: [OpenRouterChatMessage],
+        tools: [OpenRouterChatTool] = []
     ) -> AsyncThrowingStream<OpenRouterChatStreamDelta, Error> {
         streamChatCompletion(
             apiBase: apiBase,
             authorizationHeader: Self.bearerAuthorizationHeader(apiKey: apiKey),
             model: model,
-            messages: messages
+            messages: messages,
+            tools: tools
         )
     }
 
@@ -138,7 +204,8 @@ nonisolated struct OpenRouterAPIClient {
         apiBase: String,
         authorizationHeader: String,
         model: String,
-        messages: [OpenRouterChatMessage]
+        messages: [OpenRouterChatMessage],
+        tools: [OpenRouterChatTool]
     ) -> AsyncThrowingStream<OpenRouterChatStreamDelta, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
@@ -147,7 +214,8 @@ nonisolated struct OpenRouterAPIClient {
                         apiBase: apiBase,
                         authorizationHeader: authorizationHeader,
                         model: model,
-                        messages: messages
+                        messages: messages,
+                        tools: tools
                     )
                     let (bytes, response) = try await session.bytes(for: request)
                     guard let httpResponse = response as? HTTPURLResponse else {
@@ -159,6 +227,7 @@ nonisolated struct OpenRouterAPIClient {
                         throw APIError.serverStatus(serviceName, httpResponse.statusCode, body)
                     }
 
+                    var toolCallAccumulator = ToolCallAccumulator()
                     for try await line in bytes.lines {
                         try Task.checkCancellation()
                         if Self.isDoneServerSentEventLine(line) {
@@ -172,9 +241,20 @@ nonisolated struct OpenRouterAPIClient {
                             continue
                         }
 
-                        continuation.yield(delta)
+                        toolCallAccumulator.append(delta.toolCallDeltas)
+                        let responseDelta = OpenRouterChatStreamDelta(
+                            content: delta.content,
+                            reasoning: delta.reasoning
+                        )
+                        if !responseDelta.isEmpty {
+                            continuation.yield(responseDelta)
+                        }
                     }
 
+                    let toolCalls = toolCallAccumulator.completedToolCalls()
+                    if !toolCalls.isEmpty {
+                        continuation.yield(OpenRouterChatStreamDelta(toolCalls: toolCalls))
+                    }
                     continuation.finish()
                 } catch is CancellationError {
                     continuation.finish()
@@ -229,7 +309,8 @@ nonisolated struct OpenRouterAPIClient {
         apiBase: String,
         authorizationHeader: String,
         model: String,
-        messages: [OpenRouterChatMessage]
+        messages: [OpenRouterChatMessage],
+        tools: [OpenRouterChatTool]
     ) throws -> URLRequest {
         var request = URLRequest(url: try chatCompletionsURL(apiBase: apiBase))
         request.httpMethod = "POST"
@@ -245,7 +326,8 @@ nonisolated struct OpenRouterAPIClient {
             ChatCompletionsRequest(
                 model: model,
                 messages: messages,
-                stream: true
+                stream: true,
+                tools: tools.isEmpty ? nil : tools
             )
         )
         return request
@@ -340,7 +422,12 @@ nonisolated struct OpenRouterAPIClient {
 
         let content = deltas.map(\.content).joined()
         let reasoning = deltas.map(\.reasoning).joined()
-        let delta = OpenRouterChatStreamDelta(content: content, reasoning: reasoning)
+        let toolCallDeltas = deltas.flatMap(\.toolCallDeltas)
+        let delta = OpenRouterChatStreamDelta(
+            content: content,
+            reasoning: reasoning,
+            toolCallDeltas: toolCallDeltas
+        )
         return delta.isEmpty ? nil : delta
     }
 
@@ -371,7 +458,64 @@ nonisolated struct OpenRouterAPIClient {
 
         return OpenRouterChatStreamDelta(
             content: delta.content ?? "",
-            reasoning: reasoningFromDetails.isEmpty ? reasoningFromStringFields : reasoningFromDetails
+            reasoning: reasoningFromDetails.isEmpty ? reasoningFromStringFields : reasoningFromDetails,
+            toolCallDeltas: toolCallDeltas(from: delta)
         )
+    }
+
+    nonisolated private static func toolCallDeltas(
+        from delta: ChatCompletionChunk.Delta
+    ) -> [OpenRouterToolCallDelta] {
+        delta.toolCalls?.compactMap { toolCall in
+            guard let index = toolCall.index else {
+                return nil
+            }
+
+            return OpenRouterToolCallDelta(
+                index: index,
+                id: toolCall.id,
+                name: toolCall.function?.name,
+                argumentsFragment: toolCall.function?.arguments ?? ""
+            )
+        } ?? []
+    }
+}
+
+nonisolated private struct ToolCallAccumulator {
+    nonisolated private struct PartialToolCall {
+        var id: String?
+        var name: String?
+        var arguments = ""
+    }
+
+    private var partials: [Int: PartialToolCall] = [:]
+
+    mutating func append(_ deltas: [OpenRouterToolCallDelta]) {
+        for delta in deltas {
+            var partial = partials[delta.index] ?? PartialToolCall()
+            if let id = delta.id, !id.isEmpty {
+                partial.id = id
+            }
+            if let name = delta.name, !name.isEmpty {
+                partial.name = name
+            }
+            partial.arguments += delta.argumentsFragment
+            partials[delta.index] = partial
+        }
+    }
+
+    func completedToolCalls() -> [ChatToolCall] {
+        partials.keys.sorted().compactMap { index in
+            guard let partial = partials[index],
+                  let name = partial.name else {
+                return nil
+            }
+
+            return ChatToolCall(
+                id: partial.id ?? "tool_call_\(index)",
+                toolID: name,
+                arguments: partial.arguments
+            )
+        }
     }
 }

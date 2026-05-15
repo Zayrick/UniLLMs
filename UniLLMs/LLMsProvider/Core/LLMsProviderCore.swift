@@ -365,6 +365,15 @@ final class LLMsProviderManager {
             .configurationSummary(for: provider.configuration)
     }
 
+    func provider(
+        _ provider: LLMsProviderRecord,
+        supports capability: LLMsProviderCapability
+    ) -> Bool {
+        registry.adapter(for: provider.kind)?
+            .capabilities
+            .contains(capability) == true
+    }
+
     func fetchSelectedModelSelection() -> ChatModelSelection? {
         store.fetchSelectedModelSelection { provider in
             displayName(for: provider)

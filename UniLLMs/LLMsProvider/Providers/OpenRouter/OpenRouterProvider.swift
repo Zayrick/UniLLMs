@@ -43,7 +43,7 @@ struct OpenRouterProvider: LLMsProviderAdapter {
     }
 
     var capabilities: Set<LLMsProviderCapability> {
-        [.modelList, .streamingChat]
+        [.modelList, .streamingChat, .tools]
     }
 
     var defaultConfiguration: LLMsProviderConfiguration {
@@ -109,11 +109,13 @@ struct OpenRouterProvider: LLMsProviderAdapter {
         configuration: LLMsProviderConfiguration
     ) -> AsyncThrowingStream<ChatResponseDelta, Error> {
         let messages = request.messages.map(OpenRouterChatMessage.init(message:))
+        let tools = request.context.availableTools.map(OpenRouterChatTool.init(definition:))
         let stream = apiClient.streamChatCompletion(
             apiBase: configuration[ConfigurationKey.apiBase],
             apiKey: configuration[ConfigurationKey.apiKey],
             model: request.modelID,
-            messages: messages
+            messages: messages,
+            tools: tools
         )
 
         return AsyncThrowingStream { continuation in
@@ -123,7 +125,8 @@ struct OpenRouterProvider: LLMsProviderAdapter {
                         continuation.yield(
                             ChatResponseDelta(
                                 content: delta.content,
-                                reasoning: delta.reasoning
+                                reasoning: delta.reasoning,
+                                toolCalls: delta.toolCalls
                             )
                         )
                     }
@@ -155,9 +158,24 @@ enum OpenRouterProviderError: LocalizedError, Equatable {
 
 nonisolated extension OpenRouterChatMessage {
     init(message: ChatMessage) {
+        let content = message.role == .assistant && message.content.isEmpty
+            ? nil
+            : message.content
+
         self.init(
             role: Role(rawValue: message.role.rawValue) ?? .user,
-            content: message.content
+            content: content,
+            toolCalls: message.toolCalls?.map {
+                ToolCall(
+                    id: $0.id,
+                    type: "function",
+                    function: ToolCall.Function(
+                        name: $0.toolID,
+                        arguments: $0.arguments
+                    )
+                )
+            },
+            toolCallID: message.toolCallID
         )
     }
 }

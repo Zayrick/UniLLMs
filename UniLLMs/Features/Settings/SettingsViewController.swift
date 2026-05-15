@@ -9,6 +9,11 @@
 import UIKit
 
 final class SettingsViewController: UITableViewController {
+    private enum Row: Int, CaseIterable {
+        case providers
+        case tools
+    }
+
     private let dependencies: AppDependencyContainer
 
     init(dependencies: AppDependencyContainer = AppEnvironment.shared.dependencies) {
@@ -41,7 +46,7 @@ final class SettingsViewController: UITableViewController {
     }
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        1
+        Row.allCases.count
     }
 
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
@@ -53,16 +58,37 @@ final class SettingsViewController: UITableViewController {
         cellForRowAt indexPath: IndexPath
     ) -> UITableViewCell {
         let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
-        cell.textLabel?.text = "LLMs Provider"
+        guard let row = Row(rawValue: indexPath.row) else {
+            return cell
+        }
+
+        switch row {
+        case .providers:
+            cell.textLabel?.text = "LLMs Provider"
+        case .tools:
+            cell.textLabel?.text = "Tools"
+        }
         cell.accessoryType = .disclosureIndicator
         return cell
     }
 
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        navigationController?.pushViewController(
-            LLMsProviderViewController(dependencies: dependencies),
-            animated: true
-        )
+        guard let row = Row(rawValue: indexPath.row) else {
+            return
+        }
+
+        switch row {
+        case .providers:
+            navigationController?.pushViewController(
+                LLMsProviderViewController(dependencies: dependencies),
+                animated: true
+            )
+        case .tools:
+            navigationController?.pushViewController(
+                ToolsViewController(dependencies: dependencies),
+                animated: true
+            )
+        }
     }
 }

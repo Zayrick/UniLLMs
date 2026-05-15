@@ -65,8 +65,7 @@ final class UserDefaultsChatStore: ChatHistoryStore {
     }
 
     func fetchMessages(sessionID: UUID) async throws -> [ChatMessage] {
-        (loadPayload().messagesBySessionID[sessionID.uuidString] ?? [])
-            .sorted { $0.createdAt < $1.createdAt }
+        ChatMessage.sortedChronologically(loadPayload().messagesBySessionID[sessionID.uuidString] ?? [])
     }
 
     func saveMessage(_ message: ChatMessage, sessionID: UUID) async throws {
@@ -81,7 +80,7 @@ final class UserDefaultsChatStore: ChatHistoryStore {
 
     func saveMessages(_ messages: [ChatMessage], sessionID: UUID) async throws {
         var payload = loadPayload()
-        payload.messagesBySessionID[sessionID.uuidString] = messages.sorted { $0.createdAt < $1.createdAt }
+        payload.messagesBySessionID[sessionID.uuidString] = ChatMessage.sortedChronologically(messages)
         savePayload(payload)
     }
 

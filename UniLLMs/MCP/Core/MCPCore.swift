@@ -2,7 +2,7 @@
 //  MCPCore.swift
 //  UniLLMs
 //
-//  Defines MCP server, transport, client, and tool adapter protocol boundaries; currently an architectural placeholder for future MCP integration.
+//  Defines MCP server, client, and tool adapter protocol boundaries for remote MCP integration.
 //  Created by Zayrick on 2026/5/11.
 //
 
@@ -12,59 +12,150 @@ nonisolated struct MCPServerRecord: Codable, Equatable, Identifiable {
     var id: UUID
     var name: String
     var configuration: MCPServerConfiguration
+    var createdAt: Date
 
-    init(id: UUID = UUID(), name: String, configuration: MCPServerConfiguration) {
+    init(
+        id: UUID = UUID(),
+        name: String,
+        configuration: MCPServerConfiguration = MCPServerConfiguration(),
+        createdAt: Date = Date()
+    ) {
         self.id = id
         self.name = name
         self.configuration = configuration
+        self.createdAt = createdAt
+    }
+
+    var displayName: String {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedName.isEmpty {
+            return trimmedName
+        }
+
+        if let host = URL(string: configuration.endpoint)?.host,
+           !host.isEmpty {
+            return host
+        }
+
+        return "MCP Server"
     }
 }
 
 nonisolated struct MCPServerConfiguration: Codable, Equatable {
-    var command: String
-    var arguments: [String]
-    var environment: [String: String]
+    var endpoint: String
+    var headers: [String: String]
+    var timeout: TimeInterval
+    var isEnabled: Bool
+
+    init(
+        endpoint: String = "",
+        headers: [String: String] = [:],
+        timeout: TimeInterval = 60.0,
+        isEnabled: Bool = true
+    ) {
+        self.endpoint = endpoint
+        self.headers = headers
+        self.timeout = timeout
+        self.isEnabled = isEnabled
+    }
 }
 
-protocol MCPTransport {
-    func connect(configuration: MCPServerConfiguration) async throws
-    func disconnect() async
+/// A tool advertised by an MCP server, paired with the original (server-side) tool name.
+struct MCPToolDescriptor: Equatable {
+    let originalName: String
+    let definition: ToolDefinition
 }
 
 protocol MCPClient {
-    func loadToolDefinitions() async throws -> [ToolDefinition]
-    func execute(call: ToolCall) async throws -> ToolResult
+    func connect() async throws
+    func loadTools() async throws -> [MCPToolDescriptor]
+    func callTool(originalName: String, arguments: [String: JSONValue]) async throws -> String
 }
 
 struct MCPToolAdapter: Tool {
     let definition: ToolDefinition
+    let originalName: String
     let client: any MCPClient
 
     func execute(call: ToolCall, context: ToolExecutionContext) async throws -> ToolResult {
-        try await client.execute(call: call)
+        let content = try await client.callTool(originalName: originalName, arguments: call.arguments)
+        return ToolResult(callID: call.id, content: content)
     }
 }
 
-final class MCPServerRegistry {
-    private var records: [MCPServerRecord] = []
+final class MCPServerManager: DynamicToolSource {
+    nonisolated static let mcpToolNamePrefix = "mcp_"
 
-    func replaceAll(_ records: [MCPServerRecord]) {
-        self.records = records
+    private let store: any MCPServerStore
+    private let clientFactory: (MCPServerRecord) -> any MCPClient
+
+    init(
+        store: any MCPServerStore = UserDefaultsMCPServerStore.shared,
+        clientFactory: @escaping (MCPServerRecord) -> any MCPClient = { MCPHTTPClient(server: $0) }
+    ) {
+        self.store = store
+        self.clientFactory = clientFactory
     }
 
-    func allServers() -> [MCPServerRecord] {
-        records
-    }
-}
-
-final class MCPServerManager {
-    private let registry: MCPServerRegistry
-
-    init(registry: MCPServerRegistry = MCPServerRegistry()) {
-        self.registry = registry
+    var isToolsEnabled: Bool {
+        get {
+            store.loadToolsEnabled()
+        }
+        set {
+            store.saveToolsEnabled(newValue)
+        }
     }
 
     func configuredServers() -> [MCPServerRecord] {
-        registry.allServers()
+        store.loadServers()
+    }
+
+    func makeServerDraft() -> MCPServerRecord {
+        store.makeServerDraft()
+    }
+
+    func saveServer(_ server: MCPServerRecord) {
+        store.saveServerRecord(server)
+    }
+
+    func deleteServer(id: UUID) {
+        store.deleteServerRecord(id: id)
+    }
+
+    func moveServer(from sourceIndex: Int, to destinationIndex: Int) {
+        store.moveServer(from: sourceIndex, to: destinationIndex)
+    }
+
+    func loadTools() async -> [any Tool] {
+        guard isToolsEnabled else {
+            return []
+        }
+
+        let enabledServers = configuredServers().filter(\.configuration.isEnabled)
+        guard !enabledServers.isEmpty else {
+            return []
+        }
+
+        var adapters: [MCPToolAdapter] = []
+        for server in enabledServers {
+            do {
+                let client = clientFactory(server)
+                try await client.connect()
+                let descriptors = try await client.loadTools()
+                for descriptor in descriptors {
+                    adapters.append(
+                        MCPToolAdapter(
+                            definition: descriptor.definition,
+                            originalName: descriptor.originalName,
+                            client: client
+                        )
+                    )
+                }
+            } catch {
+                continue
+            }
+        }
+
+        return adapters.map { $0 as any Tool }
     }
 }

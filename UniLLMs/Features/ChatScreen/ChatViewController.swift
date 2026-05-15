@@ -1013,6 +1013,7 @@ final class ChatViewController: UIViewController {
         }
 
         applyAssistantResponseChange(to: responseView) {
+            responseView.append(toolStatus: delta.toolStatus)
             responseView.append(content: delta.content, reasoning: delta.reasoning)
         }
     }
@@ -1247,13 +1248,27 @@ final class ChatViewController: UIViewController {
     private func renderConversationMessages(_ messages: [ChatMessage]) {
         removeChatContent()
 
-        let sortedMessages = messages.sorted { $0.createdAt < $1.createdAt }
+        let sortedMessages = ChatMessage.sortedChronologically(messages)
+        var toolNamesByCallID: [String: String] = [:]
         for message in sortedMessages {
             switch message.role {
             case .user:
                 appendStoredUserMessage(message.content)
             case .assistant:
-                appendStoredAssistantMessage(message.content)
+                appendStoredAssistantMessage(message)
+                for toolCall in message.toolCalls ?? [] {
+                    let toolName = toolCall.toolID
+                    toolNamesByCallID[toolCall.id] = toolName
+                    appendStoredToolStatus("Calling tool: \(toolName)\n")
+                }
+            case .tool:
+                let toolName = message.toolCallID.flatMap { toolNamesByCallID[$0] }
+                    ?? message.toolCallID
+                    ?? "Tool"
+                let status = message.content.hasPrefix("Tool execution failed:")
+                    ? "Tool failed: \(toolName)\n"
+                    : "Tool completed: \(toolName)\n"
+                appendStoredToolStatus(status)
             case .system:
                 continue
             }
@@ -1276,8 +1291,8 @@ final class ChatViewController: UIViewController {
         ).isActive = true
     }
 
-    private func appendStoredAssistantMessage(_ text: String) {
-        guard !text.isEmpty else {
+    private func appendStoredAssistantMessage(_ message: ChatMessage) {
+        guard !message.content.isEmpty || !message.reasoning.isEmpty else {
             return
         }
 
@@ -1289,7 +1304,24 @@ final class ChatViewController: UIViewController {
         responseView.widthAnchor.constraint(
             equalTo: messagesStackView.widthAnchor
         ).isActive = true
-        responseView.append(content: text, reasoning: "")
+        responseView.append(content: message.content, reasoning: message.reasoning)
+        responseView.finishStreamingContent()
+    }
+
+    private func appendStoredToolStatus(_ status: String) {
+        guard !status.isEmpty else {
+            return
+        }
+
+        let responseView = AssistantResponseTextView()
+        responseView.translatesAutoresizingMaskIntoConstraints = false
+        responseView.setContentHuggingPriority(.required, for: .vertical)
+        responseView.setContentCompressionResistancePriority(.required, for: .vertical)
+        messagesStackView.addArrangedSubview(responseView)
+        responseView.widthAnchor.constraint(
+            equalTo: messagesStackView.widthAnchor
+        ).isActive = true
+        responseView.append(toolStatus: status)
         responseView.finishStreamingContent()
     }
 

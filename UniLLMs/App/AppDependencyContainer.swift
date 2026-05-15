@@ -14,6 +14,7 @@ final class AppDependencyContainer {
     let providerStore: LLMsProviderStore
     let providerManager: LLMsProviderManager
     let toolRegistry: ToolRegistry
+    let toolCatalog: ToolCatalog
     let toolManager: ToolManager
     let memoryManager: MemoryManager
     let chatHistoryStore: UserDefaultsChatStore
@@ -39,18 +40,27 @@ final class AppDependencyContainer {
                 DateTimeTool()
             ]
         )
-        toolManager = ToolManager(registry: toolRegistry)
         memoryManager = MemoryManager()
         chatHistoryStore = UserDefaultsChatStore()
-        mcpServerManager = MCPServerManager()
+        let mcpServerManager = MCPServerManager()
+        self.mcpServerManager = mcpServerManager
+        toolCatalog = ToolCatalog(
+            registry: toolRegistry,
+            isEnabled: { mcpServerManager.isToolsEnabled },
+            dynamicSources: [mcpServerManager]
+        )
+        toolManager = ToolManager(catalog: toolCatalog)
         archiveStore = InMemoryArchiveStore()
 
         let contextBuilder = ChatContextBuilder(
             memoryManager: memoryManager,
-            toolRegistry: toolRegistry
+            toolCatalog: toolCatalog
         )
         let responseStreamer = ChatResponseStreamer(providerManager: providerManager)
-        let turnRunner = ChatTurnRunner(responseStreamer: responseStreamer)
+        let turnRunner = ChatTurnRunner(
+            responseStreamer: responseStreamer,
+            toolManager: toolManager
+        )
         chatRuntime = ChatRuntime(
             providerStore: providerStore,
             providerManager: providerManager,

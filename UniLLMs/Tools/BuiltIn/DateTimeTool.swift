@@ -10,10 +10,9 @@ import Foundation
 
 struct DateTimeTool: Tool {
     let definition = ToolDefinition(
-        id: "builtIn.dateTime",
-        name: "Current Date and Time",
-        summary: "Returns the current local date and time.",
-        parameters: .empty
+        name: "current_datetime",
+        displayName: "Current Date and Time",
+        summary: "Returns the current local date and time."
     )
 
     func execute(call: ToolCall, context: ToolExecutionContext) async throws -> ToolResult {

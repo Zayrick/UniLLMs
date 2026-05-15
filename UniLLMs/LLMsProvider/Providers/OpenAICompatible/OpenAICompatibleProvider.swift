@@ -42,7 +42,7 @@ struct OpenAICompatibleProvider: LLMsProviderAdapter {
     }
 
     var capabilities: Set<LLMsProviderCapability> {
-        [.streamingChat]
+        [.streamingChat, .tools]
     }
 
     var defaultConfiguration: LLMsProviderConfiguration {
@@ -100,11 +100,13 @@ struct OpenAICompatibleProvider: LLMsProviderAdapter {
         configuration: LLMsProviderConfiguration
     ) -> AsyncThrowingStream<ChatResponseDelta, Error> {
         let messages = request.messages.map(OpenRouterChatMessage.init(message:))
+        let tools = request.context.availableTools.map(OpenRouterChatTool.init(definition:))
         let stream = apiClient.streamChatCompletion(
             apiBase: configuration[ConfigurationKey.apiBase],
             apiKey: configuration[ConfigurationKey.apiKey],
             model: request.modelID,
-            messages: messages
+            messages: messages,
+            tools: tools
         )
 
         return AsyncThrowingStream { continuation in
@@ -114,7 +116,8 @@ struct OpenAICompatibleProvider: LLMsProviderAdapter {
                         continuation.yield(
                             ChatResponseDelta(
                                 content: delta.content,
-                                reasoning: delta.reasoning
+                                reasoning: delta.reasoning,
+                                toolCalls: delta.toolCalls
                             )
                         )
                     }

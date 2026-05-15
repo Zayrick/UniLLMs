@@ -10,29 +10,34 @@ import Foundation
 
 final class ChatContextBuilder {
     private let memoryManager: MemoryManager
-    private let toolRegistry: ToolRegistry
+    private let toolCatalog: ToolCatalog
 
-    init(memoryManager: MemoryManager, toolRegistry: ToolRegistry) {
+    init(
+        memoryManager: MemoryManager,
+        toolCatalog: ToolCatalog
+    ) {
         self.memoryManager = memoryManager
-        self.toolRegistry = toolRegistry
+        self.toolCatalog = toolCatalog
     }
 
     func buildContext(
         session: ChatSession?,
-        messages: [ChatMessage]
+        messages: [ChatMessage],
+        includeTools: Bool
     ) async -> ChatContext {
+        let availableTools = includeTools ? await toolCatalog.loadAvailableTools() : []
         let baseContext = ChatContext(
             session: session,
             messages: messages,
             memories: [],
-            availableTools: toolRegistry.definitions
+            availableTools: availableTools
         )
         let memories = (try? await memoryManager.retrieveRelevantMemories(for: baseContext)) ?? []
         return ChatContext(
             session: session,
             messages: messages,
             memories: memories,
-            availableTools: toolRegistry.definitions
+            availableTools: availableTools
         )
     }
 }

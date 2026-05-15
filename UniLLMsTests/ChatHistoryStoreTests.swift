@@ -82,6 +82,56 @@ final class ChatHistoryStoreTests: XCTestCase {
         XCTAssertEqual(secondMessages, [otherMessage])
     }
 
+    func testToolCallMessagesPersistArgumentsAndOutputs() async throws {
+        let session = ChatSession(title: "Tool Call")
+        let assistantMessage = ChatMessage(
+            role: .assistant,
+            content: "",
+            toolCalls: [
+                ChatToolCall(
+                    id: "call_1",
+                    toolID: "search",
+                    arguments: #"{"query":"weather"}"#
+                )
+            ],
+            createdAt: Date(timeIntervalSince1970: 10)
+        )
+        let toolMessage = ChatMessage(
+            role: .tool,
+            content: #"{"temperature":"20C"}"#,
+            toolCallID: "call_1",
+            createdAt: Date(timeIntervalSince1970: 10)
+        )
+
+        try await store.saveSession(session)
+        try await store.saveMessages([assistantMessage, toolMessage], sessionID: session.id)
+
+        let messages = try await store.fetchMessages(sessionID: session.id)
+
+        XCTAssertEqual(messages, [assistantMessage, toolMessage])
+        XCTAssertEqual(messages[0].toolCalls?.first?.arguments, #"{"query":"weather"}"#)
+        XCTAssertEqual(messages[1].content, #"{"temperature":"20C"}"#)
+    }
+
+    func testChatMessageDecodingDefaultsMissingReasoningToEmptyString() throws {
+        let messageID = UUID()
+        let createdAt = Date(timeIntervalSince1970: 100)
+        let payload: [String: Any] = [
+            "id": messageID.uuidString,
+            "role": "assistant",
+            "content": "Legacy response",
+            "createdAt": createdAt.timeIntervalSinceReferenceDate
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .deferredToDate
+
+        let message = try decoder.decode(ChatMessage.self, from: data)
+
+        XCTAssertEqual(message.id, messageID)
+        XCTAssertEqual(message.reasoning, "")
+    }
+
     func testDeleteSessionRemovesSessionAndMessages() async throws {
         let session = ChatSession(title: "Delete Me")
         let message = ChatMessage(role: .user, content: "Remove this")

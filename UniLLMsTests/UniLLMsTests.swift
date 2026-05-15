@@ -207,6 +207,64 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertNotNil(registry.adapter(for: .fake))
     }
 
+    func testProviderManagerReportsToolCapabilityFromAdapter() throws {
+        let manager = makeProviderManager()
+        let openRouterProvider = try manager.makeProviderDraft(kind: .openRouter)
+        let fakeProvider = try manager.makeProviderDraft(kind: .fake)
+
+        XCTAssertTrue(manager.provider(openRouterProvider, supports: .tools))
+        XCTAssertFalse(manager.provider(fakeProvider, supports: .tools))
+    }
+
+    func testToolCatalogExposesBuiltInToolsWhenEnabled() async {
+        let catalog = ToolCatalog(
+            registry: ToolRegistry(tools: [DateTimeTool()]),
+            isEnabled: { true }
+        )
+
+        let definitions = await catalog.loadAvailableTools()
+
+        XCTAssertEqual(definitions.map(\.name), ["current_datetime"])
+        XCTAssertEqual(definitions.first?.presentationName, "Current Date and Time")
+    }
+
+    func testToolCatalogReturnsNoToolsWhenDisabled() async {
+        let catalog = ToolCatalog(
+            registry: ToolRegistry(tools: [DateTimeTool()]),
+            isEnabled: { false }
+        )
+
+        let definitions = await catalog.loadAvailableTools()
+
+        XCTAssertTrue(definitions.isEmpty)
+    }
+
+    func testMCPServerStorePersistsToolsEnabledAndServers() {
+        let mcpStore = UserDefaultsMCPServerStore(defaults: defaults, storageKey: "mcpServers")
+        var server = mcpStore.makeServerDraft()
+        server.name = "Team Tools"
+        server.configuration = MCPServerConfiguration(
+            endpoint: "https://example.com/mcp",
+            headers: ["Authorization": "Bearer test"],
+            timeout: 30,
+            isEnabled: true
+        )
+
+        mcpStore.saveToolsEnabled(true)
+        mcpStore.saveServerRecord(server)
+
+        let reloadedStore = UserDefaultsMCPServerStore(defaults: defaults, storageKey: "mcpServers")
+        let reloadedServer = reloadedStore.loadServers().first
+
+        XCTAssertTrue(reloadedStore.loadToolsEnabled())
+        XCTAssertEqual(reloadedServer?.id, server.id)
+        XCTAssertEqual(reloadedServer?.name, "Team Tools")
+        XCTAssertEqual(reloadedServer?.configuration.endpoint, "https://example.com/mcp")
+        XCTAssertEqual(reloadedServer?.configuration.headers["Authorization"], "Bearer test")
+        XCTAssertEqual(reloadedServer?.configuration.timeout, 30)
+        XCTAssertEqual(reloadedServer?.configuration.isEnabled, true)
+    }
+
     func testFakeStaticModelReturnsSingleDelayedResponse() async throws {
         let provider = FakeLLMsProvider(staticResponseDelayNanoseconds: 0)
         var deltas: [ChatResponseDelta] = []
@@ -1535,6 +1593,20 @@ final class UniLLMsTests: XCTestCase {
         ) { error in
             XCTAssertEqual(error.localizedDescription, "Provider disconnected unexpectedly")
         }
+    }
+
+    func testOpenRouterStreamParserDecodesToolCallDelta() throws {
+        let delta = try XCTUnwrap(
+            OpenRouterAPIClient.streamDelta(
+                fromServerSentEventLine: #"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"mcp_abcd_search","arguments":"{\"query\":"}}]}}]}"#
+            )
+        )
+
+        let toolCallDelta = try XCTUnwrap(delta.toolCallDeltas.first)
+        XCTAssertEqual(toolCallDelta.index, 0)
+        XCTAssertEqual(toolCallDelta.id, "call_1")
+        XCTAssertEqual(toolCallDelta.name, "mcp_abcd_search")
+        XCTAssertEqual(toolCallDelta.argumentsFragment, #"{"query":"#)
     }
 
     func testOpenRouterStreamParserUsesServiceNameForInvalidPayload() throws {

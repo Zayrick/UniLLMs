@@ -28,6 +28,45 @@ enum ChatRuntimeError: LocalizedError, Equatable {
 final class ChatRuntime {
     static let historyDidChangeNotification = Notification.Name("ChatRuntimeHistoryDidChangeNotification")
 
+    private struct TurnProgress {
+        var transcriptMessages: [ChatMessage] = []
+        var pendingAssistantContent = ""
+        var pendingAssistantReasoning = ""
+
+        var hasPersistableProgress: Bool {
+            !transcriptMessages.isEmpty || !pendingAssistantContent.isEmpty || !pendingAssistantReasoning.isEmpty
+        }
+
+        mutating func append(displayDelta delta: ChatResponseDelta) {
+            pendingAssistantContent += delta.content
+            pendingAssistantReasoning += delta.reasoning
+        }
+
+        mutating func append(transcriptMessage message: ChatMessage) {
+            transcriptMessages.append(message)
+            guard message.role == .assistant else {
+                return
+            }
+
+            pendingAssistantContent = ""
+            pendingAssistantReasoning = ""
+        }
+
+        func finishedMessages() -> [ChatMessage] {
+            guard !pendingAssistantContent.isEmpty || !pendingAssistantReasoning.isEmpty else {
+                return transcriptMessages
+            }
+
+            return transcriptMessages + [
+                ChatMessage(
+                    role: .assistant,
+                    content: pendingAssistantContent,
+                    reasoning: pendingAssistantReasoning
+                )
+            ]
+        }
+    }
+
     private let providerStore: LLMsProviderStore
     private let providerManager: LLMsProviderManager
     private let contextBuilder: ChatContextBuilder
@@ -85,7 +124,7 @@ final class ChatRuntime {
 
         return AsyncThrowingStream { continuation in
             let task = Task { @MainActor [weak self] in
-                var assistantContent = ""
+                var turnProgress = TurnProgress()
 
                 do {
                     guard let self else {
@@ -95,24 +134,31 @@ final class ChatRuntime {
 
                     let context = await self.contextBuilder.buildContext(
                         session: self.currentSession,
-                        messages: requestMessages
+                        messages: requestMessages,
+                        includeTools: self.providerManager.provider(provider, supports: .tools)
                     )
-                    let stream = try self.turnRunner.streamResponse(
+                    let stream = self.turnRunner.streamResponse(
                         provider: provider,
                         modelID: selection.modelID,
                         context: context
                     )
 
-                    for try await delta in stream {
+                    for try await event in stream {
                         try Task.checkCancellation()
-                        assistantContent += delta.content
-                        continuation.yield(delta)
+
+                        switch event {
+                        case let .displayDelta(delta):
+                            turnProgress.append(displayDelta: delta)
+                            continuation.yield(delta)
+                        case let .transcriptMessage(message):
+                            turnProgress.append(transcriptMessage: message)
+                        }
                     }
 
                     self.finishTurn(
                         id: turnID,
                         userMessageID: userMessage.id,
-                        assistantContent: assistantContent,
+                        progress: turnProgress,
                         shouldKeepUserMessage: true
                     )
                     continuation.finish()
@@ -120,7 +166,7 @@ final class ChatRuntime {
                     self?.finishTurn(
                         id: turnID,
                         userMessageID: userMessage.id,
-                        assistantContent: assistantContent,
+                        progress: turnProgress,
                         shouldKeepUserMessage: true
                     )
                     continuation.finish()
@@ -128,8 +174,8 @@ final class ChatRuntime {
                     self?.finishTurn(
                         id: turnID,
                         userMessageID: userMessage.id,
-                        assistantContent: assistantContent,
-                        shouldKeepUserMessage: !assistantContent.isEmpty
+                        progress: turnProgress,
+                        shouldKeepUserMessage: turnProgress.hasPersistableProgress
                     )
                     continuation.finish(throwing: error)
                 }
@@ -152,23 +198,22 @@ final class ChatRuntime {
         }
 
         currentSession = session
-        conversationMessages = messages.sorted { $0.createdAt < $1.createdAt }
+        conversationMessages = ChatMessage.sortedChronologically(messages)
     }
 
     private func finishTurn(
         id turnID: UUID,
         userMessageID: UUID,
-        assistantContent: String,
+        progress: TurnProgress,
         shouldKeepUserMessage: Bool
     ) {
         guard activeTurnID == turnID else {
             return
         }
 
-        if !assistantContent.isEmpty {
-            conversationMessages.append(
-                ChatMessage(role: .assistant, content: assistantContent)
-            )
+        let turnMessages = progress.finishedMessages()
+        if !turnMessages.isEmpty {
+            conversationMessages.append(contentsOf: turnMessages)
         } else if !shouldKeepUserMessage {
             conversationMessages.removeAll { $0.id == userMessageID }
         }
