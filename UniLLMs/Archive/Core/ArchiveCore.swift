@@ -11,18 +11,18 @@ import Foundation
 nonisolated struct ConversationArchive: Codable, Equatable, Identifiable {
     var id: UUID
     var session: ChatSession
-    var messages: [ChatMessage]
+    var events: [ChatTimelineEvent]
     var archivedAt: Date
 
     init(
         id: UUID = UUID(),
         session: ChatSession,
-        messages: [ChatMessage],
+        events: [ChatTimelineEvent],
         archivedAt: Date = Date()
     ) {
         self.id = id
         self.session = session
-        self.messages = messages
+        self.events = events
         self.archivedAt = archivedAt
     }
 }
@@ -63,9 +63,27 @@ final class InMemoryArchiveStore: ArchiveStore {
 
         return archives.filter { archive in
             archive.session.title.localizedCaseInsensitiveContains(query)
-                || archive.messages.contains {
-                    $0.content.localizedCaseInsensitiveContains(query)
+                || archive.events.contains {
+                    $0.searchableText.localizedCaseInsensitiveContains(query)
                 }
+        }
+    }
+}
+
+nonisolated private extension ChatTimelineEvent {
+    var searchableText: String {
+        switch kind {
+        case let .userMessage(text),
+             let .assistantReasoning(text):
+            return text
+        case let .assistantContent(markdown):
+            return markdown
+        case let .toolCallStarted(_, toolID, displayName, arguments):
+            return [toolID, displayName, arguments].joined(separator: " ")
+        case let .toolCallCompleted(_, toolID, displayName, result):
+            return [toolID, displayName, result].joined(separator: " ")
+        case let .toolCallFailed(_, toolID, displayName, message):
+            return [toolID, displayName, message].joined(separator: " ")
         }
     }
 }

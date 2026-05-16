@@ -238,30 +238,33 @@ final class AssistantResponseTextView: UIView {
 
     private func appendToolTimelineEvent(_ event: ChatToolDisplayEvent) {
         switch event {
-        case let .started(callID, _, displayName):
+        case let .started(callID, _, displayName, arguments):
             let section = ensureActiveThinkingSection()
             toolSectionsByCallID[callID] = section
-            section.appendToolInvocation(
+            let invocation = section.appendToolInvocation(
                 callID: callID,
                 displayName: displayName,
                 state: .running
             )
-        case let .completed(callID, _, displayName):
+            invocation.setDetail(arguments)
+        case let .completed(callID, _, displayName, result):
             let section = toolSectionsByCallID[callID] ?? ensureActiveThinkingSection()
             toolSectionsByCallID[callID] = section
-            _ = section.appendToolInvocation(
+            let invocation = section.appendToolInvocation(
                 callID: callID,
                 displayName: displayName,
                 state: .completed
             )
+            invocation.setDetail(result)
         case let .failed(callID, _, displayName, message):
             let section = toolSectionsByCallID[callID] ?? ensureActiveThinkingSection()
             toolSectionsByCallID[callID] = section
-            _ = section.appendToolInvocation(
+            let invocation = section.appendToolInvocation(
                 callID: callID,
                 displayName: displayName,
                 state: .failed(message: message)
             )
+            invocation.setDetail(message)
         }
     }
 
@@ -340,36 +343,6 @@ final class AssistantResponseTextView: UIView {
             )
         )
         markdownView.setFinishedMarkdown(markdown)
-    }
-
-    /// Synchronously seed an already-completed tool call when replaying stored history.
-    func appendCompletedToolInvocation(callID: String, displayName: String, failed: Bool, message: String?) {
-        if failed {
-            appendDisplayParts(
-                [
-                    .toolEvent(
-                        .failed(
-                            callID: callID,
-                            toolID: displayName,
-                            displayName: displayName,
-                            message: message ?? ""
-                        )
-                    )
-                ]
-            )
-        } else {
-            appendDisplayParts(
-                [
-                    .toolEvent(
-                        .completed(
-                            callID: callID,
-                            toolID: displayName,
-                            displayName: displayName
-                        )
-                    )
-                ]
-            )
-        }
     }
 
     func appendStoredReasoning(_ text: String) {

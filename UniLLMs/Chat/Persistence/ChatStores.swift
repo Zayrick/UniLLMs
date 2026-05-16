@@ -2,7 +2,7 @@
 //  ChatStores.swift
 //  UniLLMs
 //
-//  Defines chat session, message, and transcript export storage protocols plus UserDefaults-backed chat history.
+//  Defines chat session, timeline, and transcript export storage protocols plus UserDefaults-backed chat history.
 //  Created by Zayrick on 2026/5/11.
 //
 
@@ -14,22 +14,22 @@ protocol ChatSessionStore {
     func deleteSession(id: UUID) async throws
 }
 
-protocol ChatMessageStore {
-    func fetchMessages(sessionID: UUID) async throws -> [ChatMessage]
-    func saveMessage(_ message: ChatMessage, sessionID: UUID) async throws
-    func saveMessages(_ messages: [ChatMessage], sessionID: UUID) async throws
+protocol ChatTimelineStore {
+    func fetchEvents(sessionID: UUID) async throws -> [ChatTimelineEvent]
+    func saveEvent(_ event: ChatTimelineEvent, sessionID: UUID) async throws
+    func saveEvents(_ events: [ChatTimelineEvent], sessionID: UUID) async throws
 }
 
 protocol ChatTranscriptExporter {
-    func export(session: ChatSession, messages: [ChatMessage]) throws -> Data
+    func export(session: ChatSession, events: [ChatTimelineEvent]) throws -> Data
 }
 
-typealias ChatHistoryStore = ChatSessionStore & ChatMessageStore
+typealias ChatHistoryStore = ChatSessionStore & ChatTimelineStore
 
 final class UserDefaultsChatStore: ChatHistoryStore {
     private struct Payload: Codable {
         var sessions: [ChatSession] = []
-        var messagesBySessionID: [String: [ChatMessage]] = [:]
+        var eventsBySessionID: [String: [ChatTimelineEvent]] = [:]
     }
 
     private let store: UserDefaultsStore
@@ -60,27 +60,27 @@ final class UserDefaultsChatStore: ChatHistoryStore {
     func deleteSession(id: UUID) async throws {
         var payload = loadPayload()
         payload.sessions.removeAll { $0.id == id }
-        payload.messagesBySessionID[id.uuidString] = nil
+        payload.eventsBySessionID[id.uuidString] = nil
         savePayload(payload)
     }
 
-    func fetchMessages(sessionID: UUID) async throws -> [ChatMessage] {
-        ChatMessage.sortedChronologically(loadPayload().messagesBySessionID[sessionID.uuidString] ?? [])
+    func fetchEvents(sessionID: UUID) async throws -> [ChatTimelineEvent] {
+        ChatTimelineEvent.sortedChronologically(loadPayload().eventsBySessionID[sessionID.uuidString] ?? [])
     }
 
-    func saveMessage(_ message: ChatMessage, sessionID: UUID) async throws {
-        var messages = try await fetchMessages(sessionID: sessionID)
-        if let index = messages.firstIndex(where: { $0.id == message.id }) {
-            messages[index] = message
+    func saveEvent(_ event: ChatTimelineEvent, sessionID: UUID) async throws {
+        var events = try await fetchEvents(sessionID: sessionID)
+        if let index = events.firstIndex(where: { $0.id == event.id }) {
+            events[index] = event
         } else {
-            messages.append(message)
+            events.append(event)
         }
-        try await saveMessages(messages, sessionID: sessionID)
+        try await saveEvents(events, sessionID: sessionID)
     }
 
-    func saveMessages(_ messages: [ChatMessage], sessionID: UUID) async throws {
+    func saveEvents(_ events: [ChatTimelineEvent], sessionID: UUID) async throws {
         var payload = loadPayload()
-        payload.messagesBySessionID[sessionID.uuidString] = ChatMessage.sortedChronologically(messages)
+        payload.eventsBySessionID[sessionID.uuidString] = ChatTimelineEvent.sortedChronologically(events)
         savePayload(payload)
     }
 

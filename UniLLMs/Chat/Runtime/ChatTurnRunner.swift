@@ -17,11 +17,6 @@ final class ChatTurnRunner {
         var content = ""
         var reasoning = ""
         var toolCalls: [ChatToolCall] = []
-        var displayParts: [ChatResponseDisplayPart] = []
-
-        var hasVisibleText: Bool {
-            !content.isEmpty || !reasoning.isEmpty
-        }
     }
 
     private let responseStreamer: ChatResponseStreamer
@@ -62,18 +57,6 @@ final class ChatTurnRunner {
                         )
 
                         if !allowsTools || assistantResponse.toolCalls.isEmpty {
-                            if assistantResponse.hasVisibleText {
-                                continuation.yield(
-                                    .transcriptMessage(
-                                        ChatMessage(
-                                            role: .assistant,
-                                            content: assistantResponse.content,
-                                            reasoning: assistantResponse.reasoning,
-                                            displayParts: assistantResponse.displayParts
-                                        )
-                                    )
-                                )
-                            }
                             continuation.finish()
                             return
                         }
@@ -86,11 +69,9 @@ final class ChatTurnRunner {
                             role: .assistant,
                             content: assistantResponse.content,
                             reasoning: assistantResponse.reasoning,
-                            toolCalls: assistantResponse.toolCalls,
-                            displayParts: assistantResponse.displayParts
+                            toolCalls: assistantResponse.toolCalls
                         )
                         requestMessages.append(assistantMessage)
-                        continuation.yield(.transcriptMessage(assistantMessage))
 
                         let toolMessages = await executeToolCalls(
                             assistantResponse.toolCalls,
@@ -98,9 +79,6 @@ final class ChatTurnRunner {
                             into: continuation
                         )
                         requestMessages.append(contentsOf: toolMessages)
-                        toolMessages.forEach {
-                            continuation.yield(.transcriptMessage($0))
-                        }
                     }
 
                     continuation.finish()
@@ -150,7 +128,6 @@ final class ChatTurnRunner {
             if !visibleDelta.isEmpty {
                 assistantResponse.content += visibleDelta.content
                 assistantResponse.reasoning += visibleDelta.reasoning
-                assistantResponse.displayParts.append(contentsOf: visibleDelta.displayParts)
                 continuation.yield(.displayDelta(visibleDelta))
             }
         }
@@ -171,7 +148,18 @@ final class ChatTurnRunner {
             let startedEvent = ChatToolDisplayEvent.started(
                 callID: toolCall.id,
                 toolID: toolCall.toolID,
-                displayName: toolDisplayName
+                displayName: toolDisplayName,
+                arguments: toolCall.arguments
+            )
+            continuation.yield(
+                .timelineEvent(
+                    .toolCallStarted(
+                        callID: toolCall.id,
+                        toolID: toolCall.toolID,
+                        displayName: toolDisplayName,
+                        arguments: toolCall.arguments
+                    )
+                )
             )
             continuation.yield(
                 .displayDelta(
@@ -191,7 +179,18 @@ final class ChatTurnRunner {
                 let completedEvent = ChatToolDisplayEvent.completed(
                     callID: toolCall.id,
                     toolID: toolCall.toolID,
-                    displayName: toolDisplayName
+                    displayName: toolDisplayName,
+                    result: result.content
+                )
+                continuation.yield(
+                    .timelineEvent(
+                        .toolCallCompleted(
+                            callID: toolCall.id,
+                            toolID: toolCall.toolID,
+                            displayName: toolDisplayName,
+                            result: result.content
+                        )
+                    )
                 )
                 continuation.yield(
                     .displayDelta(
@@ -205,8 +204,7 @@ final class ChatTurnRunner {
                         role: .tool,
                         content: result.content,
                         toolCallID: result.callID,
-                        toolDisplayName: toolDisplayName,
-                        displayParts: [.toolEvent(completedEvent)]
+                        toolDisplayName: toolDisplayName
                     )
                 )
             } catch {
@@ -215,6 +213,16 @@ final class ChatTurnRunner {
                     toolID: toolCall.toolID,
                     displayName: toolDisplayName,
                     message: error.localizedDescription
+                )
+                continuation.yield(
+                    .timelineEvent(
+                        .toolCallFailed(
+                            callID: toolCall.id,
+                            toolID: toolCall.toolID,
+                            displayName: toolDisplayName,
+                            message: error.localizedDescription
+                        )
+                    )
                 )
                 continuation.yield(
                     .displayDelta(
@@ -228,8 +236,7 @@ final class ChatTurnRunner {
                         role: .tool,
                         content: "Tool execution failed: \(error.localizedDescription)",
                         toolCallID: toolCall.id,
-                        toolDisplayName: toolDisplayName,
-                        displayParts: [.toolEvent(failedEvent)]
+                        toolDisplayName: toolDisplayName
                     )
                 )
             }

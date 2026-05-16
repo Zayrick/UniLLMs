@@ -29,58 +29,27 @@ final class ChatRuntime {
     static let historyDidChangeNotification = Notification.Name("ChatRuntimeHistoryDidChangeNotification")
 
     private struct TurnProgress {
-        var transcriptMessages: [ChatMessage] = []
-        var pendingAssistantContent = ""
-        var pendingAssistantReasoning = ""
-        var pendingAssistantDisplayParts: [ChatResponseDisplayPart] = []
-
-        var hasPendingAssistantMessage: Bool {
-            !pendingAssistantContent.isEmpty
-                || !pendingAssistantReasoning.isEmpty
-                || !pendingAssistantDisplayParts.isEmpty
-        }
+        var timelineAccumulator = ChatTimelineAccumulator()
 
         var hasPersistableProgress: Bool {
-            !transcriptMessages.isEmpty || hasPendingAssistantMessage
+            !timelineAccumulator.events.isEmpty
         }
 
-        mutating func append(displayDelta delta: ChatResponseDelta) {
-            pendingAssistantContent += delta.content
-            pendingAssistantReasoning += delta.reasoning
-            pendingAssistantDisplayParts.append(
-                contentsOf: delta.displayParts.filter { part in
-                    if case .toolEvent = part {
-                        return false
-                    }
-                    return true
-                }
+        mutating func append(displayDelta delta: ChatResponseDelta, timestamp: Date) {
+            timelineAccumulator.appendDisplayDelta(delta, timestamp: timestamp)
+        }
+
+        mutating func append(timelineEvent kind: ChatTimelineEvent.Kind, timestamp: Date) {
+            timelineAccumulator.append(
+                ChatTimelineEvent(
+                    timestamp: timestamp,
+                    kind: kind
+                )
             )
         }
 
-        mutating func append(transcriptMessage message: ChatMessage) {
-            transcriptMessages.append(message)
-            guard message.role == .assistant else {
-                return
-            }
-
-            pendingAssistantContent = ""
-            pendingAssistantReasoning = ""
-            pendingAssistantDisplayParts = []
-        }
-
-        func finishedMessages() -> [ChatMessage] {
-            guard hasPendingAssistantMessage else {
-                return transcriptMessages
-            }
-
-            return transcriptMessages + [
-                ChatMessage(
-                    role: .assistant,
-                    content: pendingAssistantContent,
-                    reasoning: pendingAssistantReasoning,
-                    displayParts: pendingAssistantDisplayParts
-                )
-            ]
+        func finishedEvents() -> [ChatTimelineEvent] {
+            timelineAccumulator.events
         }
     }
 
@@ -89,8 +58,9 @@ final class ChatRuntime {
     private let contextBuilder: ChatContextBuilder
     private let turnRunner: ChatTurnRunner
     private let historyStore: (any ChatHistoryStore)?
+    private let clock: any AppClock
     private var currentSession = ChatSession(title: "New Chat")
-    private var conversationMessages: [ChatMessage] = []
+    private var conversationTimeline: [ChatTimelineEvent] = []
     private var activeTurnID: UUID?
     private var historyPersistenceTask: Task<Void, Never>?
 
@@ -99,13 +69,15 @@ final class ChatRuntime {
         providerManager: LLMsProviderManager,
         contextBuilder: ChatContextBuilder,
         turnRunner: ChatTurnRunner,
-        historyStore: (any ChatHistoryStore)? = nil
+        historyStore: (any ChatHistoryStore)? = nil,
+        clock: any AppClock = SystemAppClock()
     ) {
         self.providerStore = providerStore
         self.providerManager = providerManager
         self.contextBuilder = contextBuilder
         self.turnRunner = turnRunner
         self.historyStore = historyStore
+        self.clock = clock
     }
 
     var currentSessionID: UUID {
@@ -126,16 +98,20 @@ final class ChatRuntime {
         }
 
         let turnID = UUID()
-        let sentAt = Date()
-        if conversationMessages.isEmpty {
+        let sentAt = clock.now
+        if conversationTimeline.isEmpty {
             currentSession.title = Self.makeSessionTitle(from: prompt)
             currentSession.createdAt = sentAt
         }
         currentSession.updatedAt = sentAt
 
-        let userMessage = ChatMessage(role: .user, content: prompt, createdAt: sentAt)
-        let requestMessages = conversationMessages + [userMessage]
-        conversationMessages.append(userMessage)
+        let userEvent = ChatTimelineEvent(
+            timestamp: sentAt,
+            kind: .userMessage(text: prompt)
+        )
+        let requestTimeline = conversationTimeline + [userEvent]
+        let requestMessages = ChatTimelineEvent.messages(from: requestTimeline)
+        conversationTimeline.append(userEvent)
         activeTurnID = turnID
         persistCurrentHistorySnapshot()
 
@@ -165,16 +141,16 @@ final class ChatRuntime {
 
                         switch event {
                         case let .displayDelta(delta):
-                            turnProgress.append(displayDelta: delta)
+                            turnProgress.append(displayDelta: delta, timestamp: self.clock.now)
                             continuation.yield(delta)
-                        case let .transcriptMessage(message):
-                            turnProgress.append(transcriptMessage: message)
+                        case let .timelineEvent(kind):
+                            turnProgress.append(timelineEvent: kind, timestamp: self.clock.now)
                         }
                     }
 
                     self.finishTurn(
                         id: turnID,
-                        userMessageID: userMessage.id,
+                        userEventID: userEvent.id,
                         progress: turnProgress,
                         shouldKeepUserMessage: true
                     )
@@ -182,7 +158,7 @@ final class ChatRuntime {
                 } catch is CancellationError {
                     self?.finishTurn(
                         id: turnID,
-                        userMessageID: userMessage.id,
+                        userEventID: userEvent.id,
                         progress: turnProgress,
                         shouldKeepUserMessage: true
                     )
@@ -190,7 +166,7 @@ final class ChatRuntime {
                 } catch {
                     self?.finishTurn(
                         id: turnID,
-                        userMessageID: userMessage.id,
+                        userEventID: userEvent.id,
                         progress: turnProgress,
                         shouldKeepUserMessage: turnProgress.hasPersistableProgress
                     )
@@ -205,22 +181,22 @@ final class ChatRuntime {
     }
 
     func resetConversation() {
-        conversationMessages = []
+        conversationTimeline = []
         currentSession = ChatSession(title: "New Chat")
     }
 
-    func loadConversation(session: ChatSession, messages: [ChatMessage]) {
+    func loadConversation(session: ChatSession, events: [ChatTimelineEvent]) {
         guard activeTurnID == nil else {
             return
         }
 
         currentSession = session
-        conversationMessages = ChatMessage.sortedChronologically(messages)
+        conversationTimeline = ChatTimelineEvent.sortedChronologically(events)
     }
 
     private func finishTurn(
         id turnID: UUID,
-        userMessageID: UUID,
+        userEventID: UUID,
         progress: TurnProgress,
         shouldKeepUserMessage: Bool
     ) {
@@ -228,11 +204,15 @@ final class ChatRuntime {
             return
         }
 
-        let turnMessages = progress.finishedMessages()
-        if !turnMessages.isEmpty {
-            conversationMessages.append(contentsOf: turnMessages)
+        let turnEvents = progress.finishedEvents()
+        if !turnEvents.isEmpty {
+            conversationTimeline.append(contentsOf: turnEvents)
+            if let lastEvent = turnEvents.last,
+               lastEvent.timestamp > currentSession.updatedAt {
+                currentSession.updatedAt = lastEvent.timestamp
+            }
         } else if !shouldKeepUserMessage {
-            conversationMessages.removeAll { $0.id == userMessageID }
+            conversationTimeline.removeAll { $0.id == userEventID }
         }
 
         activeTurnID = nil
@@ -245,18 +225,18 @@ final class ChatRuntime {
         }
 
         let session = currentSession
-        let messages = conversationMessages
+        let events = conversationTimeline
         let previousTask = historyPersistenceTask
         historyPersistenceTask = Task { @MainActor [previousTask, historyStore] in
             if let previousTask {
                 await previousTask.value
             }
 
-            if messages.isEmpty {
+            if events.isEmpty {
                 try? await historyStore.deleteSession(id: session.id)
             } else {
                 try? await historyStore.saveSession(session)
-                try? await historyStore.saveMessages(messages, sessionID: session.id)
+                try? await historyStore.saveEvents(events, sessionID: session.id)
             }
             NotificationCenter.default.post(
                 name: Self.historyDidChangeNotification,

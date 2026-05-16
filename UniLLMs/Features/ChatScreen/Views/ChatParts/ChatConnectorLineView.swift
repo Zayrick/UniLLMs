@@ -100,7 +100,7 @@ final class ChatConnectorLineView: UIView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         lineLayer.frame = CGRect(origin: .zero, size: bounds.size)
-        lineLayer.contentsScale = window?.screen.scale ?? UIScreen.main.scale
+        lineLayer.contentsScale = window?.windowScene?.screen.scale ?? traitCollection.displayScale
         lineLayer.strokeColor = UIColor.separator
             .resolvedColor(with: traitCollection)
             .withAlphaComponent(0.65)

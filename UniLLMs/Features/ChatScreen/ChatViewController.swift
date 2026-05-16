@@ -1133,13 +1133,13 @@ final class ChatViewController: UIViewController {
                 return
             }
 
-            let messages = (try? await self.chatHistoryStore.fetchMessages(sessionID: session.id)) ?? []
+            let events = (try? await self.chatHistoryStore.fetchEvents(sessionID: session.id)) ?? []
             guard !Task.isCancelled else {
                 return
             }
 
-            self.chatRuntime.loadConversation(session: session, messages: messages)
-            self.renderConversationMessages(messages)
+            self.chatRuntime.loadConversation(session: session, events: events)
+            self.renderConversationTimeline(events)
             self.isMessagesBottomLocked = true
             self.updateRightHeaderButtonState(animated: true)
             self.reloadHistorySessions(selectedSessionID: session.id)
@@ -1246,11 +1246,9 @@ final class ChatViewController: UIViewController {
         !messagesStackView.arrangedSubviews.isEmpty
     }
 
-    private func renderConversationMessages(_ messages: [ChatMessage]) {
+    private func renderConversationTimeline(_ events: [ChatTimelineEvent]) {
         removeChatContent()
 
-        let sortedMessages = ChatMessage.sortedChronologically(messages)
-        var toolNamesByCallID: [String: String] = [:]
         var currentAssistantView: AssistantResponseTextView?
 
         func finishCurrentAssistantView() {
@@ -1258,43 +1256,58 @@ final class ChatViewController: UIViewController {
             currentAssistantView = nil
         }
 
-        for message in sortedMessages {
-            switch message.role {
-            case .user:
+        func assistantView() -> AssistantResponseTextView {
+            if let currentAssistantView {
+                return currentAssistantView
+            }
+
+            let responseView = makeStoredAssistantResponseView()
+            currentAssistantView = responseView
+            return responseView
+        }
+
+        for event in ChatTimelineEvent.sortedChronologically(events) {
+            switch event.kind {
+            case let .userMessage(text):
                 finishCurrentAssistantView()
-                toolNamesByCallID.removeAll()
-                appendStoredUserMessage(message.content)
-            case .assistant:
-                for toolCall in message.toolCalls ?? [] {
-                    toolNamesByCallID[toolCall.id] = toolCall.presentationName
-                }
-                if let view = appendStoredAssistantMessage(message, into: currentAssistantView) {
-                    currentAssistantView = view
-                }
-            case .tool:
-                guard let callID = message.toolCallID else {
-                    continue
-                }
-                let toolName = toolNamesByCallID[callID] ?? callID
-                let failed = message.content.hasPrefix("Tool execution failed:")
-                let hostView = currentAssistantView ?? appendStandaloneAssistantContainer()
-                if currentAssistantView == nil {
-                    currentAssistantView = hostView
-                }
-                if message.displayParts.isEmpty {
-                    hostView.appendCompletedToolInvocation(
-                        callID: callID,
-                        displayName: message.toolDisplayName ?? toolName,
-                        failed: failed,
-                        message: failed ? message.content : nil
+                appendStoredUserMessage(text)
+            case let .assistantReasoning(text):
+                assistantView().appendStoredReasoning(text)
+            case let .assistantContent(markdown):
+                assistantView().appendStoredContentMarkdown(markdown)
+            case let .toolCallStarted(callID, toolID, displayName, arguments):
+                assistantView().appendDisplayPart(
+                    .toolEvent(
+                        .started(
+                            callID: callID,
+                            toolID: toolID,
+                            displayName: displayName,
+                            arguments: arguments
+                        )
                     )
-                } else {
-                    for part in message.displayParts {
-                        hostView.appendDisplayPart(part)
-                    }
-                }
-            case .system:
-                continue
+                )
+            case let .toolCallCompleted(callID, toolID, displayName, result):
+                assistantView().appendDisplayPart(
+                    .toolEvent(
+                        .completed(
+                            callID: callID,
+                            toolID: toolID,
+                            displayName: displayName,
+                            result: result
+                        )
+                    )
+                )
+            case let .toolCallFailed(callID, toolID, displayName, message):
+                assistantView().appendDisplayPart(
+                    .toolEvent(
+                        .failed(
+                            callID: callID,
+                            toolID: toolID,
+                            displayName: displayName,
+                            message: message
+                        )
+                    )
+                )
             }
         }
 
@@ -1314,70 +1327,6 @@ final class ChatViewController: UIViewController {
             lessThanOrEqualTo: messagesStackView.widthAnchor,
             multiplier: MessagesLayout.maximumBubbleWidthRatio
         ).isActive = true
-    }
-
-    @discardableResult
-    private func appendStoredAssistantMessage(
-        _ message: ChatMessage,
-        into existingView: AssistantResponseTextView?
-    ) -> AssistantResponseTextView? {
-        let storedReasoning = Self.storedReasoningText(for: message)
-        let storedContent = Self.storedContentMarkdown(for: message)
-        let storedToolEvents = Self.storedToolEvents(for: message)
-        let hasVisibleText = !storedContent.isEmpty || !storedReasoning.isEmpty
-        let hasToolCalls = !(message.toolCalls?.isEmpty ?? true)
-        guard !storedToolEvents.isEmpty || hasVisibleText || hasToolCalls else {
-            return existingView
-        }
-
-        let responseView = existingView ?? makeStoredAssistantResponseView()
-        if !storedReasoning.isEmpty {
-            responseView.appendStoredReasoning(storedReasoning)
-        }
-        for part in storedToolEvents {
-            responseView.appendDisplayPart(part)
-        }
-        if !storedContent.isEmpty {
-            responseView.appendStoredContentMarkdown(storedContent)
-        }
-        return responseView
-    }
-
-    private static func storedReasoningText(for message: ChatMessage) -> String {
-        if !message.reasoning.isEmpty {
-            return message.reasoning
-        }
-
-        return message.displayParts.reduce(into: "") { result, part in
-            if case let .reasoning(text) = part {
-                result += text
-            }
-        }
-    }
-
-    private static func storedContentMarkdown(for message: ChatMessage) -> String {
-        if !message.content.isEmpty {
-            return message.content
-        }
-
-        return message.displayParts.reduce(into: "") { result, part in
-            if case let .content(markdown) = part {
-                result += markdown
-            }
-        }
-    }
-
-    private static func storedToolEvents(for message: ChatMessage) -> [ChatResponseDisplayPart] {
-        message.displayParts.compactMap { part in
-            if case .toolEvent(_) = part {
-                return part
-            }
-            return nil
-        }
-    }
-
-    private func appendStandaloneAssistantContainer() -> AssistantResponseTextView {
-        makeStoredAssistantResponseView()
     }
 
     private func makeStoredAssistantResponseView() -> AssistantResponseTextView {
