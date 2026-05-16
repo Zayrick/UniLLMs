@@ -344,6 +344,9 @@ final class ChatViewController: UIViewController {
         composerView.onStop = { [weak self] in
             self?.cancelAssistantResponseStream()
         }
+        composerView.onPlusTap = { [weak self] in
+            self?.presentAttachmentSheet()
+        }
         composerView.onLayoutChange = { [weak self] in
             self?.updateMessagesContentInsets()
         }
@@ -715,6 +718,21 @@ final class ChatViewController: UIViewController {
         let shouldTrackKeyboard = !isSideMenuOpen
         composerKeyboardBottomConstraint.isActive = shouldTrackKeyboard
         composerRestingBottomConstraint.isActive = !shouldTrackKeyboard
+    }
+
+    private func presentAttachmentSheet() {
+        view.endEditing(true)
+
+        let attachmentViewController = AttachmentSheetViewController()
+        attachmentViewController.modalPresentationStyle = .pageSheet
+        if let sheet = attachmentViewController.sheetPresentationController {
+            sheet.detents = [.medium(), .large()]
+            sheet.prefersGrabberVisible = true
+        }
+        attachmentViewController.preferredTransition = .zoom { [weak self] _ in
+            self?.composerView.plusSourceView
+        }
+        present(attachmentViewController, animated: true)
     }
 
     private func appendSentMessage(using transition: GlassComposerBarView.SendTransition) {

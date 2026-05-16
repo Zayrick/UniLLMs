@@ -51,11 +51,17 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
 
     var onSend: ((SendTransition) -> Void)?
     var onStop: (() -> Void)?
+    var onPlusTap: (() -> Void)?
     var onLayoutChange: (() -> Void)?
     var isSendingEnabled = true {
         didSet {
             updateSendControlAvailability()
         }
+    }
+
+    /// Source view used as the morph anchor for presentations triggered by the plus button.
+    var plusSourceView: UIView {
+        plusGlassView
     }
 
     private var containerGlassEffect: UIGlassContainerEffect? {
@@ -167,6 +173,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         )
         plusButton.accessibilityLabel = "Add"
         plusButton.translatesAutoresizingMaskIntoConstraints = false
+        plusButton.addTarget(self, action: #selector(plusButtonPressed), for: .touchUpInside)
         plusGlassView.contentView.addSubview(plusButton)
 
         NSLayoutConstraint.activate([
@@ -300,6 +307,11 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         }
 
         onStop?()
+    }
+
+    @objc private func plusButtonPressed() {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        onPlusTap?()
     }
 
     @objc private func sendButtonPressed() {
