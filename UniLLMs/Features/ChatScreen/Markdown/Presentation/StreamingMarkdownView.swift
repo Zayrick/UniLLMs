@@ -37,6 +37,21 @@ final class StreamingMarkdownView: UIView {
         applyStreamUpdate(segmenter.append(string))
     }
 
+    func setFinishedMarkdown(_ markdown: String) {
+        segmenter.reset()
+        completedSegmentMarkdown = markdown.isEmpty ? [] : [markdown]
+        currentSegmentMarkdown = nil
+        currentSegmentViews = []
+        removeRenderedBlocks()
+
+        if !markdown.isEmpty {
+            addRenderedSegment(markdown)
+        }
+
+        invalidateIntrinsicContentSize()
+        onNeedsHeightUpdate?()
+    }
+
     func finishStreamingContent() {
         applyStreamUpdate(segmenter.finish())
     }

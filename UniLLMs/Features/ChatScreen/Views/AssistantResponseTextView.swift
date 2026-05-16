@@ -322,6 +322,26 @@ final class AssistantResponseTextView: UIView {
         markdownView.appendMarkdown(markdown)
     }
 
+    private func appendFinishedContentTimelineSegment(_ markdown: String) {
+        guard !markdown.isEmpty else {
+            return
+        }
+
+        let markdownView = makeContentMarkdownView()
+        timelineStackView.addArrangedSubview(markdownView)
+
+        let heightConstraint = markdownView.heightAnchor.constraint(equalToConstant: 0.0)
+        heightConstraint.isActive = true
+        timelineSegments.append(
+            TimelineSegment(
+                kind: .content,
+                view: markdownView,
+                heightConstraint: heightConstraint
+            )
+        )
+        markdownView.setFinishedMarkdown(markdown)
+    }
+
     /// Synchronously seed an already-completed tool call when replaying stored history.
     func appendCompletedToolInvocation(callID: String, displayName: String, failed: Bool, message: String?) {
         if failed {
@@ -357,6 +377,20 @@ final class AssistantResponseTextView: UIView {
             return
         }
         appendDisplayParts([.reasoning(text)])
+    }
+
+    func appendStoredContentMarkdown(_ markdown: String) {
+        guard !markdown.isEmpty else {
+            return
+        }
+
+        isLoading = false
+        isResponseFinished = false
+        errorLabel.text = nil
+        finishActiveThinkingSection(animated: false)
+        rawContentMarkdown += markdown
+        appendFinishedContentTimelineSegment(markdown)
+        updateVisibility()
     }
 
     private func finishContentTimelineSegments() {

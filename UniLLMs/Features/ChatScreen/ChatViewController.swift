@@ -1321,27 +1321,59 @@ final class ChatViewController: UIViewController {
         _ message: ChatMessage,
         into existingView: AssistantResponseTextView?
     ) -> AssistantResponseTextView? {
-        let hasStoredDisplayParts = !message.displayParts.isEmpty
-        let hasVisibleText = !message.content.isEmpty || !message.reasoning.isEmpty
+        let storedReasoning = Self.storedReasoningText(for: message)
+        let storedContent = Self.storedContentMarkdown(for: message)
+        let storedToolEvents = Self.storedToolEvents(for: message)
+        let hasVisibleText = !storedContent.isEmpty || !storedReasoning.isEmpty
         let hasToolCalls = !(message.toolCalls?.isEmpty ?? true)
-        guard hasStoredDisplayParts || hasVisibleText || hasToolCalls else {
+        guard !storedToolEvents.isEmpty || hasVisibleText || hasToolCalls else {
             return existingView
         }
 
         let responseView = existingView ?? makeStoredAssistantResponseView()
-        if hasStoredDisplayParts {
-            for part in message.displayParts {
-                responseView.appendDisplayPart(part)
-            }
-        } else {
-            if !message.reasoning.isEmpty {
-                responseView.appendStoredReasoning(message.reasoning)
-            }
-            if !message.content.isEmpty {
-                responseView.append(content: message.content, reasoning: "")
-            }
+        if !storedReasoning.isEmpty {
+            responseView.appendStoredReasoning(storedReasoning)
+        }
+        for part in storedToolEvents {
+            responseView.appendDisplayPart(part)
+        }
+        if !storedContent.isEmpty {
+            responseView.appendStoredContentMarkdown(storedContent)
         }
         return responseView
+    }
+
+    private static func storedReasoningText(for message: ChatMessage) -> String {
+        if !message.reasoning.isEmpty {
+            return message.reasoning
+        }
+
+        return message.displayParts.reduce(into: "") { result, part in
+            if case let .reasoning(text) = part {
+                result += text
+            }
+        }
+    }
+
+    private static func storedContentMarkdown(for message: ChatMessage) -> String {
+        if !message.content.isEmpty {
+            return message.content
+        }
+
+        return message.displayParts.reduce(into: "") { result, part in
+            if case let .content(markdown) = part {
+                result += markdown
+            }
+        }
+    }
+
+    private static func storedToolEvents(for message: ChatMessage) -> [ChatResponseDisplayPart] {
+        message.displayParts.compactMap { part in
+            if case .toolEvent(_) = part {
+                return part
+            }
+            return nil
+        }
     }
 
     private func appendStandaloneAssistantContainer() -> AssistantResponseTextView {
