@@ -18,8 +18,6 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
         static let addTitle = "Add Model"
         static let modelIDTitle = "Model ID"
         static let modelIDPlaceholder = "gpt-4.1-mini"
-        static let refreshTitle = "Refresh Model List"
-        static let loadingTitle = "Refreshing Model List"
     }
 
     private let dependencies: AppDependencyContainer
@@ -79,6 +77,10 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
             ProviderTextFieldCell.self,
             forCellReuseIdentifier: ProviderTextFieldCell.reuseIdentifier
         )
+        tableView.register(
+            ModelsSectionHeaderView.self,
+            forHeaderFooterViewReuseIdentifier: ModelsSectionHeaderView.reuseIdentifier
+        )
         configureSaveButton()
     }
 
@@ -114,7 +116,9 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
             }
 
             switch modelSource {
-            case .remote, .manual:
+            case .remote:
+                return provider.models.count
+            case .manual:
                 return provider.models.count + 1
             case .`static`:
                 return provider.models.count
@@ -131,8 +135,42 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
         case .configuration:
             return "Configuration"
         case .models:
+            guard modelSource != .remote else {
+                return nil
+            }
+
             return "Models"
         }
+    }
+
+    override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
+        guard let section = Section(rawValue: section),
+              section == .models,
+              modelSource == .remote else {
+            return nil
+        }
+
+        return modelRefreshDetailText
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        viewForHeaderInSection section: Int
+    ) -> UIView? {
+        guard let section = Section(rawValue: section),
+              section == .models,
+              modelSource == .remote,
+              let headerView = tableView.dequeueReusableHeaderFooterView(
+                withIdentifier: ModelsSectionHeaderView.reuseIdentifier
+              ) as? ModelsSectionHeaderView else {
+            return nil
+        }
+
+        headerView.configure(title: "Models", isLoading: isLoadingModels)
+        headerView.onRefresh = { [weak self] in
+            self?.refreshModels()
+        }
+        return headerView
     }
 
     override func tableView(
@@ -277,25 +315,11 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
     }
 
     private func remoteModelCell(for indexPath: IndexPath) -> UITableViewCell {
-        if indexPath.row == 0 {
-            let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
-            var contentConfiguration = cell.defaultContentConfiguration()
-            contentConfiguration.text = isLoadingModels ? ModelRows.loadingTitle : ModelRows.refreshTitle
-            contentConfiguration.secondaryText = modelRefreshDetailText
-            contentConfiguration.image = UIImage(systemName: "arrow.clockwise")
-            cell.contentConfiguration = contentConfiguration
-            cell.selectionStyle = isLoadingModels ? .none : .default
-
-            if isLoadingModels {
-                let spinner = UIActivityIndicatorView(style: .medium)
-                spinner.startAnimating()
-                cell.accessoryView = spinner
-            }
-
-            return cell
+        guard provider.models.indices.contains(indexPath.row) else {
+            return UITableViewCell()
         }
 
-        let model = provider.models[indexPath.row - 1]
+        let model = provider.models[indexPath.row]
         return readOnlyModelCell(for: model)
     }
 
@@ -437,8 +461,6 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
         }
 
         switch modelSource {
-        case .remote where indexPath.row == 0:
-            refreshModels()
         case .manual where indexPath.row == 0:
             appendManualModelRow()
         case .manual:
@@ -649,3 +671,85 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
 }
 
 typealias ProviderConfigurationViewController = LLMsProviderConfigurationViewController
+
+private final class ModelsSectionHeaderView: UITableViewHeaderFooterView {
+    static let reuseIdentifier = "ModelsSectionHeaderView"
+
+    var onRefresh: (() -> Void)?
+
+    private lazy var titleContentView = UIListContentView(
+        configuration: defaultContentConfiguration()
+    )
+
+    private let refreshButton: UIButton = {
+        var configuration = UIButton.Configuration.plain()
+        configuration.title = "Refresh"
+        configuration.buttonSize = .mini
+
+        let button = UIButton(configuration: configuration)
+        button.accessibilityLabel = "Refresh Models"
+        return button
+    }()
+
+    override init(reuseIdentifier: String?) {
+        super.init(reuseIdentifier: reuseIdentifier)
+
+        configureLayout()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+
+        configureLayout()
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+
+        onRefresh = nil
+        configure(title: nil, isLoading: false)
+    }
+
+    func configure(title: String?, isLoading: Bool) {
+        var titleConfiguration = defaultContentConfiguration()
+        titleConfiguration.text = title
+        titleContentView.configuration = titleConfiguration
+
+        var buttonConfiguration = refreshButton.configuration ?? .plain()
+        buttonConfiguration.title = isLoading ? "Refreshing" : "Refresh"
+        buttonConfiguration.image = nil
+        buttonConfiguration.buttonSize = .mini
+        buttonConfiguration.showsActivityIndicator = false
+        refreshButton.configuration = buttonConfiguration
+        refreshButton.isEnabled = !isLoading
+        refreshButton.accessibilityValue = isLoading ? "Refreshing" : nil
+    }
+
+    private func configureLayout() {
+        titleContentView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(titleContentView)
+
+        refreshButton.translatesAutoresizingMaskIntoConstraints = false
+        refreshButton.addTarget(self, action: #selector(refreshModels), for: .touchUpInside)
+        contentView.addSubview(refreshButton)
+
+        NSLayoutConstraint.activate([
+            titleContentView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            titleContentView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            titleContentView.trailingAnchor.constraint(
+                lessThanOrEqualTo: refreshButton.leadingAnchor,
+                constant: -8
+            ),
+            titleContentView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+
+            refreshButton.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            refreshButton.centerYAnchor.constraint(equalTo: titleContentView.centerYAnchor),
+            refreshButton.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor),
+            refreshButton.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor)
+        ])
+    }
+
+    @objc private func refreshModels() {
+        onRefresh?()
+    }
+}
