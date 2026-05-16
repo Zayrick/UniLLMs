@@ -78,12 +78,25 @@ nonisolated private extension ChatTimelineEvent {
             return text
         case let .assistantContent(markdown):
             return markdown
-        case let .toolCallStarted(_, toolID, displayName, arguments):
-            return [toolID, displayName, arguments].joined(separator: " ")
-        case let .toolCallCompleted(_, toolID, displayName, result):
-            return [toolID, displayName, result].joined(separator: " ")
-        case let .toolCallFailed(_, toolID, displayName, message):
-            return [toolID, displayName, message].joined(separator: " ")
+        case let .assistantToolCalls(toolCalls):
+            return toolCalls
+                .map { [$0.toolID, $0.presentationName, $0.arguments].joined(separator: " ") }
+                .joined(separator: " ")
+        case let .toolEvent(event):
+            return event.searchableText
+        }
+    }
+}
+
+nonisolated private extension ChatToolEvent {
+    var searchableText: String {
+        switch self {
+        case let .started(toolCall):
+            return [toolCall.toolID, toolCall.presentationName, toolCall.arguments].joined(separator: " ")
+        case let .completed(toolCall, result):
+            return [toolCall.toolID, toolCall.presentationName, result].joined(separator: " ")
+        case let .failed(toolCall, message):
+            return [toolCall.toolID, toolCall.presentationName, message].joined(separator: " ")
         }
     }
 }

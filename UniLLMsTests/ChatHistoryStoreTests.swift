@@ -81,31 +81,27 @@ final class ChatHistoryStoreTests: XCTestCase {
 
     func testToolTimelineEventsPersistArgumentsAndResults() async throws {
         let session = ChatSession(title: "Tool Call")
-        let startedEvent = ChatTimelineEvent(
+        let toolCall = ChatToolCall(
+            id: "call_1",
+            toolID: "search",
+            arguments: #"{"query":"weather"}"#,
+            displayName: "Weather Search"
+        )
+        let toolCallsEvent = ChatTimelineEvent(
             timestamp: Date(timeIntervalSince1970: 10),
-            kind: .toolCallStarted(
-                callID: "call_1",
-                toolID: "search",
-                displayName: "Weather Search",
-                arguments: #"{"query":"weather"}"#
-            )
+            kind: .assistantToolCalls([toolCall])
         )
         let completedEvent = ChatTimelineEvent(
             timestamp: Date(timeIntervalSince1970: 12),
-            kind: .toolCallCompleted(
-                callID: "call_1",
-                toolID: "search",
-                displayName: "Weather Search",
-                result: #"{"temperature":"20C"}"#
-            )
+            kind: .toolEvent(.completed(toolCall, result: #"{"temperature":"20C"}"#))
         )
 
         try await store.saveSession(session)
-        try await store.saveEvents([completedEvent, startedEvent], sessionID: session.id)
+        try await store.saveEvents([completedEvent, toolCallsEvent], sessionID: session.id)
 
         let events = try await store.fetchEvents(sessionID: session.id)
 
-        XCTAssertEqual(events, [startedEvent, completedEvent])
+        XCTAssertEqual(events, [toolCallsEvent, completedEvent])
     }
 
     func testTimelineAccumulatorMergesConsecutiveTextDeltas() {
@@ -141,6 +137,12 @@ final class ChatHistoryStoreTests: XCTestCase {
     }
 
     func testTimelineEventsDeriveProviderMessages() {
+        let toolCall = ChatToolCall(
+            id: "call_1",
+            toolID: "search",
+            arguments: #"{"query":"weather"}"#,
+            displayName: "Weather Search"
+        )
         let events = [
             ChatTimelineEvent(
                 timestamp: Date(timeIntervalSince1970: 1),
@@ -152,21 +154,11 @@ final class ChatHistoryStoreTests: XCTestCase {
             ),
             ChatTimelineEvent(
                 timestamp: Date(timeIntervalSince1970: 3),
-                kind: .toolCallStarted(
-                    callID: "call_1",
-                    toolID: "search",
-                    displayName: "Weather Search",
-                    arguments: #"{"query":"weather"}"#
-                )
+                kind: .assistantToolCalls([toolCall])
             ),
             ChatTimelineEvent(
                 timestamp: Date(timeIntervalSince1970: 4),
-                kind: .toolCallCompleted(
-                    callID: "call_1",
-                    toolID: "search",
-                    displayName: "Weather Search",
-                    result: #"{"temperature":"20C"}"#
-                )
+                kind: .toolEvent(.completed(toolCall, result: #"{"temperature":"20C"}"#))
             ),
             ChatTimelineEvent(
                 timestamp: Date(timeIntervalSince1970: 5),
@@ -183,6 +175,46 @@ final class ChatHistoryStoreTests: XCTestCase {
         XCTAssertEqual(messages[2].toolCallID, "call_1")
         XCTAssertEqual(messages[2].content, #"{"temperature":"20C"}"#)
         XCTAssertEqual(messages[3].content, "It is 20C.")
+    }
+
+    func testTimelineEventsKeepToolCallBatchTogether() {
+        let firstToolCall = ChatToolCall(
+            id: "call_1",
+            toolID: "search",
+            arguments: #"{"query":"weather"}"#,
+            displayName: "Weather Search"
+        )
+        let secondToolCall = ChatToolCall(
+            id: "call_2",
+            toolID: "calendar",
+            arguments: #"{"date":"today"}"#,
+            displayName: "Calendar"
+        )
+        let events = [
+            ChatTimelineEvent(
+                timestamp: Date(timeIntervalSince1970: 1),
+                kind: .userMessage(text: "Plan my day")
+            ),
+            ChatTimelineEvent(
+                timestamp: Date(timeIntervalSince1970: 2),
+                kind: .assistantToolCalls([firstToolCall, secondToolCall])
+            ),
+            ChatTimelineEvent(
+                timestamp: Date(timeIntervalSince1970: 3),
+                kind: .toolEvent(.completed(firstToolCall, result: "Sunny"))
+            ),
+            ChatTimelineEvent(
+                timestamp: Date(timeIntervalSince1970: 4),
+                kind: .toolEvent(.completed(secondToolCall, result: "No meetings"))
+            )
+        ]
+
+        let messages = ChatTimelineEvent.messages(from: events)
+
+        XCTAssertEqual(messages.map(\.role), [.user, .assistant, .tool, .tool])
+        XCTAssertEqual(messages[1].toolCalls?.map(\.id), ["call_1", "call_2"])
+        XCTAssertEqual(messages[2].toolCallID, "call_1")
+        XCTAssertEqual(messages[3].toolCallID, "call_2")
     }
 
     func testDeleteSessionRemovesSessionAndEvents() async throws {

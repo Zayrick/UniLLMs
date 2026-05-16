@@ -13,118 +13,9 @@ nonisolated struct ChatTimelineEvent: Codable, Equatable, Identifiable {
         case userMessage(text: String)
         case assistantReasoning(text: String)
         case assistantContent(markdown: String)
-        case toolCallStarted(
-            callID: String,
-            toolID: String,
-            displayName: String,
-            arguments: String
-        )
-        case toolCallCompleted(
-            callID: String,
-            toolID: String,
-            displayName: String,
-            result: String
-        )
-        case toolCallFailed(
-            callID: String,
-            toolID: String,
-            displayName: String,
-            message: String
-        )
-
-        private enum Name: String, Codable {
-            case userMessage
-            case assistantReasoning
-            case assistantContent
-            case toolCallStarted
-            case toolCallCompleted
-            case toolCallFailed
-        }
-
-        private enum CodingKeys: String, CodingKey {
-            case kind
-            case text
-            case markdown
-            case callID
-            case toolID
-            case displayName
-            case arguments
-            case result
-            case message
-        }
-
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            switch try container.decode(Name.self, forKey: .kind) {
-            case .userMessage:
-                self = .userMessage(
-                    text: try container.decode(String.self, forKey: .text)
-                )
-            case .assistantReasoning:
-                self = .assistantReasoning(
-                    text: try container.decode(String.self, forKey: .text)
-                )
-            case .assistantContent:
-                self = .assistantContent(
-                    markdown: try container.decode(String.self, forKey: .markdown)
-                )
-            case .toolCallStarted:
-                self = .toolCallStarted(
-                    callID: try container.decode(String.self, forKey: .callID),
-                    toolID: try container.decode(String.self, forKey: .toolID),
-                    displayName: try container.decode(String.self, forKey: .displayName),
-                    arguments: try container.decode(String.self, forKey: .arguments)
-                )
-            case .toolCallCompleted:
-                self = .toolCallCompleted(
-                    callID: try container.decode(String.self, forKey: .callID),
-                    toolID: try container.decode(String.self, forKey: .toolID),
-                    displayName: try container.decode(String.self, forKey: .displayName),
-                    result: try container.decode(String.self, forKey: .result)
-                )
-            case .toolCallFailed:
-                self = .toolCallFailed(
-                    callID: try container.decode(String.self, forKey: .callID),
-                    toolID: try container.decode(String.self, forKey: .toolID),
-                    displayName: try container.decode(String.self, forKey: .displayName),
-                    message: try container.decode(String.self, forKey: .message)
-                )
-            }
-        }
-
-        func encode(to encoder: Encoder) throws {
-            var container = encoder.container(keyedBy: CodingKeys.self)
-
-            switch self {
-            case let .userMessage(text):
-                try container.encode(Name.userMessage, forKey: .kind)
-                try container.encode(text, forKey: .text)
-            case let .assistantReasoning(text):
-                try container.encode(Name.assistantReasoning, forKey: .kind)
-                try container.encode(text, forKey: .text)
-            case let .assistantContent(markdown):
-                try container.encode(Name.assistantContent, forKey: .kind)
-                try container.encode(markdown, forKey: .markdown)
-            case let .toolCallStarted(callID, toolID, displayName, arguments):
-                try container.encode(Name.toolCallStarted, forKey: .kind)
-                try container.encode(callID, forKey: .callID)
-                try container.encode(toolID, forKey: .toolID)
-                try container.encode(displayName, forKey: .displayName)
-                try container.encode(arguments, forKey: .arguments)
-            case let .toolCallCompleted(callID, toolID, displayName, result):
-                try container.encode(Name.toolCallCompleted, forKey: .kind)
-                try container.encode(callID, forKey: .callID)
-                try container.encode(toolID, forKey: .toolID)
-                try container.encode(displayName, forKey: .displayName)
-                try container.encode(result, forKey: .result)
-            case let .toolCallFailed(callID, toolID, displayName, message):
-                try container.encode(Name.toolCallFailed, forKey: .kind)
-                try container.encode(callID, forKey: .callID)
-                try container.encode(toolID, forKey: .toolID)
-                try container.encode(displayName, forKey: .displayName)
-                try container.encode(message, forKey: .message)
-            }
-        }
+        /// One provider-facing assistant message can request multiple tools.
+        case assistantToolCalls([ChatToolCall])
+        case toolEvent(ChatToolEvent)
     }
 
     var id: UUID
@@ -150,9 +41,9 @@ nonisolated extension ChatTimelineEvent {
             return text.isEmpty
         case let .assistantContent(markdown):
             return markdown.isEmpty
-        case .toolCallStarted,
-             .toolCallCompleted,
-             .toolCallFailed:
+        case let .assistantToolCalls(toolCalls):
+            return toolCalls.isEmpty
+        case .toolEvent:
             return false
         }
     }
@@ -214,37 +105,35 @@ nonisolated extension ChatTimelineEvent {
                 }
                 ensureAssistantDraft(startedAt: event.timestamp)
                 assistantDraft?.content += markdown
-            case let .toolCallStarted(callID, toolID, displayName, arguments):
+            case let .assistantToolCalls(toolCalls):
                 ensureAssistantDraft(startedAt: event.timestamp)
-                assistantDraft?.toolCalls.append(
-                    ChatToolCall(
-                        id: callID,
-                        toolID: toolID,
-                        arguments: arguments,
-                        displayName: displayName
-                    )
-                )
-            case let .toolCallCompleted(callID, toolID, displayName, result):
+                assistantDraft?.toolCalls.append(contentsOf: toolCalls)
+                flushAssistantDraft()
+            case let .toolEvent(.started(toolCall)):
+                ensureAssistantDraft(startedAt: event.timestamp)
+                assistantDraft?.toolCalls.append(toolCall)
+                flushAssistantDraft()
+            case let .toolEvent(.completed(toolCall, result)):
                 flushAssistantDraft()
                 messages.append(
                     ChatMessage(
                         id: event.id,
                         role: .tool,
                         content: result,
-                        toolCallID: callID,
-                        toolDisplayName: displayName.isEmpty ? toolID : displayName,
+                        toolCallID: toolCall.id,
+                        toolDisplayName: toolCall.presentationName,
                         createdAt: event.timestamp
                     )
                 )
-            case let .toolCallFailed(callID, toolID, displayName, message):
+            case let .toolEvent(.failed(toolCall, message)):
                 flushAssistantDraft()
                 messages.append(
                     ChatMessage(
                         id: event.id,
                         role: .tool,
                         content: "Tool execution failed: \(message)",
-                        toolCallID: callID,
-                        toolDisplayName: displayName.isEmpty ? toolID : displayName,
+                        toolCallID: toolCall.id,
+                        toolDisplayName: toolCall.presentationName,
                         createdAt: event.timestamp
                     )
                 )
@@ -295,9 +184,8 @@ nonisolated struct ChatTimelineAccumulator: Equatable {
         case let .assistantContent(markdown):
             appendText(markdown, timestamp: event.timestamp, kind: .content)
         case .userMessage,
-             .toolCallStarted,
-             .toolCallCompleted,
-             .toolCallFailed:
+             .assistantToolCalls,
+             .toolEvent:
             events.append(event)
         }
     }

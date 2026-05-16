@@ -1275,39 +1275,12 @@ final class ChatViewController: UIViewController {
                 assistantView().appendStoredReasoning(text)
             case let .assistantContent(markdown):
                 assistantView().appendStoredContentMarkdown(markdown)
-            case let .toolCallStarted(callID, toolID, displayName, arguments):
-                assistantView().appendDisplayPart(
-                    .toolEvent(
-                        .started(
-                            callID: callID,
-                            toolID: toolID,
-                            displayName: displayName,
-                            arguments: arguments
-                        )
-                    )
-                )
-            case let .toolCallCompleted(callID, toolID, displayName, result):
-                assistantView().appendDisplayPart(
-                    .toolEvent(
-                        .completed(
-                            callID: callID,
-                            toolID: toolID,
-                            displayName: displayName,
-                            result: result
-                        )
-                    )
-                )
-            case let .toolCallFailed(callID, toolID, displayName, message):
-                assistantView().appendDisplayPart(
-                    .toolEvent(
-                        .failed(
-                            callID: callID,
-                            toolID: toolID,
-                            displayName: displayName,
-                            message: message
-                        )
-                    )
-                )
+            case let .assistantToolCalls(toolCalls):
+                for toolCall in toolCalls {
+                    assistantView().appendDisplayPart(.toolEvent(.started(toolCall)))
+                }
+            case let .toolEvent(event):
+                assistantView().appendDisplayPart(.toolEvent(event))
             }
         }
 

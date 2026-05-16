@@ -72,6 +72,16 @@ final class ChatTurnRunner {
                             toolCalls: assistantResponse.toolCalls
                         )
                         requestMessages.append(assistantMessage)
+                        continuation.yield(.timelineEvent(.assistantToolCalls(assistantResponse.toolCalls)))
+                        for toolCall in assistantResponse.toolCalls {
+                            continuation.yield(
+                                .displayDelta(
+                                    ChatResponseDelta(
+                                        displayParts: [.toolEvent(.started(toolCall))]
+                                    )
+                                )
+                            )
+                        }
 
                         let toolMessages = await executeToolCalls(
                             assistantResponse.toolCalls,
@@ -145,28 +155,11 @@ final class ChatTurnRunner {
 
         for toolCall in toolCalls {
             let toolDisplayName = Self.resolvedToolDisplayName(for: toolCall, context: context)
-            let startedEvent = ChatToolDisplayEvent.started(
-                callID: toolCall.id,
+            let displayToolCall = ChatToolCall(
+                id: toolCall.id,
                 toolID: toolCall.toolID,
-                displayName: toolDisplayName,
-                arguments: toolCall.arguments
-            )
-            continuation.yield(
-                .timelineEvent(
-                    .toolCallStarted(
-                        callID: toolCall.id,
-                        toolID: toolCall.toolID,
-                        displayName: toolDisplayName,
-                        arguments: toolCall.arguments
-                    )
-                )
-            )
-            continuation.yield(
-                .displayDelta(
-                    ChatResponseDelta(
-                        displayParts: [.toolEvent(startedEvent)]
-                    )
-                )
+                arguments: toolCall.arguments,
+                displayName: toolDisplayName
             )
 
             do {
@@ -176,22 +169,8 @@ final class ChatTurnRunner {
                     arguments: try Self.parseArguments(toolCall.arguments)
                 )
                 let result = try await toolManager.execute(call: call, context: executionContext)
-                let completedEvent = ChatToolDisplayEvent.completed(
-                    callID: toolCall.id,
-                    toolID: toolCall.toolID,
-                    displayName: toolDisplayName,
-                    result: result.content
-                )
-                continuation.yield(
-                    .timelineEvent(
-                        .toolCallCompleted(
-                            callID: toolCall.id,
-                            toolID: toolCall.toolID,
-                            displayName: toolDisplayName,
-                            result: result.content
-                        )
-                    )
-                )
+                let completedEvent = ChatToolEvent.completed(displayToolCall, result: result.content)
+                continuation.yield(.timelineEvent(.toolEvent(completedEvent)))
                 continuation.yield(
                     .displayDelta(
                         ChatResponseDelta(
@@ -208,22 +187,8 @@ final class ChatTurnRunner {
                     )
                 )
             } catch {
-                let failedEvent = ChatToolDisplayEvent.failed(
-                    callID: toolCall.id,
-                    toolID: toolCall.toolID,
-                    displayName: toolDisplayName,
-                    message: error.localizedDescription
-                )
-                continuation.yield(
-                    .timelineEvent(
-                        .toolCallFailed(
-                            callID: toolCall.id,
-                            toolID: toolCall.toolID,
-                            displayName: toolDisplayName,
-                            message: error.localizedDescription
-                        )
-                    )
-                )
+                let failedEvent = ChatToolEvent.failed(displayToolCall, message: error.localizedDescription)
+                continuation.yield(.timelineEvent(.toolEvent(failedEvent)))
                 continuation.yield(
                     .displayDelta(
                         ChatResponseDelta(

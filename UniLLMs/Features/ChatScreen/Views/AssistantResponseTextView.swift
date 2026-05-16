@@ -86,7 +86,7 @@ final class AssistantResponseTextView: UIView {
         appendDisplayParts([part])
     }
 
-    func appendToolEvent(_ event: ChatToolDisplayEvent) {
+    func appendToolEvent(_ event: ChatToolEvent) {
         appendDisplayParts([.toolEvent(event)])
     }
 
@@ -236,32 +236,32 @@ final class AssistantResponseTextView: UIView {
         appendContentTimelineSegment(markdown)
     }
 
-    private func appendToolTimelineEvent(_ event: ChatToolDisplayEvent) {
+    private func appendToolTimelineEvent(_ event: ChatToolEvent) {
         switch event {
-        case let .started(callID, _, displayName, arguments):
+        case let .started(toolCall):
             let section = ensureActiveThinkingSection()
-            toolSectionsByCallID[callID] = section
+            toolSectionsByCallID[toolCall.id] = section
             let invocation = section.appendToolInvocation(
-                callID: callID,
-                displayName: displayName,
+                callID: toolCall.id,
+                displayName: toolCall.presentationName,
                 state: .running
             )
-            invocation.setDetail(arguments)
-        case let .completed(callID, _, displayName, result):
-            let section = toolSectionsByCallID[callID] ?? ensureActiveThinkingSection()
-            toolSectionsByCallID[callID] = section
+            invocation.setDetail(toolCall.arguments)
+        case let .completed(toolCall, result):
+            let section = toolSectionsByCallID[toolCall.id] ?? ensureActiveThinkingSection()
+            toolSectionsByCallID[toolCall.id] = section
             let invocation = section.appendToolInvocation(
-                callID: callID,
-                displayName: displayName,
+                callID: toolCall.id,
+                displayName: toolCall.presentationName,
                 state: .completed
             )
             invocation.setDetail(result)
-        case let .failed(callID, _, displayName, message):
-            let section = toolSectionsByCallID[callID] ?? ensureActiveThinkingSection()
-            toolSectionsByCallID[callID] = section
+        case let .failed(toolCall, message):
+            let section = toolSectionsByCallID[toolCall.id] ?? ensureActiveThinkingSection()
+            toolSectionsByCallID[toolCall.id] = section
             let invocation = section.appendToolInvocation(
-                callID: callID,
-                displayName: displayName,
+                callID: toolCall.id,
+                displayName: toolCall.presentationName,
                 state: .failed(message: message)
             )
             invocation.setDetail(message)

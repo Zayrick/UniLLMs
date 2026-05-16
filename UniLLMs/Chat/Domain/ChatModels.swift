@@ -172,19 +172,11 @@ nonisolated struct ChatResponse: Equatable {
     var message: ChatMessage
 }
 
-nonisolated enum ChatToolDisplayEvent: Equatable {
-    case started(callID: String, toolID: String, displayName: String, arguments: String)
-    case completed(callID: String, toolID: String, displayName: String, result: String)
-    case failed(callID: String, toolID: String, displayName: String, message: String)
-
-    var callID: String {
-        switch self {
-        case let .started(callID, _, _, _),
-             let .completed(callID, _, _, _),
-             let .failed(callID, _, _, _):
-            return callID
-        }
-    }
+/// Shared tool invocation event used by streaming UI and persisted timeline entries.
+nonisolated enum ChatToolEvent: Codable, Equatable {
+    case started(ChatToolCall)
+    case completed(ChatToolCall, result: String)
+    case failed(ChatToolCall, message: String)
 }
 
 /// Ordered display events for one streamed delta. This is transient UI state;
@@ -192,7 +184,7 @@ nonisolated enum ChatToolDisplayEvent: Equatable {
 nonisolated enum ChatResponseDisplayPart: Equatable {
     case reasoning(String)
     case content(String)
-    case toolEvent(ChatToolDisplayEvent)
+    case toolEvent(ChatToolEvent)
 
     var isEmpty: Bool {
         switch self {
