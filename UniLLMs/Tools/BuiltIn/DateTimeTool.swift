@@ -12,7 +12,8 @@ struct DateTimeTool: Tool {
     let definition = ToolDefinition(
         name: "current_datetime",
         displayName: "Current Date and Time",
-        summary: "Returns the current local date and time."
+        summary: "Returns the current local date and time.",
+        symbolName: "clock"
     )
 
     func execute(call: ToolCall, context: ToolExecutionContext) async throws -> ToolResult {

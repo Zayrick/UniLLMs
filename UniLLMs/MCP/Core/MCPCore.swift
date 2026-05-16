@@ -97,15 +97,6 @@ final class MCPServerManager: DynamicToolSource {
         self.clientFactory = clientFactory
     }
 
-    var isToolsEnabled: Bool {
-        get {
-            store.loadToolsEnabled()
-        }
-        set {
-            store.saveToolsEnabled(newValue)
-        }
-    }
-
     func configuredServers() -> [MCPServerRecord] {
         store.loadServers()
     }
@@ -127,10 +118,6 @@ final class MCPServerManager: DynamicToolSource {
     }
 
     func loadTools() async -> [any Tool] {
-        guard isToolsEnabled else {
-            return []
-        }
-
         let enabledServers = configuredServers().filter(\.configuration.isEnabled)
         guard !enabledServers.isEmpty else {
             return []

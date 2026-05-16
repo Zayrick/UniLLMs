@@ -14,6 +14,8 @@ final class AppDependencyContainer {
     let providerStore: LLMsProviderStore
     let providerManager: LLMsProviderManager
     let toolRegistry: ToolRegistry
+    let toolSettingsStore: any ToolSettingsStore
+    let toolSettingsManager: ToolSettingsManager
     let toolCatalog: ToolCatalog
     let toolManager: ToolManager
     let memoryManager: MemoryManager
@@ -35,18 +37,25 @@ final class AppDependencyContainer {
             store: providerStore
         )
 
-        toolRegistry = ToolRegistry(
-            tools: [
-                DateTimeTool()
-            ]
+        let toolRegistry = BuiltInToolCatalog.makeRegistry()
+        self.toolRegistry = toolRegistry
+        let toolSettingsStore = UserDefaultsToolSettingsStore.shared
+        // Preserve the previous MCP-owned global switch before MCP configuration is next saved.
+        _ = toolSettingsStore.loadToolsEnabled()
+        self.toolSettingsStore = toolSettingsStore
+        let toolSettingsManager = ToolSettingsManager(
+            registry: toolRegistry,
+            store: toolSettingsStore
         )
+        self.toolSettingsManager = toolSettingsManager
         memoryManager = MemoryManager()
         chatHistoryStore = UserDefaultsChatStore()
         let mcpServerManager = MCPServerManager()
         self.mcpServerManager = mcpServerManager
         toolCatalog = ToolCatalog(
             registry: toolRegistry,
-            isEnabled: { mcpServerManager.isToolsEnabled },
+            isEnabled: { toolSettingsManager.isToolsEnabled },
+            isRegisteredToolEnabled: { toolSettingsManager.isBuiltInToolEnabled(id: $0) },
             dynamicSources: [mcpServerManager]
         )
         toolManager = ToolManager(catalog: toolCatalog)

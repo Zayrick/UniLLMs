@@ -2,7 +2,7 @@
 //  ToolsViewController.swift
 //  UniLLMs
 //
-//  Displays tool-call settings and configured MCP servers.
+//  Displays tool-call settings, built-in tools, and configured MCP servers.
 //  Created by Codex on 2026/5/15.
 //
 
@@ -11,12 +11,15 @@ import UIKit
 final class ToolsViewController: UITableViewController {
     private enum Section: Int, CaseIterable {
         case masterSwitch
+        case builtInTools
         case mcpServers
     }
 
     private let dependencies: AppDependencyContainer
+    private var builtInTools: [ToolDefinition] = []
     private var servers: [MCPServerRecord] = []
-    private var storeObservation: NSObjectProtocol?
+    private var storeObservations: [NSObjectProtocol] = []
+    private var localToolSettingsChangeNotificationsToIgnore = 0
 
     init(dependencies: AppDependencyContainer = AppEnvironment.shared.dependencies) {
         self.dependencies = dependencies
@@ -29,8 +32,8 @@ final class ToolsViewController: UITableViewController {
     }
 
     deinit {
-        if let storeObservation {
-            NotificationCenter.default.removeObserver(storeObservation)
+        storeObservations.forEach {
+            NotificationCenter.default.removeObserver($0)
         }
     }
 
@@ -40,14 +43,14 @@ final class ToolsViewController: UITableViewController {
         title = "Tools"
         configureAddButton()
         configureServerReordering()
-        installStoreObserver()
-        reloadServers()
+        installStoreObservers()
+        reloadContent()
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
 
-        reloadServers()
+        reloadContent()
     }
 
     private func configureAddButton() {
@@ -64,27 +67,37 @@ final class ToolsViewController: UITableViewController {
         tableView.dropDelegate = self
     }
 
-    private func installStoreObserver() {
-        storeObservation = NotificationCenter.default.addObserver(
+    private func installStoreObservers() {
+        let toolSettingsObservation = NotificationCenter.default.addObserver(
+            forName: UserDefaultsToolSettingsStore.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleToolSettingsStoreChange()
+        }
+        let mcpServerObservation = NotificationCenter.default.addObserver(
             forName: UserDefaultsMCPServerStore.didChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.reloadServers()
+            self?.reloadContent()
         }
+        storeObservations = [toolSettingsObservation, mcpServerObservation]
     }
 
-    private func reloadServers() {
-        let loadedServers = dependencies.mcpServerManager.configuredServers()
-        guard loadedServers != servers else {
+    private func reloadContent() {
+        builtInTools = dependencies.toolSettingsManager.registeredBuiltInTools()
+        servers = dependencies.mcpServerManager.configuredServers()
+        tableView.reloadData()
+    }
+
+    private func handleToolSettingsStoreChange() {
+        guard localToolSettingsChangeNotificationsToIgnore == 0 else {
+            localToolSettingsChangeNotificationsToIgnore -= 1
             return
         }
 
-        servers = loadedServers
-        tableView.reloadSections(
-            IndexSet(integer: Section.mcpServers.rawValue),
-            with: .automatic
-        )
+        reloadContent()
     }
 
     @objc private func addMCPServer() {
@@ -111,6 +124,8 @@ final class ToolsViewController: UITableViewController {
         switch section {
         case .masterSwitch:
             return 1
+        case .builtInTools:
+            return max(builtInTools.count, 1)
         case .mcpServers:
             return max(servers.count, 1)
         }
@@ -124,6 +139,8 @@ final class ToolsViewController: UITableViewController {
         switch section {
         case .masterSwitch:
             return nil
+        case .builtInTools:
+            return "Built-In"
         case .mcpServers:
             return "MCP"
         }
@@ -137,6 +154,8 @@ final class ToolsViewController: UITableViewController {
         switch section {
         case .masterSwitch:
             return nil
+        case .builtInTools:
+            return builtInTools.isEmpty ? "No built-in tools are registered." : nil
         case .mcpServers:
             return servers.isEmpty ? "Add a Streamable HTTP MCP server to expose tools to the selected model." : nil
         }
@@ -153,6 +172,11 @@ final class ToolsViewController: UITableViewController {
         switch section {
         case .masterSwitch:
             return masterSwitchCell()
+        case .builtInTools:
+            guard !builtInTools.isEmpty else {
+                return emptyBuiltInToolCell()
+            }
+            return builtInToolCell(for: indexPath)
         case .mcpServers:
             guard !servers.isEmpty else {
                 return emptyServerCell()
@@ -240,11 +264,55 @@ final class ToolsViewController: UITableViewController {
         cell.contentConfiguration = contentConfiguration
 
         let toggle = UISwitch()
-        toggle.isOn = dependencies.mcpServerManager.isToolsEnabled
+        toggle.isOn = dependencies.toolSettingsManager.isToolsEnabled
         toggle.addTarget(self, action: #selector(toggleTools(_:)), for: .valueChanged)
         cell.accessoryView = toggle
         cell.selectionStyle = .none
         return cell
+    }
+
+    private func emptyBuiltInToolCell() -> UITableViewCell {
+        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        var contentConfiguration = cell.defaultContentConfiguration()
+        contentConfiguration.text = "No Built-In Tools"
+        contentConfiguration.secondaryText = "Registered tools will appear here"
+        contentConfiguration.image = UIImage(systemName: "wrench.and.screwdriver")
+        contentConfiguration.imageProperties.tintColor = .secondaryLabel
+        cell.contentConfiguration = contentConfiguration
+        cell.selectionStyle = .none
+        return cell
+    }
+
+    private func builtInToolCell(for indexPath: IndexPath) -> UITableViewCell {
+        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        let tool = builtInTools[indexPath.row]
+        let isEnabled = dependencies.toolSettingsManager.isBuiltInToolEnabled(id: tool.id)
+        configureBuiltInToolCellContent(
+            cell,
+            tool: tool,
+            isEnabled: isEnabled
+        )
+
+        let toggle = UISwitch()
+        toggle.isOn = isEnabled
+        toggle.tag = indexPath.row
+        toggle.addTarget(self, action: #selector(toggleBuiltInTool(_:)), for: .valueChanged)
+        cell.accessoryView = toggle
+        cell.selectionStyle = .none
+        return cell
+    }
+
+    private func configureBuiltInToolCellContent(
+        _ cell: UITableViewCell,
+        tool: ToolDefinition,
+        isEnabled: Bool
+    ) {
+        var contentConfiguration = cell.defaultContentConfiguration()
+        contentConfiguration.text = tool.presentationName
+        contentConfiguration.secondaryText = tool.summary
+        contentConfiguration.image = UIImage(systemName: tool.symbolName ?? "wrench.and.screwdriver")
+        contentConfiguration.imageProperties.tintColor = isEnabled ? .systemGreen : .secondaryLabel
+        cell.contentConfiguration = contentConfiguration
     }
 
     private func emptyServerCell() -> UITableViewCell {
@@ -274,7 +342,47 @@ final class ToolsViewController: UITableViewController {
     }
 
     @objc private func toggleTools(_ sender: UISwitch) {
-        dependencies.mcpServerManager.isToolsEnabled = sender.isOn
+        applyLocalToolSettingsChange(
+            shouldIgnoreNotification: dependencies.toolSettingsManager.isToolsEnabled != sender.isOn
+        ) {
+            dependencies.toolSettingsManager.isToolsEnabled = sender.isOn
+        }
+    }
+
+    @objc private func toggleBuiltInTool(_ sender: UISwitch) {
+        guard builtInTools.indices.contains(sender.tag) else {
+            return
+        }
+
+        let tool = builtInTools[sender.tag]
+        applyLocalToolSettingsChange(
+            shouldIgnoreNotification: dependencies.toolSettingsManager.isBuiltInToolEnabled(id: tool.id) != sender.isOn
+        ) {
+            dependencies.toolSettingsManager.setBuiltInTool(
+                id: tool.id,
+                isEnabled: sender.isOn
+            )
+        }
+        if let cell = tableView.cellForRow(
+            at: IndexPath(row: sender.tag, section: Section.builtInTools.rawValue)
+        ) {
+            configureBuiltInToolCellContent(
+                cell,
+                tool: tool,
+                isEnabled: sender.isOn
+            )
+        }
+    }
+
+    private func applyLocalToolSettingsChange(
+        shouldIgnoreNotification: Bool,
+        _ change: () -> Void
+    ) {
+        if shouldIgnoreNotification {
+            localToolSettingsChangeNotificationsToIgnore += 1
+        }
+
+        change()
     }
 
     private func serverSubtitle(for server: MCPServerRecord) -> String? {

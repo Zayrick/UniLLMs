@@ -2,15 +2,13 @@
 //  MCPServerStore.swift
 //  UniLLMs
 //
-//  Stores MCP server configuration and tool-call settings.
+//  Stores MCP server configuration.
 //  Created by Zayrick on 2026/5/11.
 //
 
 import Foundation
 
 protocol MCPServerStore {
-    func loadToolsEnabled() -> Bool
-    func saveToolsEnabled(_ isEnabled: Bool)
     func loadServers() -> [MCPServerRecord]
     func makeServerDraft() -> MCPServerRecord
     func saveServerRecord(_ server: MCPServerRecord)
@@ -23,8 +21,20 @@ final class UserDefaultsMCPServerStore: MCPServerStore {
     static let didChangeNotification = Notification.Name("UserDefaultsMCPServerStoreDidChange")
 
     private struct PersistedState: Codable, Equatable {
-        var toolsEnabled: Bool
         var servers: [MCPServerRecord]
+
+        init(servers: [MCPServerRecord] = []) {
+            self.servers = servers
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case servers
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            servers = try container.decodeIfPresent([MCPServerRecord].self, forKey: .servers) ?? []
+        }
     }
 
     private let store: UserDefaultsStore
@@ -36,20 +46,6 @@ final class UserDefaultsMCPServerStore: MCPServerStore {
     ) {
         store = UserDefaultsStore(defaults: defaults)
         self.storageKey = storageKey
-    }
-
-    func loadToolsEnabled() -> Bool {
-        loadState().toolsEnabled
-    }
-
-    func saveToolsEnabled(_ isEnabled: Bool) {
-        var state = loadState()
-        guard state.toolsEnabled != isEnabled else {
-            return
-        }
-
-        state.toolsEnabled = isEnabled
-        saveState(state)
     }
 
     func loadServers() -> [MCPServerRecord] {
@@ -96,7 +92,7 @@ final class UserDefaultsMCPServerStore: MCPServerStore {
     }
 
     private func loadState() -> PersistedState {
-        store.load(PersistedState.self, forKey: storageKey) ?? PersistedState(toolsEnabled: false, servers: [])
+        store.load(PersistedState.self, forKey: storageKey) ?? PersistedState()
     }
 
     private func saveState(_ state: PersistedState) {

@@ -16,17 +16,20 @@ nonisolated struct ToolDefinition: Codable, Equatable, Identifiable {
     var name: String
     var displayName: String?
     var summary: String
+    var symbolName: String?
     var parameters: JSONValue
 
     init(
         name: String,
         displayName: String? = nil,
         summary: String,
+        symbolName: String? = nil,
         parameters: JSONValue = .emptyObjectSchema
     ) {
         self.name = name
         self.displayName = displayName
         self.summary = summary
+        self.symbolName = symbolName
         self.parameters = parameters
     }
 
@@ -59,13 +62,18 @@ protocol Tool {
 
 final class ToolRegistry {
     private var toolsByID: [String: any Tool] = [:]
+    private var orderedToolIDs: [String] = []
 
     init(tools: [any Tool] = []) {
         tools.forEach(register)
     }
 
     func register(_ tool: any Tool) {
-        toolsByID[tool.definition.name] = tool
+        let id = tool.definition.name
+        if toolsByID[id] == nil {
+            orderedToolIDs.append(id)
+        }
+        toolsByID[id] = tool
     }
 
     func tool(id: String) -> (any Tool)? {
@@ -73,7 +81,9 @@ final class ToolRegistry {
     }
 
     var tools: [any Tool] {
-        Array(toolsByID.values)
+        orderedToolIDs.compactMap {
+            toolsByID[$0]
+        }
     }
 }
 
@@ -97,16 +107,19 @@ protocol DynamicToolSource {
 final class ToolCatalog {
     private let registry: ToolRegistry
     private let isEnabled: () -> Bool
+    private let isRegisteredToolEnabled: (String) -> Bool
     private let dynamicSources: [any DynamicToolSource]
     private var dynamicToolsByID: [String: any Tool] = [:]
 
     init(
         registry: ToolRegistry,
         isEnabled: @escaping () -> Bool,
+        isRegisteredToolEnabled: @escaping (String) -> Bool = { _ in true },
         dynamicSources: [any DynamicToolSource] = []
     ) {
         self.registry = registry
         self.isEnabled = isEnabled
+        self.isRegisteredToolEnabled = isRegisteredToolEnabled
         self.dynamicSources = dynamicSources
     }
 
@@ -124,14 +137,26 @@ final class ToolCatalog {
         }
         dynamicToolsByID = dynamicTools
 
-        let allDefinitions = registry.tools.map(\.definition) + dynamicTools.values.map(\.definition)
+        let builtInDefinitions = registry.tools
+            .filter { isRegisteredToolEnabled($0.definition.name) }
+            .map(\.definition)
+        let allDefinitions = builtInDefinitions + dynamicTools.values.map(\.definition)
         return allDefinitions.sorted {
             $0.presentationName.localizedCaseInsensitiveCompare($1.presentationName) == .orderedAscending
         }
     }
 
     func tool(id: String) -> (any Tool)? {
-        registry.tool(id: id) ?? dynamicToolsByID[id]
+        guard isEnabled() else {
+            return nil
+        }
+
+        if let tool = registry.tool(id: id),
+           isRegisteredToolEnabled(id) {
+            return tool
+        }
+
+        return dynamicToolsByID[id]
     }
 }
 

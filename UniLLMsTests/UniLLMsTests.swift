@@ -208,6 +208,14 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertNotNil(registry.adapter(for: .fake))
     }
 
+    func testBuiltInToolCatalogRegistersDateTimeTool() {
+        let registry = BuiltInToolCatalog.makeRegistry()
+
+        XCTAssertNotNil(registry.tool(id: "current_datetime"))
+        XCTAssertEqual(registry.tools.map(\.definition.name), ["current_datetime"])
+        XCTAssertEqual(registry.tools.first?.definition.symbolName, "clock")
+    }
+
     func testProviderManagerReportsToolCapabilityFromAdapter() throws {
         let manager = makeProviderManager()
         let openRouterProvider = try manager.makeProviderDraft(kind: .openRouter)
@@ -244,9 +252,71 @@ final class UniLLMsTests: XCTestCase {
         let definitions = await catalog.loadAvailableTools()
 
         XCTAssertTrue(definitions.isEmpty)
+        XCTAssertNil(catalog.tool(id: "current_datetime"))
     }
 
-    func testMCPServerStorePersistsToolsEnabledAndServers() {
+    func testToolCatalogSkipsDisabledBuiltInTools() async {
+        let catalog = ToolCatalog(
+            registry: ToolRegistry(tools: [DateTimeTool()]),
+            isEnabled: { true },
+            isRegisteredToolEnabled: { $0 != "current_datetime" }
+        )
+
+        let definitions = await catalog.loadAvailableTools()
+
+        XCTAssertTrue(definitions.isEmpty)
+        XCTAssertNil(catalog.tool(id: "current_datetime"))
+    }
+
+    func testToolSettingsStorePersistsGlobalAndBuiltInToolEnablement() {
+        let settingsStore = UserDefaultsToolSettingsStore(
+            defaults: defaults,
+            storageKey: "toolSettings",
+            legacyMCPStorageKey: "missingLegacyMCPSettings"
+        )
+
+        XCTAssertFalse(settingsStore.loadToolsEnabled())
+        XCTAssertTrue(settingsStore.isBuiltInToolEnabled(id: "current_datetime"))
+
+        settingsStore.saveToolsEnabled(true)
+        settingsStore.saveBuiltInToolEnabled(false, id: "current_datetime")
+
+        let reloadedStore = UserDefaultsToolSettingsStore(
+            defaults: defaults,
+            storageKey: "toolSettings",
+            legacyMCPStorageKey: "missingLegacyMCPSettings"
+        )
+
+        XCTAssertTrue(reloadedStore.loadToolsEnabled())
+        XCTAssertFalse(reloadedStore.isBuiltInToolEnabled(id: "current_datetime"))
+
+        reloadedStore.saveBuiltInToolEnabled(true, id: "current_datetime")
+
+        XCTAssertTrue(reloadedStore.isBuiltInToolEnabled(id: "current_datetime"))
+    }
+
+    func testToolSettingsStoreReadsLegacyMCPGlobalToolsEnabled() throws {
+        let legacyJSON = #"{"toolsEnabled":true,"servers":[]}"#
+        defaults.set(try XCTUnwrap(legacyJSON.data(using: .utf8)), forKey: "legacyMCPSettings")
+
+        let settingsStore = UserDefaultsToolSettingsStore(
+            defaults: defaults,
+            storageKey: "missingToolSettings",
+            legacyMCPStorageKey: "legacyMCPSettings"
+        )
+
+        XCTAssertTrue(settingsStore.loadToolsEnabled())
+
+        let migratedStore = UserDefaultsToolSettingsStore(
+            defaults: defaults,
+            storageKey: "missingToolSettings",
+            legacyMCPStorageKey: "missingLegacyMCPSettings"
+        )
+
+        XCTAssertTrue(migratedStore.loadToolsEnabled())
+    }
+
+    func testMCPServerStorePersistsServers() {
         let mcpStore = UserDefaultsMCPServerStore(defaults: defaults, storageKey: "mcpServers")
         var server = mcpStore.makeServerDraft()
         server.name = "Team Tools"
@@ -257,13 +327,11 @@ final class UniLLMsTests: XCTestCase {
             isEnabled: true
         )
 
-        mcpStore.saveToolsEnabled(true)
         mcpStore.saveServerRecord(server)
 
         let reloadedStore = UserDefaultsMCPServerStore(defaults: defaults, storageKey: "mcpServers")
         let reloadedServer = reloadedStore.loadServers().first
 
-        XCTAssertTrue(reloadedStore.loadToolsEnabled())
         XCTAssertEqual(reloadedServer?.id, server.id)
         XCTAssertEqual(reloadedServer?.name, "Team Tools")
         XCTAssertEqual(reloadedServer?.configuration.endpoint, "https://example.com/mcp")
