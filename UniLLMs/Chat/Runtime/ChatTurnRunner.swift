@@ -17,6 +17,7 @@ final class ChatTurnRunner {
         var content = ""
         var reasoning = ""
         var toolCalls: [ChatToolCall] = []
+        var displayParts: [ChatResponseDisplayPart] = []
 
         var hasVisibleText: Bool {
             !content.isEmpty || !reasoning.isEmpty
@@ -67,7 +68,8 @@ final class ChatTurnRunner {
                                         ChatMessage(
                                             role: .assistant,
                                             content: assistantResponse.content,
-                                            reasoning: assistantResponse.reasoning
+                                            reasoning: assistantResponse.reasoning,
+                                            displayParts: assistantResponse.displayParts
                                         )
                                     )
                                 )
@@ -84,7 +86,8 @@ final class ChatTurnRunner {
                             role: .assistant,
                             content: assistantResponse.content,
                             reasoning: assistantResponse.reasoning,
-                            toolCalls: assistantResponse.toolCalls
+                            toolCalls: assistantResponse.toolCalls,
+                            displayParts: assistantResponse.displayParts
                         )
                         requestMessages.append(assistantMessage)
                         continuation.yield(.transcriptMessage(assistantMessage))
@@ -132,16 +135,22 @@ final class ChatTurnRunner {
         for try await delta in stream {
             try Task.checkCancellation()
             if !delta.toolCalls.isEmpty {
-                assistantResponse.toolCalls.append(contentsOf: delta.toolCalls)
+                assistantResponse.toolCalls.append(
+                    contentsOf: delta.toolCalls.map { toolCall in
+                        Self.toolCallWithDisplayName(toolCall, context: context)
+                    }
+                )
             }
 
             let visibleDelta = ChatResponseDelta(
                 content: delta.content,
-                reasoning: delta.reasoning
+                reasoning: delta.reasoning,
+                displayParts: delta.displayParts
             )
             if !visibleDelta.isEmpty {
                 assistantResponse.content += visibleDelta.content
                 assistantResponse.reasoning += visibleDelta.reasoning
+                assistantResponse.displayParts.append(contentsOf: visibleDelta.displayParts)
                 continuation.yield(.displayDelta(visibleDelta))
             }
         }
@@ -158,11 +167,16 @@ final class ChatTurnRunner {
         let executionContext = ToolExecutionContext(session: context.session)
 
         for toolCall in toolCalls {
-            let toolDisplayName = Self.toolDisplayName(for: toolCall.toolID, context: context)
+            let toolDisplayName = Self.resolvedToolDisplayName(for: toolCall, context: context)
+            let startedEvent = ChatToolDisplayEvent.started(
+                callID: toolCall.id,
+                toolID: toolCall.toolID,
+                displayName: toolDisplayName
+            )
             continuation.yield(
                 .displayDelta(
                     ChatResponseDelta(
-                        toolStatus: "Calling tool: \(toolDisplayName)\n"
+                        displayParts: [.toolEvent(startedEvent)]
                     )
                 )
             )
@@ -174,10 +188,15 @@ final class ChatTurnRunner {
                     arguments: try Self.parseArguments(toolCall.arguments)
                 )
                 let result = try await toolManager.execute(call: call, context: executionContext)
+                let completedEvent = ChatToolDisplayEvent.completed(
+                    callID: toolCall.id,
+                    toolID: toolCall.toolID,
+                    displayName: toolDisplayName
+                )
                 continuation.yield(
                     .displayDelta(
                         ChatResponseDelta(
-                            toolStatus: "Tool completed: \(toolDisplayName)\n"
+                            displayParts: [.toolEvent(completedEvent)]
                         )
                     )
                 )
@@ -185,14 +204,22 @@ final class ChatTurnRunner {
                     ChatMessage(
                         role: .tool,
                         content: result.content,
-                        toolCallID: result.callID
+                        toolCallID: result.callID,
+                        toolDisplayName: toolDisplayName,
+                        displayParts: [.toolEvent(completedEvent)]
                     )
                 )
             } catch {
+                let failedEvent = ChatToolDisplayEvent.failed(
+                    callID: toolCall.id,
+                    toolID: toolCall.toolID,
+                    displayName: toolDisplayName,
+                    message: error.localizedDescription
+                )
                 continuation.yield(
                     .displayDelta(
                         ChatResponseDelta(
-                            toolStatus: "Tool failed: \(toolDisplayName) - \(error.localizedDescription)\n"
+                            displayParts: [.toolEvent(failedEvent)]
                         )
                     )
                 )
@@ -200,7 +227,9 @@ final class ChatTurnRunner {
                     ChatMessage(
                         role: .tool,
                         content: "Tool execution failed: \(error.localizedDescription)",
-                        toolCallID: toolCall.id
+                        toolCallID: toolCall.id,
+                        toolDisplayName: toolDisplayName,
+                        displayParts: [.toolEvent(failedEvent)]
                     )
                 )
             }
@@ -229,6 +258,20 @@ final class ChatTurnRunner {
         }
 
         return definition.presentationName
+    }
+
+    private static func toolCallWithDisplayName(_ toolCall: ChatToolCall, context: ChatContext) -> ChatToolCall {
+        ChatToolCall(
+            id: toolCall.id,
+            toolID: toolCall.toolID,
+            arguments: toolCall.arguments,
+            displayName: toolDisplayName(for: toolCall.toolID, context: context)
+        )
+    }
+
+    private static func resolvedToolDisplayName(for toolCall: ChatToolCall, context: ChatContext) -> String {
+        let storedDisplayName = toolCall.displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return storedDisplayName.isEmpty ? toolDisplayName(for: toolCall.toolID, context: context) : storedDisplayName
     }
 }
 

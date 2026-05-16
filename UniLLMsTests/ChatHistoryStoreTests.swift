@@ -91,7 +91,8 @@ final class ChatHistoryStoreTests: XCTestCase {
                 ChatToolCall(
                     id: "call_1",
                     toolID: "search",
-                    arguments: #"{"query":"weather"}"#
+                    arguments: #"{"query":"weather"}"#,
+                    displayName: "Weather Search"
                 )
             ],
             createdAt: Date(timeIntervalSince1970: 10)
@@ -100,6 +101,16 @@ final class ChatHistoryStoreTests: XCTestCase {
             role: .tool,
             content: #"{"temperature":"20C"}"#,
             toolCallID: "call_1",
+            toolDisplayName: "Weather Search",
+            displayParts: [
+                .toolEvent(
+                    .completed(
+                        callID: "call_1",
+                        toolID: "search",
+                        displayName: "Weather Search"
+                    )
+                )
+            ],
             createdAt: Date(timeIntervalSince1970: 10)
         )
 
@@ -110,10 +121,46 @@ final class ChatHistoryStoreTests: XCTestCase {
 
         XCTAssertEqual(messages, [assistantMessage, toolMessage])
         XCTAssertEqual(messages[0].toolCalls?.first?.arguments, #"{"query":"weather"}"#)
+        XCTAssertEqual(messages[0].toolCalls?.first?.displayName, "Weather Search")
+        XCTAssertEqual(messages[1].toolDisplayName, "Weather Search")
+        XCTAssertEqual(
+            messages[1].displayParts,
+            [
+                .toolEvent(
+                    .completed(
+                        callID: "call_1",
+                        toolID: "search",
+                        displayName: "Weather Search"
+                    )
+                )
+            ]
+        )
         XCTAssertEqual(messages[1].content, #"{"temperature":"20C"}"#)
     }
 
-    func testChatMessageDecodingDefaultsMissingReasoningToEmptyString() throws {
+    func testAssistantDisplayPartsPersistReasoningContentOrder() async throws {
+        let session = ChatSession(title: "Display Parts")
+        let assistantMessage = ChatMessage(
+            role: .assistant,
+            content: "Answer",
+            reasoning: "Thinking",
+            displayParts: [
+                .reasoning("Thinking"),
+                .content("Answer")
+            ],
+            createdAt: Date(timeIntervalSince1970: 10)
+        )
+
+        try await store.saveSession(session)
+        try await store.saveMessage(assistantMessage, sessionID: session.id)
+
+        let messages = try await store.fetchMessages(sessionID: session.id)
+
+        XCTAssertEqual(messages, [assistantMessage])
+        XCTAssertEqual(messages.first?.displayParts, assistantMessage.displayParts)
+    }
+
+    func testChatMessageDecodingDefaultsLegacyHistoryFields() throws {
         let messageID = UUID()
         let createdAt = Date(timeIntervalSince1970: 100)
         let payload: [String: Any] = [
@@ -130,6 +177,23 @@ final class ChatHistoryStoreTests: XCTestCase {
 
         XCTAssertEqual(message.id, messageID)
         XCTAssertEqual(message.reasoning, "")
+        XCTAssertNil(message.toolDisplayName)
+        XCTAssertTrue(message.displayParts.isEmpty)
+    }
+
+    func testChatToolCallDecodingDefaultsMissingDisplayNameToNil() throws {
+        let payload: [String: Any] = [
+            "id": "call_1",
+            "toolID": "mcp_search",
+            "arguments": #"{"query":"weather"}"#
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+
+        let toolCall = try JSONDecoder().decode(ChatToolCall.self, from: data)
+
+        XCTAssertEqual(toolCall.id, "call_1")
+        XCTAssertEqual(toolCall.presentationName, "mcp_search")
+        XCTAssertNil(toolCall.displayName)
     }
 
     func testDeleteSessionRemovesSessionAndMessages() async throws {

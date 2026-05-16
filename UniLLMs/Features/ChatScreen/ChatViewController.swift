@@ -1013,8 +1013,9 @@ final class ChatViewController: UIViewController {
         }
 
         applyAssistantResponseChange(to: responseView) {
-            responseView.append(toolStatus: delta.toolStatus)
-            responseView.append(content: delta.content, reasoning: delta.reasoning)
+            for part in delta.displayParts {
+                responseView.appendDisplayPart(part)
+            }
         }
     }
 
@@ -1250,30 +1251,54 @@ final class ChatViewController: UIViewController {
 
         let sortedMessages = ChatMessage.sortedChronologically(messages)
         var toolNamesByCallID: [String: String] = [:]
+        var currentAssistantView: AssistantResponseTextView?
+
+        func finishCurrentAssistantView() {
+            currentAssistantView?.finishStreamingContent()
+            currentAssistantView = nil
+        }
+
         for message in sortedMessages {
             switch message.role {
             case .user:
+                finishCurrentAssistantView()
+                toolNamesByCallID.removeAll()
                 appendStoredUserMessage(message.content)
             case .assistant:
-                appendStoredAssistantMessage(message)
                 for toolCall in message.toolCalls ?? [] {
-                    let toolName = toolCall.toolID
-                    toolNamesByCallID[toolCall.id] = toolName
-                    appendStoredToolStatus("Calling tool: \(toolName)\n")
+                    toolNamesByCallID[toolCall.id] = toolCall.presentationName
+                }
+                if let view = appendStoredAssistantMessage(message, into: currentAssistantView) {
+                    currentAssistantView = view
                 }
             case .tool:
-                let toolName = message.toolCallID.flatMap { toolNamesByCallID[$0] }
-                    ?? message.toolCallID
-                    ?? "Tool"
-                let status = message.content.hasPrefix("Tool execution failed:")
-                    ? "Tool failed: \(toolName)\n"
-                    : "Tool completed: \(toolName)\n"
-                appendStoredToolStatus(status)
+                guard let callID = message.toolCallID else {
+                    continue
+                }
+                let toolName = toolNamesByCallID[callID] ?? callID
+                let failed = message.content.hasPrefix("Tool execution failed:")
+                let hostView = currentAssistantView ?? appendStandaloneAssistantContainer()
+                if currentAssistantView == nil {
+                    currentAssistantView = hostView
+                }
+                if message.displayParts.isEmpty {
+                    hostView.appendCompletedToolInvocation(
+                        callID: callID,
+                        displayName: message.toolDisplayName ?? toolName,
+                        failed: failed,
+                        message: failed ? message.content : nil
+                    )
+                } else {
+                    for part in message.displayParts {
+                        hostView.appendDisplayPart(part)
+                    }
+                }
             case .system:
                 continue
             }
         }
 
+        finishCurrentAssistantView()
         mainPageView.layoutIfNeeded()
         scrollMessagesToBottom(animated: false)
     }
@@ -1291,28 +1316,39 @@ final class ChatViewController: UIViewController {
         ).isActive = true
     }
 
-    private func appendStoredAssistantMessage(_ message: ChatMessage) {
-        guard !message.content.isEmpty || !message.reasoning.isEmpty else {
-            return
+    @discardableResult
+    private func appendStoredAssistantMessage(
+        _ message: ChatMessage,
+        into existingView: AssistantResponseTextView?
+    ) -> AssistantResponseTextView? {
+        let hasStoredDisplayParts = !message.displayParts.isEmpty
+        let hasVisibleText = !message.content.isEmpty || !message.reasoning.isEmpty
+        let hasToolCalls = !(message.toolCalls?.isEmpty ?? true)
+        guard hasStoredDisplayParts || hasVisibleText || hasToolCalls else {
+            return existingView
         }
 
-        let responseView = AssistantResponseTextView()
-        responseView.translatesAutoresizingMaskIntoConstraints = false
-        responseView.setContentHuggingPriority(.required, for: .vertical)
-        responseView.setContentCompressionResistancePriority(.required, for: .vertical)
-        messagesStackView.addArrangedSubview(responseView)
-        responseView.widthAnchor.constraint(
-            equalTo: messagesStackView.widthAnchor
-        ).isActive = true
-        responseView.append(content: message.content, reasoning: message.reasoning)
-        responseView.finishStreamingContent()
+        let responseView = existingView ?? makeStoredAssistantResponseView()
+        if hasStoredDisplayParts {
+            for part in message.displayParts {
+                responseView.appendDisplayPart(part)
+            }
+        } else {
+            if !message.reasoning.isEmpty {
+                responseView.appendStoredReasoning(message.reasoning)
+            }
+            if !message.content.isEmpty {
+                responseView.append(content: message.content, reasoning: "")
+            }
+        }
+        return responseView
     }
 
-    private func appendStoredToolStatus(_ status: String) {
-        guard !status.isEmpty else {
-            return
-        }
+    private func appendStandaloneAssistantContainer() -> AssistantResponseTextView {
+        makeStoredAssistantResponseView()
+    }
 
+    private func makeStoredAssistantResponseView() -> AssistantResponseTextView {
         let responseView = AssistantResponseTextView()
         responseView.translatesAutoresizingMaskIntoConstraints = false
         responseView.setContentHuggingPriority(.required, for: .vertical)
@@ -1321,8 +1357,7 @@ final class ChatViewController: UIViewController {
         responseView.widthAnchor.constraint(
             equalTo: messagesStackView.widthAnchor
         ).isActive = true
-        responseView.append(toolStatus: status)
-        responseView.finishStreamingContent()
+        return responseView
     }
 
     private func removeChatContent() {

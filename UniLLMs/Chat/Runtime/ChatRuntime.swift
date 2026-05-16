@@ -32,14 +32,29 @@ final class ChatRuntime {
         var transcriptMessages: [ChatMessage] = []
         var pendingAssistantContent = ""
         var pendingAssistantReasoning = ""
+        var pendingAssistantDisplayParts: [ChatResponseDisplayPart] = []
+
+        var hasPendingAssistantMessage: Bool {
+            !pendingAssistantContent.isEmpty
+                || !pendingAssistantReasoning.isEmpty
+                || !pendingAssistantDisplayParts.isEmpty
+        }
 
         var hasPersistableProgress: Bool {
-            !transcriptMessages.isEmpty || !pendingAssistantContent.isEmpty || !pendingAssistantReasoning.isEmpty
+            !transcriptMessages.isEmpty || hasPendingAssistantMessage
         }
 
         mutating func append(displayDelta delta: ChatResponseDelta) {
             pendingAssistantContent += delta.content
             pendingAssistantReasoning += delta.reasoning
+            pendingAssistantDisplayParts.append(
+                contentsOf: delta.displayParts.filter { part in
+                    if case .toolEvent = part {
+                        return false
+                    }
+                    return true
+                }
+            )
         }
 
         mutating func append(transcriptMessage message: ChatMessage) {
@@ -50,10 +65,11 @@ final class ChatRuntime {
 
             pendingAssistantContent = ""
             pendingAssistantReasoning = ""
+            pendingAssistantDisplayParts = []
         }
 
         func finishedMessages() -> [ChatMessage] {
-            guard !pendingAssistantContent.isEmpty || !pendingAssistantReasoning.isEmpty else {
+            guard hasPendingAssistantMessage else {
                 return transcriptMessages
             }
 
@@ -61,7 +77,8 @@ final class ChatRuntime {
                 ChatMessage(
                     role: .assistant,
                     content: pendingAssistantContent,
-                    reasoning: pendingAssistantReasoning
+                    reasoning: pendingAssistantReasoning,
+                    displayParts: pendingAssistantDisplayParts
                 )
             ]
         }

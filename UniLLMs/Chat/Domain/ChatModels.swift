@@ -19,6 +19,47 @@ nonisolated struct ChatToolCall: Codable, Equatable, Identifiable {
     var id: String
     var toolID: String
     var arguments: String
+    var displayName: String?
+
+    var presentationName: String {
+        let trimmedDisplayName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmedDisplayName.isEmpty ? toolID : trimmedDisplayName
+    }
+
+    init(
+        id: String,
+        toolID: String,
+        arguments: String,
+        displayName: String? = nil
+    ) {
+        self.id = id
+        self.toolID = toolID
+        self.arguments = arguments
+        self.displayName = displayName
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case toolID
+        case arguments
+        case displayName
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        toolID = try container.decode(String.self, forKey: .toolID)
+        arguments = try container.decode(String.self, forKey: .arguments)
+        displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(toolID, forKey: .toolID)
+        try container.encode(arguments, forKey: .arguments)
+        try container.encodeIfPresent(displayName, forKey: .displayName)
+    }
 }
 
 nonisolated struct ChatMessage: Codable, Equatable, Identifiable {
@@ -28,6 +69,8 @@ nonisolated struct ChatMessage: Codable, Equatable, Identifiable {
     var reasoning: String
     var toolCalls: [ChatToolCall]?
     var toolCallID: String?
+    var toolDisplayName: String?
+    var displayParts: [ChatResponseDisplayPart]
     var createdAt: Date
 
     init(
@@ -37,6 +80,8 @@ nonisolated struct ChatMessage: Codable, Equatable, Identifiable {
         reasoning: String = "",
         toolCalls: [ChatToolCall]? = nil,
         toolCallID: String? = nil,
+        toolDisplayName: String? = nil,
+        displayParts: [ChatResponseDisplayPart] = [],
         createdAt: Date = Date()
     ) {
         self.id = id
@@ -45,6 +90,8 @@ nonisolated struct ChatMessage: Codable, Equatable, Identifiable {
         self.reasoning = reasoning
         self.toolCalls = toolCalls
         self.toolCallID = toolCallID
+        self.toolDisplayName = toolDisplayName
+        self.displayParts = displayParts
         self.createdAt = createdAt
     }
 
@@ -55,6 +102,8 @@ nonisolated struct ChatMessage: Codable, Equatable, Identifiable {
         case reasoning
         case toolCalls
         case toolCallID
+        case toolDisplayName
+        case displayParts
         case createdAt
     }
 
@@ -66,7 +115,24 @@ nonisolated struct ChatMessage: Codable, Equatable, Identifiable {
         reasoning = try container.decodeIfPresent(String.self, forKey: .reasoning) ?? ""
         toolCalls = try container.decodeIfPresent([ChatToolCall].self, forKey: .toolCalls)
         toolCallID = try container.decodeIfPresent(String.self, forKey: .toolCallID)
+        toolDisplayName = try container.decodeIfPresent(String.self, forKey: .toolDisplayName)
+        displayParts = try container.decodeIfPresent([ChatResponseDisplayPart].self, forKey: .displayParts) ?? []
         createdAt = try container.decode(Date.self, forKey: .createdAt)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(role, forKey: .role)
+        try container.encode(content, forKey: .content)
+        try container.encode(reasoning, forKey: .reasoning)
+        try container.encodeIfPresent(toolCalls, forKey: .toolCalls)
+        try container.encodeIfPresent(toolCallID, forKey: .toolCallID)
+        try container.encodeIfPresent(toolDisplayName, forKey: .toolDisplayName)
+        if !displayParts.isEmpty {
+            try container.encode(displayParts, forKey: .displayParts)
+        }
+        try container.encode(createdAt, forKey: .createdAt)
     }
 
     static func sortedChronologically(_ messages: [ChatMessage]) -> [ChatMessage] {
@@ -161,14 +227,182 @@ nonisolated struct ChatResponse: Equatable {
     var message: ChatMessage
 }
 
-nonisolated struct ChatResponseDelta: Equatable {
-    var content: String = ""
-    var reasoning: String = ""
-    var toolCalls: [ChatToolCall] = []
-    var toolStatus: String = ""
+nonisolated enum ChatToolDisplayEvent: Codable, Equatable {
+    case started(callID: String, toolID: String, displayName: String)
+    case completed(callID: String, toolID: String, displayName: String)
+    case failed(callID: String, toolID: String, displayName: String, message: String)
+
+    var callID: String {
+        switch self {
+        case let .started(callID, _, _),
+             let .completed(callID, _, _),
+             let .failed(callID, _, _, _):
+            return callID
+        }
+    }
+
+    private enum Kind: String, Codable {
+        case started
+        case completed
+        case failed
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case callID
+        case toolID
+        case displayName
+        case message
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let kind = try container.decode(Kind.self, forKey: .kind)
+        let callID = try container.decode(String.self, forKey: .callID)
+        let toolID = try container.decode(String.self, forKey: .toolID)
+        let displayName = try container.decode(String.self, forKey: .displayName)
+
+        switch kind {
+        case .started:
+            self = .started(callID: callID, toolID: toolID, displayName: displayName)
+        case .completed:
+            self = .completed(callID: callID, toolID: toolID, displayName: displayName)
+        case .failed:
+            self = .failed(
+                callID: callID,
+                toolID: toolID,
+                displayName: displayName,
+                message: try container.decodeIfPresent(String.self, forKey: .message) ?? ""
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+
+        switch self {
+        case let .started(callID, toolID, displayName):
+            try container.encode(Kind.started, forKey: .kind)
+            try container.encode(callID, forKey: .callID)
+            try container.encode(toolID, forKey: .toolID)
+            try container.encode(displayName, forKey: .displayName)
+        case let .completed(callID, toolID, displayName):
+            try container.encode(Kind.completed, forKey: .kind)
+            try container.encode(callID, forKey: .callID)
+            try container.encode(toolID, forKey: .toolID)
+            try container.encode(displayName, forKey: .displayName)
+        case let .failed(callID, toolID, displayName, message):
+            try container.encode(Kind.failed, forKey: .kind)
+            try container.encode(callID, forKey: .callID)
+            try container.encode(toolID, forKey: .toolID)
+            try container.encode(displayName, forKey: .displayName)
+            try container.encode(message, forKey: .message)
+        }
+    }
+}
+
+/// Ordered display events for one streamed delta. Keeping this separate from
+/// persisted text mirrors VS Code's response-part stream and prevents later
+/// reasoning/tool UI from being folded back into the first thinking block.
+nonisolated enum ChatResponseDisplayPart: Codable, Equatable {
+    case reasoning(String)
+    case content(String)
+    case toolEvent(ChatToolDisplayEvent)
 
     var isEmpty: Bool {
-        content.isEmpty && reasoning.isEmpty && toolCalls.isEmpty && toolStatus.isEmpty
+        switch self {
+        case let .reasoning(text),
+             let .content(text):
+            return text.isEmpty
+        case .toolEvent(_):
+            return false
+        }
+    }
+
+    private enum Kind: String, Codable {
+        case reasoning
+        case content
+        case toolEvent
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case text
+        case toolEvent
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let kind = try container.decode(Kind.self, forKey: .kind)
+
+        switch kind {
+        case .reasoning:
+            self = .reasoning(try container.decodeIfPresent(String.self, forKey: .text) ?? "")
+        case .content:
+            self = .content(try container.decodeIfPresent(String.self, forKey: .text) ?? "")
+        case .toolEvent:
+            self = .toolEvent(try container.decode(ChatToolDisplayEvent.self, forKey: .toolEvent))
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+
+        switch self {
+        case let .reasoning(text):
+            try container.encode(Kind.reasoning, forKey: .kind)
+            try container.encode(text, forKey: .text)
+        case let .content(text):
+            try container.encode(Kind.content, forKey: .kind)
+            try container.encode(text, forKey: .text)
+        case let .toolEvent(event):
+            try container.encode(Kind.toolEvent, forKey: .kind)
+            try container.encode(event, forKey: .toolEvent)
+        }
+    }
+}
+
+nonisolated struct ChatResponseDelta: Equatable {
+    var content: String
+    var reasoning: String
+    var toolCalls: [ChatToolCall]
+    var displayParts: [ChatResponseDisplayPart]
+
+    init(
+        content: String = "",
+        reasoning: String = "",
+        toolCalls: [ChatToolCall] = [],
+        displayParts: [ChatResponseDisplayPart]? = nil
+    ) {
+        self.content = content
+        self.reasoning = reasoning
+        self.toolCalls = toolCalls
+        self.displayParts = (displayParts ?? Self.makeDisplayParts(
+            content: content,
+            reasoning: reasoning
+        ))
+        .filter { !$0.isEmpty }
+    }
+
+    var isEmpty: Bool {
+        content.isEmpty
+            && reasoning.isEmpty
+            && toolCalls.isEmpty
+            && displayParts.isEmpty
+    }
+
+    private static func makeDisplayParts(
+        content: String,
+        reasoning: String
+    ) -> [ChatResponseDisplayPart] {
+        var parts: [ChatResponseDisplayPart] = []
+        if !reasoning.isEmpty {
+            parts.append(.reasoning(reasoning))
+        }
+        if !content.isEmpty {
+            parts.append(.content(content))
+        }
+        return parts
     }
 }
 

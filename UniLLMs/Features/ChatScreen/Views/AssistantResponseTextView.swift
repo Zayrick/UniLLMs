@@ -23,15 +23,14 @@ final class AssistantResponseTextView: UIView {
     }
 
     private enum TimelineSegmentKind {
-        case toolStatus
-        case reasoning
+        case thinking
         case content
     }
 
     private struct TimelineSegment {
         var kind: TimelineSegmentKind
         var view: UIView
-        var heightConstraint: NSLayoutConstraint
+        var heightConstraint: NSLayoutConstraint?
     }
 
     private let stackView = UIStackView()
@@ -52,6 +51,8 @@ final class AssistantResponseTextView: UIView {
     private var rawContentMarkdown = ""
     private var isLoading = false
     private var lastMeasuredTextWidth: CGFloat = 0.0
+    private weak var activeThinkingSection: ThinkingSectionView?
+    private var toolSectionsByCallID: [String: ThinkingSectionView] = [:]
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -73,37 +74,36 @@ final class AssistantResponseTextView: UIView {
             return
         }
 
-        isLoading = false
-        isResponseFinished = false
-        errorLabel.text = nil
-
-        if !reasoningDelta.isEmpty {
-            appendPlainTimelineSegment(
-                kind: .reasoning,
-                text: reasoningDelta,
-                attributes: reasoningAttributes
-            )
-        }
-        if !contentDelta.isEmpty {
-            rawContentMarkdown += contentDelta
-            appendContentTimelineSegment(contentDelta)
-        }
-
-        updateVisibility()
+        appendDisplayParts(
+            ChatResponseDelta(
+                content: contentDelta,
+                reasoning: reasoningDelta
+            ).displayParts
+        )
     }
 
-    func append(toolStatus statusDelta: String) {
-        guard !statusDelta.isEmpty else {
+    func appendDisplayPart(_ part: ChatResponseDisplayPart) {
+        appendDisplayParts([part])
+    }
+
+    func appendToolEvent(_ event: ChatToolDisplayEvent) {
+        appendDisplayParts([.toolEvent(event)])
+    }
+
+    private func appendDisplayParts(_ parts: [ChatResponseDisplayPart]) {
+        let visibleParts = parts.filter { !$0.isEmpty }
+        guard !visibleParts.isEmpty else {
             return
         }
 
         isLoading = false
+        isResponseFinished = false
         errorLabel.text = nil
-        appendPlainTimelineSegment(
-            kind: .toolStatus,
-            text: statusDelta,
-            attributes: toolStatusAttributes
-        )
+
+        for part in visibleParts {
+            appendDisplayPartWithoutUpdatingVisibility(part)
+        }
+
         updateVisibility()
     }
 
@@ -111,6 +111,7 @@ final class AssistantResponseTextView: UIView {
         isLoading = false
         isResponseFinished = true
         finishContentTimelineSegments()
+        finishAllThinkingSections(animated: true)
         errorLabel.text = message
         updateVisibility()
     }
@@ -137,6 +138,7 @@ final class AssistantResponseTextView: UIView {
     func finishStreamingContent() {
         isResponseFinished = true
         finishContentTimelineSegments()
+        finishAllThinkingSections(animated: true)
         updateVisibility()
     }
 
@@ -203,36 +205,94 @@ final class AssistantResponseTextView: UIView {
         timelineStackView.translatesAutoresizingMaskIntoConstraints = false
     }
 
-    private func appendPlainTimelineSegment(
-        kind: TimelineSegmentKind,
-        text: String,
-        attributes: [NSAttributedString.Key: Any]
-    ) {
+    private func appendDisplayPartWithoutUpdatingVisibility(_ part: ChatResponseDisplayPart) {
+        switch part {
+        case let .reasoning(text):
+            appendReasoningTimelinePart(text)
+        case let .content(markdown):
+            appendContentTimelinePart(markdown)
+        case let .toolEvent(event):
+            appendToolTimelineEvent(event)
+        }
+    }
+
+    private func appendReasoningTimelinePart(_ text: String) {
         guard !text.isEmpty else {
             return
         }
 
-        if let lastSegment = timelineSegments.last,
-           lastSegment.kind == kind,
-           let textView = lastSegment.view as? StreamingTextView {
-            textView.append(text, attributes: attributes)
+        ensureActiveThinkingSection().appendReasoning(text)
+    }
+
+    private func appendContentTimelinePart(_ markdown: String) {
+        guard !markdown.isEmpty else {
             return
         }
 
-        let textView = StreamingTextView()
-        configurePlainTextView(textView, textStyle: .callout, color: .secondaryLabel)
-        timelineStackView.addArrangedSubview(textView)
+        // Like VS Code's look-ahead completion for thinking parts, visible
+        // assistant content is the boundary that ends the current thinking run.
+        finishActiveThinkingSection(animated: true)
+        rawContentMarkdown += markdown
+        appendContentTimelineSegment(markdown)
+    }
 
-        let heightConstraint = textView.heightAnchor.constraint(equalToConstant: 0.0)
-        heightConstraint.isActive = true
+    private func appendToolTimelineEvent(_ event: ChatToolDisplayEvent) {
+        switch event {
+        case let .started(callID, _, displayName):
+            let section = ensureActiveThinkingSection()
+            toolSectionsByCallID[callID] = section
+            section.appendToolInvocation(
+                callID: callID,
+                displayName: displayName,
+                state: .running
+            )
+        case let .completed(callID, _, displayName):
+            let section = toolSectionsByCallID[callID] ?? ensureActiveThinkingSection()
+            toolSectionsByCallID[callID] = section
+            _ = section.appendToolInvocation(
+                callID: callID,
+                displayName: displayName,
+                state: .completed
+            )
+        case let .failed(callID, _, displayName, message):
+            let section = toolSectionsByCallID[callID] ?? ensureActiveThinkingSection()
+            toolSectionsByCallID[callID] = section
+            _ = section.appendToolInvocation(
+                callID: callID,
+                displayName: displayName,
+                state: .failed(message: message)
+            )
+        }
+    }
+
+    private func ensureActiveThinkingSection() -> ThinkingSectionView {
+        if let activeThinkingSection {
+            return activeThinkingSection
+        }
+
+        let section = ThinkingSectionView()
+        timelineStackView.addArrangedSubview(section)
         timelineSegments.append(
             TimelineSegment(
-                kind: kind,
-                view: textView,
-                heightConstraint: heightConstraint
+                kind: .thinking,
+                view: section,
+                heightConstraint: nil
             )
         )
-        textView.append(text, attributes: attributes)
+        activeThinkingSection = section
+        return section
+    }
+
+    private func finishActiveThinkingSection(animated: Bool) {
+        activeThinkingSection?.setThinking(false, animated: animated)
+        activeThinkingSection = nil
+    }
+
+    private func finishAllThinkingSections(animated: Bool) {
+        for segment in timelineSegments where segment.kind == .thinking {
+            (segment.view as? ThinkingSectionView)?.setThinking(false, animated: animated)
+        }
+        activeThinkingSection = nil
     }
 
     private func appendContentTimelineSegment(_ markdown: String) {
@@ -262,6 +322,43 @@ final class AssistantResponseTextView: UIView {
         markdownView.appendMarkdown(markdown)
     }
 
+    /// Synchronously seed an already-completed tool call when replaying stored history.
+    func appendCompletedToolInvocation(callID: String, displayName: String, failed: Bool, message: String?) {
+        if failed {
+            appendDisplayParts(
+                [
+                    .toolEvent(
+                        .failed(
+                            callID: callID,
+                            toolID: displayName,
+                            displayName: displayName,
+                            message: message ?? ""
+                        )
+                    )
+                ]
+            )
+        } else {
+            appendDisplayParts(
+                [
+                    .toolEvent(
+                        .completed(
+                            callID: callID,
+                            toolID: displayName,
+                            displayName: displayName
+                        )
+                    )
+                ]
+            )
+        }
+    }
+
+    func appendStoredReasoning(_ text: String) {
+        guard !text.isEmpty else {
+            return
+        }
+        appendDisplayParts([.reasoning(text)])
+    }
+
     private func finishContentTimelineSegments() {
         for segment in timelineSegments where segment.kind == .content {
             (segment.view as? StreamingMarkdownView)?.finishStreamingContent()
@@ -279,17 +376,6 @@ final class AssistantResponseTextView: UIView {
         textView.setContentCompressionResistancePriority(.required, for: .vertical)
         textView.setContentHuggingPriority(.required, for: .vertical)
         textView.translatesAutoresizingMaskIntoConstraints = false
-    }
-
-    private func configurePlainTextView(
-        _ textView: UITextView,
-        textStyle: UIFont.TextStyle,
-        color: UIColor
-    ) {
-        configureTextView(textView)
-        textView.font = .preferredFont(forTextStyle: textStyle)
-        textView.adjustsFontForContentSizeCategory = true
-        textView.textColor = color
     }
 
     private func makeContentMarkdownView() -> StreamingMarkdownView {
@@ -429,10 +515,13 @@ final class AssistantResponseTextView: UIView {
         }
 
         for segment in timelineSegments {
+            guard let constraint = segment.heightConstraint else {
+                continue
+            }
             if let textView = segment.view as? UITextView {
-                updateTextViewHeight(textView, constraint: segment.heightConstraint, width: width)
+                updateTextViewHeight(textView, constraint: constraint, width: width)
             } else {
-                updateContentHeight(segment.view, constraint: segment.heightConstraint, width: width)
+                updateContentHeight(segment.view, constraint: constraint, width: width)
             }
         }
         lastMeasuredTextWidth = width
@@ -478,53 +567,6 @@ final class AssistantResponseTextView: UIView {
             (superview?.bounds.width ?? 0.0) - Metrics.horizontalInset * 2.0,
             1.0
         )
-    }
-
-    private var reasoningAttributes: [NSAttributedString.Key: Any] {
-        let font = UIFont.preferredFont(forTextStyle: .callout, compatibleWith: traitCollection)
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = Self.systemLineSpacing(for: font)
-        paragraphStyle.paragraphSpacing = Self.systemParagraphSpacing(for: font)
-
-        return [
-            NSAttributedString.Key.font: font,
-            NSAttributedString.Key.foregroundColor: UIColor.secondaryLabel,
-            NSAttributedString.Key.paragraphStyle: paragraphStyle
-        ]
-    }
-
-    private var toolStatusAttributes: [NSAttributedString.Key: Any] {
-        let font = UIFont.preferredFont(forTextStyle: .callout, compatibleWith: traitCollection)
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = Self.systemLineSpacing(for: font)
-        paragraphStyle.paragraphSpacing = Self.systemParagraphSpacing(for: font)
-
-        return [
-            NSAttributedString.Key.font: font,
-            NSAttributedString.Key.foregroundColor: UIColor.secondaryLabel,
-            NSAttributedString.Key.paragraphStyle: paragraphStyle
-        ]
-    }
-
-    private static func systemParagraphSpacing(for font: UIFont) -> CGFloat {
-        ceil(max(font.leading, font.lineHeight - font.pointSize))
-    }
-
-    private static func systemLineSpacing(for font: UIFont) -> CGFloat {
-        ceil(max(font.leading, font.lineHeight - font.pointSize))
-    }
-
-    private final class StreamingTextView: UITextView {
-        func append(_ string: String, attributes: [NSAttributedString.Key: Any]) {
-            guard !string.isEmpty else {
-                return
-            }
-
-            textStorage.beginEditing()
-            textStorage.append(NSAttributedString(string: string, attributes: attributes))
-            textStorage.endEditing()
-            invalidateIntrinsicContentSize()
-        }
     }
 
     private final class CopyMarkdownButton: UIControl {
