@@ -53,13 +53,7 @@ final class UserDefaultsMCPServerStore: MCPServerStore {
     }
 
     func makeServerDraft() -> MCPServerRecord {
-        let servers = loadServers()
-        return MCPServerRecord(
-            name: makeUniqueServerName(
-                baseName: "MCP Server",
-                existingServers: servers
-            )
-        )
+        MCPServerRecord(name: "")
     }
 
     func saveServerRecord(_ server: MCPServerRecord) {
@@ -98,23 +92,5 @@ final class UserDefaultsMCPServerStore: MCPServerStore {
     private func saveState(_ state: PersistedState) {
         store.save(state, forKey: storageKey)
         NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
-    }
-
-    private func makeUniqueServerName(
-        baseName: String,
-        existingServers: [MCPServerRecord]
-    ) -> String {
-        let existingNames = Set(existingServers.map(\.name))
-
-        guard existingNames.contains(baseName) else {
-            return baseName
-        }
-
-        var suffix = 1
-        while existingNames.contains("\(baseName) \(suffix)") {
-            suffix += 1
-        }
-
-        return "\(baseName) \(suffix)"
     }
 }

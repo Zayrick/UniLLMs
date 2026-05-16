@@ -319,6 +319,8 @@ final class UniLLMsTests: XCTestCase {
     func testMCPServerStorePersistsServers() {
         let mcpStore = UserDefaultsMCPServerStore(defaults: defaults, storageKey: "mcpServers")
         var server = mcpStore.makeServerDraft()
+        XCTAssertEqual(server.name, "")
+
         server.name = "Team Tools"
         server.configuration = MCPServerConfiguration(
             endpoint: "https://example.com/mcp",
