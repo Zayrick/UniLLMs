@@ -1719,6 +1719,86 @@ final class UniLLMsTests: XCTestCase {
         }
     }
 
+    func testOpenRouterClientFetchModelsUsesAuthenticatedUserModelsEndpoint() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RequestCapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let client = OpenRouterAPIClient(session: session)
+
+        RequestCapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            XCTAssertEqual(url.absoluteString, "https://openrouter.ai/api/v1/models/user")
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "application/json")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer sk-or-test")
+
+            let response = try XCTUnwrap(
+                HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )
+            )
+            let data = try XCTUnwrap(
+                #"{"data":[{"id":"openai/gpt-4o-mini","name":"GPT-4o mini","context_length":128000}]}"#
+                    .data(using: .utf8)
+            )
+            return (response, data)
+        }
+        defer {
+            RequestCapturingURLProtocol.requestHandler = nil
+        }
+
+        let models = try await client.fetchModels(
+            apiBase: " https://openrouter.ai/api/v1/ ",
+            apiKey: " sk-or-test "
+        )
+
+        XCTAssertEqual(
+            models,
+            [
+                LLMsProviderModel(
+                    id: "openai/gpt-4o-mini",
+                    name: "GPT-4o mini",
+                    contextLength: 128_000
+                )
+            ]
+        )
+    }
+
+}
+
+private final class RequestCapturingURLProtocol: URLProtocol {
+    typealias RequestHandler = (URLRequest) throws -> (HTTPURLResponse, Data)
+
+    static var requestHandler: RequestHandler?
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard let requestHandler = Self.requestHandler else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+
+        do {
+            let (response, data) = try requestHandler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
 }
 
 private struct StaticModelProvider: LLMsProviderAdapter {

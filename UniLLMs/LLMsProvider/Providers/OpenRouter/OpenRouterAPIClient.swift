@@ -303,6 +303,7 @@ nonisolated struct OpenRouterAPIClient {
     private func modelsURL(apiBase: String) throws -> URL {
         try normalizedAPIBaseURL(apiBase: apiBase)
             .appendingPathComponent("models")
+            .appendingPathComponent("user")
     }
 
     private func chatCompletionsRequest(
