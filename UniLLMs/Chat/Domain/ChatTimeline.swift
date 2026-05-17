@@ -35,6 +35,19 @@ nonisolated struct ChatTimelineEvent: Codable, Equatable, Identifiable {
 }
 
 nonisolated extension ChatTimelineEvent {
+    var attachments: [ChatAttachment] {
+        switch kind {
+        case let .userMessageWithAttachments(_, attachments):
+            return attachments
+        case .userMessage,
+             .assistantReasoning,
+             .assistantContent,
+             .assistantToolCalls,
+             .toolEvent:
+            return []
+        }
+    }
+
     var isEmpty: Bool {
         switch kind {
         case let .userMessage(text),
@@ -61,6 +74,10 @@ nonisolated extension ChatTimelineEvent {
                 return $0.offset < $1.offset
             }
             .map(\.element)
+    }
+
+    static func attachments(from events: [ChatTimelineEvent]) -> [ChatAttachment] {
+        events.flatMap(\.attachments)
     }
 
     static func messages(from events: [ChatTimelineEvent]) -> [ChatMessage] {

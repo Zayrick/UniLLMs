@@ -102,43 +102,30 @@ nonisolated struct ChatAttachment: Codable, Equatable, Identifiable {
         case file
     }
 
+    /// Stable ID of this attachment instance inside a message.
     var id: UUID
+    /// Stable ID of the on-disk file asset referenced by this attachment.
+    var assetID: UUID
     var kind: Kind
     var filename: String
     var contentType: String
-    /// Path stored relative to `ChatAttachmentStore`'s root directory.
-    /// `nil` for attachments that have not yet been written to disk.
-    var relativePath: String?
+    /// File name stored relative to `ChatAttachmentStore`'s root directory.
+    var relativePath: String
 
     init(
         id: UUID = UUID(),
+        assetID: UUID = UUID(),
         kind: Kind,
         filename: String,
         contentType: String,
-        relativePath: String? = nil
+        relativePath: String
     ) {
         self.id = id
+        self.assetID = assetID
         self.kind = kind
         self.filename = filename
         self.contentType = contentType
         self.relativePath = relativePath
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case id
-        case kind
-        case filename
-        case contentType
-        case relativePath
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(UUID.self, forKey: .id)
-        kind = try container.decodeIfPresent(Kind.self, forKey: .kind) ?? .file
-        filename = try container.decode(String.self, forKey: .filename)
-        contentType = try container.decode(String.self, forKey: .contentType)
-        relativePath = try container.decodeIfPresent(String.self, forKey: .relativePath)
     }
 }
 

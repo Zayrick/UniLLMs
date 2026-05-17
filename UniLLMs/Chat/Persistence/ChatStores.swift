@@ -34,13 +34,16 @@ final class UserDefaultsChatStore: ChatHistoryStore {
 
     private let store: UserDefaultsStore
     private let storageKey: String
+    private let attachmentStore: ChatAttachmentStore
 
     init(
         defaults: UserDefaults = .standard,
-        storageKey: String = "chatHistory"
+        storageKey: String = "chatHistory",
+        attachmentStore: ChatAttachmentStore = .shared
     ) {
         store = UserDefaultsStore(defaults: defaults)
         self.storageKey = storageKey
+        self.attachmentStore = attachmentStore
     }
 
     func fetchSessions() async throws -> [ChatSession] {
@@ -59,9 +62,12 @@ final class UserDefaultsChatStore: ChatHistoryStore {
 
     func deleteSession(id: UUID) async throws {
         var payload = loadPayload()
+        let removedEvents = payload.eventsBySessionID[id.uuidString] ?? []
         payload.sessions.removeAll { $0.id == id }
         payload.eventsBySessionID[id.uuidString] = nil
+        let retainedEvents = payload.eventsBySessionID.values.flatMap { $0 }
         savePayload(payload)
+        try deleteUnreferencedAttachments(removing: removedEvents, retainedBy: retainedEvents)
     }
 
     func fetchEvents(sessionID: UUID) async throws -> [ChatTimelineEvent] {
@@ -80,8 +86,12 @@ final class UserDefaultsChatStore: ChatHistoryStore {
 
     func saveEvents(_ events: [ChatTimelineEvent], sessionID: UUID) async throws {
         var payload = loadPayload()
-        payload.eventsBySessionID[sessionID.uuidString] = ChatTimelineEvent.sortedChronologically(events)
+        let previousEvents = payload.eventsBySessionID[sessionID.uuidString] ?? []
+        let storedEvents = ChatTimelineEvent.sortedChronologically(events)
+        payload.eventsBySessionID[sessionID.uuidString] = storedEvents
+        let retainedEvents = payload.eventsBySessionID.values.flatMap { $0 }
         savePayload(payload)
+        try deleteUnreferencedAttachments(removing: previousEvents, retainedBy: retainedEvents)
     }
 
     private func loadPayload() -> Payload {
@@ -90,6 +100,16 @@ final class UserDefaultsChatStore: ChatHistoryStore {
 
     private func savePayload(_ payload: Payload) {
         store.save(payload, forKey: storageKey)
+    }
+
+    private func deleteUnreferencedAttachments(
+        removing removedEvents: [ChatTimelineEvent],
+        retainedBy retainedEvents: [ChatTimelineEvent]
+    ) throws {
+        try attachmentStore.deleteUnreferencedAttachments(
+            removing: ChatTimelineEvent.attachments(from: removedEvents),
+            referencedBy: ChatTimelineEvent.attachments(from: retainedEvents)
+        )
     }
 
     private static func sortSessionsByLastSentDate(_ lhs: ChatSession, _ rhs: ChatSession) -> Bool {

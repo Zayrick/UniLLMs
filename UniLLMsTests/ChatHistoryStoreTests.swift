@@ -14,20 +14,35 @@ final class ChatHistoryStoreTests: XCTestCase {
     private var defaults: UserDefaults!
     private var suiteName: String!
     private var store: UserDefaultsChatStore!
+    private var attachmentDirectory: URL!
+    private var attachmentStore: ChatAttachmentStore!
 
     override func setUpWithError() throws {
         suiteName = "ChatHistoryStoreTests.\(UUID().uuidString)"
         defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        store = UserDefaultsChatStore(defaults: defaults, storageKey: "chatHistory")
+        attachmentDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ChatHistoryStoreTests-\(UUID().uuidString)", isDirectory: true)
+        attachmentStore = ChatAttachmentStore(rootDirectory: attachmentDirectory)
+        store = UserDefaultsChatStore(
+            defaults: defaults,
+            storageKey: "chatHistory",
+            attachmentStore: attachmentStore
+        )
     }
 
     override func tearDownWithError() throws {
         if let defaults, let suiteName {
             defaults.removePersistentDomain(forName: suiteName)
         }
+        if let attachmentDirectory,
+           FileManager.default.fileExists(atPath: attachmentDirectory.path) {
+            try? FileManager.default.removeItem(at: attachmentDirectory)
+        }
         defaults = nil
         suiteName = nil
         store = nil
+        attachmentDirectory = nil
+        attachmentStore = nil
     }
 
     func testFetchSessionsSortsByLastSentDate() async throws {
@@ -228,5 +243,115 @@ final class ChatHistoryStoreTests: XCTestCase {
 
         XCTAssertTrue(try await store.fetchSessions().isEmpty)
         XCTAssertTrue(try await store.fetchEvents(sessionID: session.id).isEmpty)
+    }
+
+    func testAttachmentStoreCreatesDistinctAttachmentsForDuplicateData() throws {
+        let data = Data("same file bytes".utf8)
+
+        let first = try attachmentStore.store(
+            data: data,
+            filename: "first.txt",
+            kind: .file,
+            contentType: "text/plain",
+            preferredExtension: "txt"
+        )
+        let second = try attachmentStore.store(
+            data: data,
+            filename: "second.txt",
+            kind: .file,
+            contentType: "text/plain",
+            preferredExtension: "txt"
+        )
+
+        XCTAssertNotEqual(first.id, second.id)
+        XCTAssertNotEqual(first.assetID, second.assetID)
+        XCTAssertNotEqual(attachmentStore.fileURL(for: first), attachmentStore.fileURL(for: second))
+        XCTAssertEqual(try attachmentStore.loadData(for: first), data)
+        XCTAssertEqual(try attachmentStore.loadData(for: second), data)
+    }
+
+    func testSaveEventsRemovesAttachmentNoLongerReferencedBySession() async throws {
+        let session = ChatSession(title: "Replacement")
+        let attachment = try attachmentStore.store(
+            data: Data("remove after replacement".utf8),
+            filename: "replace.txt",
+            kind: .file,
+            contentType: "text/plain",
+            preferredExtension: "txt"
+        )
+        let eventWithAttachment = ChatTimelineEvent(
+            kind: .userMessageWithAttachments(text: "Attached", attachments: [attachment])
+        )
+        let replacementEvent = ChatTimelineEvent(kind: .userMessage(text: "No attachment"))
+
+        try await store.saveSession(session)
+        try await store.saveEvents([eventWithAttachment], sessionID: session.id)
+        XCTAssertNotNil(attachmentStore.fileURL(for: attachment))
+
+        try await store.saveEvents([replacementEvent], sessionID: session.id)
+
+        XCTAssertNil(attachmentStore.fileURL(for: attachment))
+    }
+
+    func testDeleteSessionRemovesUnreferencedAttachmentFile() async throws {
+        let session = ChatSession(title: "Attachment")
+        let attachment = try attachmentStore.store(
+            data: Data("delete me".utf8),
+            filename: "delete.txt",
+            kind: .file,
+            contentType: "text/plain",
+            preferredExtension: "txt"
+        )
+        let event = ChatTimelineEvent(
+            kind: .userMessageWithAttachments(text: "See attached", attachments: [attachment])
+        )
+
+        try await store.saveSession(session)
+        try await store.saveEvent(event, sessionID: session.id)
+        XCTAssertNotNil(attachmentStore.fileURL(for: attachment))
+
+        try await store.deleteSession(id: session.id)
+
+        XCTAssertNil(attachmentStore.fileURL(for: attachment))
+    }
+
+    func testDeleteSessionKeepsAttachmentFileReferencedByAnotherSession() async throws {
+        let firstSession = ChatSession(title: "First")
+        let secondSession = ChatSession(title: "Second")
+        let attachment = try attachmentStore.store(
+            data: Data("shared".utf8),
+            filename: "shared.txt",
+            kind: .file,
+            contentType: "text/plain",
+            preferredExtension: "txt"
+        )
+        let firstEvent = ChatTimelineEvent(
+            kind: .userMessageWithAttachments(text: "First", attachments: [attachment])
+        )
+        let secondAttachmentReference = ChatAttachment(
+            assetID: attachment.assetID,
+            kind: attachment.kind,
+            filename: attachment.filename,
+            contentType: attachment.contentType,
+            relativePath: attachment.relativePath
+        )
+        let secondEvent = ChatTimelineEvent(
+            kind: .userMessageWithAttachments(text: "Second", attachments: [secondAttachmentReference])
+        )
+
+        try await store.saveSession(firstSession)
+        try await store.saveSession(secondSession)
+        try await store.saveEvent(firstEvent, sessionID: firstSession.id)
+        try await store.saveEvent(secondEvent, sessionID: secondSession.id)
+
+        XCTAssertNotEqual(attachment.id, secondAttachmentReference.id)
+
+        try await store.deleteSession(id: firstSession.id)
+
+        XCTAssertNotNil(attachmentStore.fileURL(for: attachment))
+
+        try await store.deleteSession(id: secondSession.id)
+
+        XCTAssertNil(attachmentStore.fileURL(for: attachment))
     }
 }

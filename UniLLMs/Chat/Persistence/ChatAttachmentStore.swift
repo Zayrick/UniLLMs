@@ -2,12 +2,9 @@
 //  ChatAttachmentStore.swift
 //  UniLLMs
 //
-//  Persists chat attachment payloads (images and files) to a managed directory
-//  inside the app's Documents folder. The directory layout keeps each
-//  attachment under its own UUID-derived filename so the timeline only needs
-//  to persist a stable relative path next to the original filename and MIME
-//  type. The store is intentionally tiny: it only owns the on-disk bytes.
-//  Metadata lives in `ChatAttachment`.
+//  Persists chat attachment payloads (images and files) to a managed app
+//  support directory. Timelines store lightweight `ChatAttachment` references
+//  whose instance identity is separate from the on-disk file asset identity.
 //
 //  Created by Codex on 2026/5/17.
 //
@@ -31,6 +28,7 @@ nonisolated final class ChatAttachmentStore: @unchecked Sendable {
 
     private let fileManager: FileManager
     private let rootDirectory: URL
+    private let lock = NSLock()
 
     init(
         fileManager: FileManager = .default,
@@ -40,13 +38,15 @@ nonisolated final class ChatAttachmentStore: @unchecked Sendable {
         if let rootDirectory {
             self.rootDirectory = rootDirectory
         } else {
-            let documents = (try? fileManager.url(
-                for: .documentDirectory,
+            let applicationSupport = (try? fileManager.url(
+                for: .applicationSupportDirectory,
                 in: .userDomainMask,
                 appropriateFor: nil,
                 create: true
             )) ?? URL(fileURLWithPath: NSTemporaryDirectory())
-            self.rootDirectory = documents.appendingPathComponent("ChatAttachments", isDirectory: true)
+            self.rootDirectory = applicationSupport
+                .appendingPathComponent("UniLLMs", isDirectory: true)
+                .appendingPathComponent("ChatAttachments", isDirectory: true)
         }
 
         try? fileManager.createDirectory(
@@ -85,8 +85,8 @@ nonisolated final class ChatAttachmentStore: @unchecked Sendable {
     }
 
     /// Writes raw bytes to the managed directory and returns the matching
-    /// `ChatAttachment` metadata. Used for camera-captured images that don't
-    /// originate from a file URL.
+    /// `ChatAttachment` reference. Each call creates a distinct attachment
+    /// instance and a distinct on-disk file asset.
     @discardableResult
     func store(
         data: Data,
@@ -95,29 +95,38 @@ nonisolated final class ChatAttachmentStore: @unchecked Sendable {
         contentType: String,
         preferredExtension: String? = nil
     ) throws -> ChatAttachment {
+        let resolvedContentType = contentType.isEmpty ? "application/octet-stream" : contentType
+
+        lock.lock()
+        defer { lock.unlock() }
+
+        try ensureRootDirectoryExists()
         let attachmentID = UUID()
+        let assetID = UUID()
         let resolvedExtension = (preferredExtension?.isEmpty == false
             ? preferredExtension
-            : Self.preferredExtension(forMIMEType: contentType)) ?? "bin"
-        let relativePath = "\(attachmentID.uuidString).\(resolvedExtension)"
-        let destination = rootDirectory.appendingPathComponent(relativePath)
+            : Self.preferredExtension(forMIMEType: resolvedContentType)) ?? "bin"
+        let storedFilename = "\(assetID.uuidString).\(resolvedExtension)"
+        let destination = rootDirectory.appendingPathComponent(storedFilename)
         try data.write(to: destination, options: .atomic)
+
         return ChatAttachment(
             id: attachmentID,
+            assetID: assetID,
             kind: kind,
             filename: filename,
-            contentType: contentType,
-            relativePath: relativePath
+            contentType: resolvedContentType,
+            relativePath: storedFilename
         )
     }
 
     func fileURL(for attachment: ChatAttachment) -> URL? {
-        guard let relativePath = attachment.relativePath,
-              !relativePath.isEmpty else {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard let url = storedURL(for: attachment) else {
             return nil
         }
-
-        let url = rootDirectory.appendingPathComponent(relativePath)
         return fileManager.fileExists(atPath: url.path) ? url : nil
     }
 
@@ -127,6 +136,32 @@ nonisolated final class ChatAttachmentStore: @unchecked Sendable {
         }
 
         return try Data(contentsOf: url)
+    }
+
+    func deleteUnreferencedAttachments(
+        removing removedAttachments: [ChatAttachment],
+        referencedBy retainedAttachments: [ChatAttachment]
+    ) throws {
+        guard !removedAttachments.isEmpty else {
+            return
+        }
+
+        lock.lock()
+        defer { lock.unlock() }
+
+        let retainedAssetIDs = Set(retainedAttachments.map(\.assetID))
+        var deletedAssetIDs = Set<UUID>()
+
+        for attachment in removedAttachments where !retainedAssetIDs.contains(attachment.assetID) {
+            guard let url = storedURL(for: attachment),
+                  fileManager.fileExists(atPath: url.path) else {
+                continue
+            }
+            guard deletedAssetIDs.insert(attachment.assetID).inserted else {
+                continue
+            }
+            try fileManager.removeItem(at: url)
+        }
     }
 
     static func mimeType(forFilename filename: String) -> String? {
@@ -145,5 +180,23 @@ nonisolated final class ChatAttachmentStore: @unchecked Sendable {
             return nil
         }
         return ext
+    }
+
+    private func ensureRootDirectoryExists() throws {
+        try fileManager.createDirectory(
+            at: rootDirectory,
+            withIntermediateDirectories: true
+        )
+    }
+
+    private func storedURL(for attachment: ChatAttachment) -> URL? {
+        guard Self.isStoredRelativePath(attachment.relativePath) else {
+            return nil
+        }
+        return rootDirectory.appendingPathComponent(attachment.relativePath, isDirectory: false)
+    }
+
+    private static func isStoredRelativePath(_ relativePath: String) -> Bool {
+        !relativePath.isEmpty && relativePath == (relativePath as NSString).lastPathComponent
     }
 }
