@@ -2,10 +2,10 @@
 //  ThinkingSectionView.swift
 //  UniLLMs
 //
-//  A collapsible "Thinking" panel mirroring the VS Code Copilot chat layout.
-//  The header shows a chevron and a `ShimmerLabel` whose text shimmers while
-//  the model is still reasoning. The body contains an ordered list of items
-//  (reasoning text and tool invocations), each with a leading circular symbol
+//  A collapsible thinking panel mirroring the VS Code Copilot chat layout.
+//  The header shows a stable processing status while streaming, then a compact
+//  summary after the model finishes. The body contains an ordered list
+//  of reasoning text and tool invocations, each with a leading circular symbol
 //  badge and a vertical connector line that draws the thinking timeline.
 //
 
@@ -162,7 +162,6 @@ final class ThinkingSectionView: UIView {
     private let headerButton = UIControl()
     private let chevronImageView = UIImageView()
     private let titleLabel = ShimmerLabel()
-    private let detailLabel = UILabel()
 
     // MARK: - Body
 
@@ -175,6 +174,8 @@ final class ThinkingSectionView: UIView {
 
     private var isCollapsed = false
     private var isThinking = true
+    private var reasoningStepCount = 0
+    private var toolCallIDs: Set<String> = []
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -201,6 +202,7 @@ final class ThinkingSectionView: UIView {
         if let lastRow = itemRows.last,
            let reasoningTextView = lastRow.hostedView as? ReasoningTextView {
             reasoningTextView.append(text)
+            updateHeaderAfterTimelineChange()
             setNeedsConnectorLineUpdate()
             return
         }
@@ -208,6 +210,8 @@ final class ThinkingSectionView: UIView {
         let textView = ReasoningTextView()
         let row = makeRow(iconStyle: Self.reasoningIconStyle, hosted: textView)
         addRow(row)
+        reasoningStepCount += 1
+        updateHeaderAfterTimelineChange()
         textView.append(text)
     }
 
@@ -219,6 +223,8 @@ final class ThinkingSectionView: UIView {
         displayName: String,
         state: ToolInvocationView.State
     ) -> ToolInvocationView {
+        recordToolInvocation(callID: callID)
+
         if let existingRow = toolRowsByCallID[callID],
            let invocation = existingRow.hostedView as? ToolInvocationView {
             invocation.update(state: state)
@@ -240,6 +246,7 @@ final class ThinkingSectionView: UIView {
               let invocation = row.hostedView as? ToolInvocationView else {
             return
         }
+        recordToolInvocation(callID: callID)
         invocation.update(state: state)
         row.applyIconStyle(Self.toolIconStyle(for: state))
         setNeedsConnectorLineUpdate()
@@ -250,8 +257,11 @@ final class ThinkingSectionView: UIView {
             return
         }
         isThinking = thinking
-        titleLabel.isShimmering = thinking
-        titleLabel.text = thinking ? "Thinking" : "Thought process"
+        if thinking {
+            applyProcessingHeader()
+        } else {
+            applyFinishedHeader()
+        }
         if !thinking {
             setCollapsed(true, animated: animated)
         }
@@ -333,7 +343,7 @@ final class ThinkingSectionView: UIView {
         headerButton.addTarget(self, action: #selector(toggleCollapsed), for: .touchUpInside)
         headerButton.isAccessibilityElement = true
         headerButton.accessibilityTraits = .button
-        headerButton.accessibilityLabel = "Thinking"
+        headerButton.accessibilityLabel = "Processing"
         headerButton.accessibilityValue = "Expanded"
         containerStack.addArrangedSubview(headerButton)
 
@@ -349,20 +359,15 @@ final class ThinkingSectionView: UIView {
         headerButton.addSubview(chevronImageView)
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.text = "Thinking"
+        titleLabel.text = "Processing"
         titleLabel.font = .preferredFont(forTextStyle: .footnote)
         titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.numberOfLines = 1
+        titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.baseColor = .secondaryLabel
         titleLabel.isShimmering = true
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         headerButton.addSubview(titleLabel)
-
-        detailLabel.translatesAutoresizingMaskIntoConstraints = false
-        detailLabel.font = .preferredFont(forTextStyle: .footnote)
-        detailLabel.adjustsFontForContentSizeCategory = true
-        detailLabel.textColor = .tertiaryLabel
-        detailLabel.numberOfLines = 1
-        detailLabel.lineBreakMode = .byTruncatingTail
-        headerButton.addSubview(detailLabel)
 
         bodyContainer.translatesAutoresizingMaskIntoConstraints = false
         bodyContainer.clipsToBounds = true
@@ -390,12 +395,9 @@ final class ThinkingSectionView: UIView {
             chevronImageView.heightAnchor.constraint(equalToConstant: Metrics.chevronSize),
 
             titleLabel.leadingAnchor.constraint(equalTo: chevronImageView.trailingAnchor, constant: Metrics.chevronTrailingSpacing),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: headerButton.trailingAnchor),
             titleLabel.topAnchor.constraint(equalTo: headerButton.topAnchor, constant: Metrics.headerVerticalPadding),
             titleLabel.bottomAnchor.constraint(equalTo: headerButton.bottomAnchor, constant: -Metrics.headerVerticalPadding),
-
-            detailLabel.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 8.0),
-            detailLabel.trailingAnchor.constraint(lessThanOrEqualTo: headerButton.trailingAnchor),
-            detailLabel.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
 
             connectorLineView.topAnchor.constraint(equalTo: bodyContainer.topAnchor),
             connectorLineView.leadingAnchor.constraint(equalTo: bodyContainer.leadingAnchor),
@@ -411,6 +413,63 @@ final class ThinkingSectionView: UIView {
 
     @objc private func toggleCollapsed() {
         setCollapsed(!isCollapsed, animated: true)
+    }
+
+    // MARK: - Header state
+
+    private func recordToolInvocation(callID: String) {
+        toolCallIDs.insert(callID)
+        updateHeaderAfterTimelineChange()
+    }
+
+    private func updateHeaderAfterTimelineChange() {
+        if isThinking {
+            applyProcessingHeader()
+        } else {
+            applyFinishedHeader()
+        }
+    }
+
+    private var finishedSummaryTitle: String? {
+        var parts: [String] = []
+        if reasoningStepCount > 0 {
+            parts.append("\(reasoningStepCount) \(Self.reasoningStepLabel(for: reasoningStepCount))")
+        }
+        if toolCallIDs.count > 0 {
+            parts.append("\(toolCallIDs.count) \(Self.toolCallLabel(for: toolCallIDs.count))")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
+    private func applyProcessingHeader() {
+        isHidden = false
+        accessibilityElementsHidden = false
+        applyHeaderTitle("Processing", isShimmering: true)
+    }
+
+    private func applyFinishedHeader() {
+        guard let finishedSummaryTitle else {
+            titleLabel.isShimmering = false
+            isHidden = true
+            accessibilityElementsHidden = true
+            return
+        }
+
+        applyHeaderTitle(finishedSummaryTitle, isShimmering: false)
+    }
+
+    private func applyHeaderTitle(_ title: String, isShimmering: Bool) {
+        titleLabel.isShimmering = isShimmering
+        titleLabel.text = title
+        headerButton.accessibilityLabel = title
+    }
+
+    private static func reasoningStepLabel(for count: Int) -> String {
+        count == 1 ? "reasoning step" : "reasoning steps"
+    }
+
+    private static func toolCallLabel(for count: Int) -> String {
+        count == 1 ? "tool call" : "tool calls"
     }
 
     // MARK: - Item helpers
