@@ -11,6 +11,7 @@ import Foundation
 nonisolated struct ChatTimelineEvent: Codable, Equatable, Identifiable {
     enum Kind: Codable, Equatable {
         case userMessage(text: String)
+        case userMessageWithAttachments(text: String, attachments: [ChatAttachment])
         case assistantReasoning(text: String)
         case assistantContent(markdown: String)
         /// One provider-facing assistant message can request multiple tools.
@@ -39,6 +40,8 @@ nonisolated extension ChatTimelineEvent {
         case let .userMessage(text),
              let .assistantReasoning(text):
             return text.isEmpty
+        case let .userMessageWithAttachments(text, attachments):
+            return text.isEmpty && attachments.isEmpty
         case let .assistantContent(markdown):
             return markdown.isEmpty
         case let .assistantToolCalls(toolCalls):
@@ -90,6 +93,17 @@ nonisolated extension ChatTimelineEvent {
                         id: event.id,
                         role: .user,
                         content: text,
+                        createdAt: event.timestamp
+                    )
+                )
+            case let .userMessageWithAttachments(text, attachments):
+                flushAssistantDraft()
+                messages.append(
+                    ChatMessage(
+                        id: event.id,
+                        role: .user,
+                        content: text,
+                        attachments: attachments,
                         createdAt: event.timestamp
                     )
                 )
@@ -184,6 +198,7 @@ nonisolated struct ChatTimelineAccumulator: Equatable {
         case let .assistantContent(markdown):
             appendText(markdown, timestamp: event.timestamp, kind: .content)
         case .userMessage,
+             .userMessageWithAttachments,
              .assistantToolCalls,
              .toolEvent:
             events.append(event)

@@ -7,6 +7,9 @@
 //
 
 import UIKit
+import PhotosUI
+import QuickLook
+import UniformTypeIdentifiers
 
 final class ChatViewController: UIViewController {
     private enum HeaderLayout {
@@ -114,6 +117,9 @@ final class ChatViewController: UIViewController {
     private var activeResponseTask: Task<Void, Never>?
     private weak var activeResponseView: AssistantResponseTextView?
     private var isMessagesBottomLocked = true
+    private var pendingAttachments: [ChatAttachment] = []
+    private let attachmentStore = ChatAttachmentStore.shared
+    private var attachmentPreviewItem: AttachmentPreviewItem?
 
     func configure(dependencies: AppDependencyContainer) {
         self.dependencies = dependencies
@@ -349,6 +355,12 @@ final class ChatViewController: UIViewController {
         }
         composerView.onLayoutChange = { [weak self] in
             self?.updateMessagesContentInsets()
+        }
+        composerView.onRemoveAttachment = { [weak self] id in
+            self?.removePendingAttachment(id: id)
+        }
+        composerView.onPreviewAttachment = { [weak self] id in
+            self?.previewPendingAttachment(id: id)
         }
         mainPageView.addSubview(composerView)
 
@@ -732,14 +744,153 @@ final class ChatViewController: UIViewController {
         attachmentViewController.preferredTransition = .zoom { [weak self] _ in
             self?.composerView.plusSourceView
         }
+        attachmentViewController.onAction = { [weak self] action in
+            self?.handleAttachmentSheetAction(action)
+        }
         present(attachmentViewController, animated: true)
+    }
+
+    private func handleAttachmentSheetAction(_ action: AttachmentSheetViewController.Action) {
+        switch action {
+        case .camera:
+            presentCameraPicker()
+        case .photoLibrary:
+            presentPhotoLibraryPicker()
+        case .files:
+            presentDocumentPicker()
+        }
+    }
+
+    private func presentCameraPicker() {
+        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+            presentAttachmentError("Camera is not available on this device.")
+            return
+        }
+
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.cameraCaptureMode = .photo
+        picker.allowsEditing = false
+        picker.delegate = self
+        present(picker, animated: true)
+    }
+
+    private func presentPhotoLibraryPicker() {
+        var configuration = PHPickerConfiguration(photoLibrary: .shared())
+        configuration.filter = .images
+        configuration.selectionLimit = 0
+        configuration.preferredAssetRepresentationMode = .current
+
+        let picker = PHPickerViewController(configuration: configuration)
+        picker.delegate = self
+        present(picker, animated: true)
+    }
+
+    private func presentDocumentPicker() {
+        let picker = UIDocumentPickerViewController(
+            forOpeningContentTypes: [UTType.item],
+            asCopy: true
+        )
+        picker.allowsMultipleSelection = true
+        picker.delegate = self
+        present(picker, animated: true)
+    }
+
+    private func presentAttachmentError(_ message: String) {
+        let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
+    }
+
+    private func appendPendingAttachments(_ attachments: [ChatAttachment]) {
+        guard !attachments.isEmpty else { return }
+        pendingAttachments.append(contentsOf: attachments)
+        refreshComposerAttachmentPreview()
+    }
+
+    private func removePendingAttachment(id: UUID) {
+        guard let index = pendingAttachments.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        pendingAttachments.remove(at: index)
+        refreshComposerAttachmentPreview()
+    }
+
+    private func clearPendingAttachments() {
+        guard !pendingAttachments.isEmpty else { return }
+        pendingAttachments.removeAll()
+        refreshComposerAttachmentPreview()
+    }
+
+    private func previewPendingAttachment(id: UUID) {
+        guard let attachment = pendingAttachments.first(where: { $0.id == id }) else {
+            return
+        }
+
+        presentAttachmentPreview(for: attachment)
+    }
+
+    private func presentAttachmentPreview(for attachment: ChatAttachment) {
+        guard presentedViewController == nil else {
+            return
+        }
+
+        guard let url = attachmentStore.fileURL(for: attachment) else {
+            presentAttachmentError("The attachment file is missing.")
+            return
+        }
+
+        let previewItem = AttachmentPreviewItem(url: url, title: attachment.filename)
+        guard QLPreviewController.canPreview(previewItem) else {
+            presentAttachmentError("This file type cannot be previewed.")
+            return
+        }
+
+        attachmentPreviewItem = previewItem
+        view.endEditing(true)
+
+        let previewController = QLPreviewController()
+        previewController.dataSource = self
+        previewController.delegate = self
+        previewController.currentPreviewItemIndex = 0
+        present(previewController, animated: true)
+    }
+
+    private func refreshComposerAttachmentPreview() {
+        let displays = pendingAttachments.map { attachment -> GlassComposerBarView.PendingAttachmentDisplay in
+            let image: UIImage?
+            switch attachment.kind {
+            case .image:
+                if let url = attachmentStore.fileURL(for: attachment),
+                   let data = try? Data(contentsOf: url) {
+                    image = UIImage(data: data)
+                } else {
+                    image = nil
+                }
+            case .file:
+                image = nil
+            }
+
+            return GlassComposerBarView.PendingAttachmentDisplay(
+                id: attachment.id,
+                image: image,
+                filename: attachment.filename,
+                isFile: attachment.kind == .file
+            )
+        }
+        composerView.setPendingAttachments(displays)
     }
 
     private func appendSentMessage(using transition: GlassComposerBarView.SendTransition) {
         mainPageView.layoutIfNeeded()
         let existingMessageFrames = visibleMessageFrames()
 
-        let bubbleView = SentMessageBubbleView(text: transition.text)
+        let attachmentsForTurn = pendingAttachments
+        pendingAttachments.removeAll()
+        refreshComposerAttachmentPreview()
+
+        let bubbleView = SentMessageBubbleView(text: transition.text, attachments: attachmentsForTurn)
+        configureAttachmentPreview(for: bubbleView)
         bubbleView.translatesAutoresizingMaskIntoConstraints = false
         bubbleView.alpha = 0.0
         bubbleView.setContentHuggingPriority(.required, for: .vertical)
@@ -765,9 +916,17 @@ final class ChatViewController: UIViewController {
         scrollMessagesToBottom(animated: false)
         mainPageView.layoutIfNeeded()
 
-        startAssistantResponseStream(for: transition.text, responseView: responseView)
+        startAssistantResponseStream(
+            for: transition.text,
+            attachments: attachmentsForTurn,
+            responseView: responseView
+        )
         animateExistingMessages(from: existingMessageFrames)
-        animateSentMessage(bubbleView, from: transition) { [weak self, weak responseView] in
+        animateSentMessage(
+            bubbleView,
+            from: transition,
+            attachments: attachmentsForTurn
+        ) { [weak self, weak responseView] in
             guard let self,
                   let responseView else {
                 return
@@ -899,6 +1058,7 @@ final class ChatViewController: UIViewController {
     private func animateSentMessage(
         _ bubbleView: SentMessageBubbleView,
         from transition: GlassComposerBarView.SendTransition,
+        attachments: [ChatAttachment] = [],
         completion: (() -> Void)? = nil
     ) {
         guard view.window != nil,
@@ -911,7 +1071,7 @@ final class ChatViewController: UIViewController {
         let sourceBackgroundFrame = mainPageView.convert(transition.backgroundGlobalFrame, from: nil)
         let targetBubbleFrame = bubbleView.convert(bubbleView.bounds, to: mainPageView)
 
-        let animatedBubbleView = SentMessageBubbleView(text: transition.text)
+        let animatedBubbleView = SentMessageBubbleView(text: transition.text, attachments: attachments)
         animatedBubbleView.frame = sourceBackgroundFrame
         animatedBubbleView.alpha = 0.0
         animatedBubbleView.isUserInteractionEnabled = false
@@ -940,6 +1100,7 @@ final class ChatViewController: UIViewController {
 
     private func startAssistantResponseStream(
         for prompt: String,
+        attachments: [ChatAttachment] = [],
         responseView: AssistantResponseTextView
     ) {
         guard activeResponseTask == nil else {
@@ -950,7 +1111,7 @@ final class ChatViewController: UIViewController {
 
         let responseStream: AsyncThrowingStream<ChatResponseDelta, Error>
         do {
-            responseStream = try chatRuntime.startTurn(prompt: prompt)
+            responseStream = try chatRuntime.startTurn(prompt: prompt, attachments: attachments)
         } catch {
             setAssistantResponseError(error.localizedDescription, in: responseView)
             updateRightHeaderButtonState(animated: true)
@@ -1288,7 +1449,10 @@ final class ChatViewController: UIViewController {
             switch event.kind {
             case let .userMessage(text):
                 finishCurrentAssistantView()
-                appendStoredUserMessage(text)
+                appendStoredUserMessage(text: text, attachments: [])
+            case let .userMessageWithAttachments(text, attachments):
+                finishCurrentAssistantView()
+                appendStoredUserMessage(text: text, attachments: attachments)
             case let .assistantReasoning(text):
                 assistantView().appendStoredReasoning(text)
             case let .assistantContent(markdown):
@@ -1307,8 +1471,9 @@ final class ChatViewController: UIViewController {
         scrollMessagesToBottom(animated: false)
     }
 
-    private func appendStoredUserMessage(_ text: String) {
-        let bubbleView = SentMessageBubbleView(text: text)
+    private func appendStoredUserMessage(text: String, attachments: [ChatAttachment]) {
+        let bubbleView = SentMessageBubbleView(text: text, attachments: attachments)
+        configureAttachmentPreview(for: bubbleView)
         bubbleView.translatesAutoresizingMaskIntoConstraints = false
         bubbleView.setContentHuggingPriority(.required, for: .vertical)
         bubbleView.setContentCompressionResistancePriority(.required, for: .vertical)
@@ -1318,6 +1483,12 @@ final class ChatViewController: UIViewController {
             lessThanOrEqualTo: messagesStackView.widthAnchor,
             multiplier: MessagesLayout.maximumBubbleWidthRatio
         ).isActive = true
+    }
+
+    private func configureAttachmentPreview(for bubbleView: SentMessageBubbleView) {
+        bubbleView.onPreviewAttachment = { [weak self] attachment in
+            self?.presentAttachmentPreview(for: attachment)
+        }
     }
 
     private func makeStoredAssistantResponseView() -> AssistantResponseTextView {
@@ -1458,6 +1629,27 @@ final class ChatViewController: UIViewController {
 
 }
 
+extension ChatViewController: QLPreviewControllerDataSource, QLPreviewControllerDelegate {
+    func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
+        attachmentPreviewItem == nil ? 0 : 1
+    }
+
+    func previewController(
+        _ controller: QLPreviewController,
+        previewItemAt index: Int
+    ) -> any QLPreviewItem {
+        guard let attachmentPreviewItem else {
+            fatalError("Attachment preview requested without a preview item.")
+        }
+
+        return attachmentPreviewItem
+    }
+
+    func previewControllerDidDismiss(_ controller: QLPreviewController) {
+        attachmentPreviewItem = nil
+    }
+}
+
 extension ChatViewController: UIScrollViewDelegate {
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         guard scrollView === messagesScrollView else {
@@ -1503,5 +1695,156 @@ extension ChatViewController: UIScrollViewDelegate {
         }
 
         isMessagesBottomLocked = isMessagesScrolledToBottom()
+    }
+}
+
+extension ChatViewController: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+    func imagePickerController(
+        _ picker: UIImagePickerController,
+        didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+    ) {
+        picker.dismiss(animated: true)
+
+        guard let image = info[.originalImage] as? UIImage else { return }
+        importCapturedImage(image)
+    }
+
+    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+        picker.dismiss(animated: true)
+    }
+
+    private func importCapturedImage(_ image: UIImage) {
+        guard let data = image.jpegData(compressionQuality: 0.9) else {
+            presentAttachmentError("Could not encode the captured photo.")
+            return
+        }
+
+        let filename = "Photo-\(Self.timestampFilenameFormatter.string(from: Date())).jpg"
+        do {
+            let attachment = try attachmentStore.store(
+                data: data,
+                filename: filename,
+                kind: .image,
+                contentType: "image/jpeg",
+                preferredExtension: "jpg"
+            )
+            appendPendingAttachments([attachment])
+        } catch {
+            presentAttachmentError(error.localizedDescription)
+        }
+    }
+
+    private static let timestampFilenameFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        return formatter
+    }()
+}
+
+extension ChatViewController: PHPickerViewControllerDelegate {
+    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        picker.dismiss(animated: true)
+
+        guard !results.isEmpty else { return }
+
+        let providers = results.map(\.itemProvider)
+
+        Task { [weak self] in
+            var attachments: [ChatAttachment] = []
+            for (index, provider) in providers.enumerated() {
+                guard provider.canLoadObject(ofClass: UIImage.self) else {
+                    continue
+                }
+
+                let image: UIImage? = await withCheckedContinuation { continuation in
+                    provider.loadObject(ofClass: UIImage.self) { object, _ in
+                        continuation.resume(returning: object as? UIImage)
+                    }
+                }
+
+                guard let image,
+                      let data = image.jpegData(compressionQuality: 0.9),
+                      let self else {
+                    continue
+                }
+
+                let suggestedName = provider.suggestedName.flatMap { name -> String? in
+                    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return trimmed.isEmpty ? nil : "\(trimmed).jpg"
+                } ?? "Image-\(index + 1).jpg"
+
+                if let attachment = try? self.attachmentStore.store(
+                    data: data,
+                    filename: suggestedName,
+                    kind: .image,
+                    contentType: "image/jpeg",
+                    preferredExtension: "jpg"
+                ) {
+                    attachments.append(attachment)
+                }
+            }
+
+            let importedAttachments = attachments
+            await MainActor.run { [weak self] in
+                self?.appendPendingAttachments(importedAttachments)
+            }
+        }
+    }
+}
+
+extension ChatViewController: UIDocumentPickerDelegate {
+    func documentPicker(
+        _ controller: UIDocumentPickerViewController,
+        didPickDocumentsAt urls: [URL]
+    ) {
+        var attachments: [ChatAttachment] = []
+        for url in urls {
+            let needsScope = url.startAccessingSecurityScopedResource()
+            defer {
+                if needsScope {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            let kind: ChatAttachment.Kind
+            if let type = UTType(filenameExtension: url.pathExtension),
+               type.conforms(to: .image) {
+                kind = .image
+            } else {
+                kind = .file
+            }
+
+            do {
+                let attachment = try attachmentStore.importFile(
+                    from: url,
+                    suggestedFilename: url.lastPathComponent,
+                    kind: kind
+                )
+                attachments.append(attachment)
+            } catch {
+                presentAttachmentError(error.localizedDescription)
+            }
+        }
+        appendPendingAttachments(attachments)
+    }
+}
+
+private final class AttachmentPreviewItem: NSObject, QLPreviewItem {
+    private let url: URL
+    private let title: String
+
+    init(url: URL, title: String) {
+        self.url = url
+        self.title = title
+        super.init()
+    }
+
+    var previewItemURL: URL? {
+        url
+    }
+
+    var previewItemTitle: String? {
+        title
     }
 }

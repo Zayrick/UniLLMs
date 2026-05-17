@@ -84,7 +84,10 @@ final class ChatRuntime {
         currentSession.id
     }
 
-    func startTurn(prompt: String) throws -> AsyncThrowingStream<ChatResponseDelta, Error> {
+    func startTurn(
+        prompt: String,
+        attachments: [ChatAttachment] = []
+    ) throws -> AsyncThrowingStream<ChatResponseDelta, Error> {
         guard activeTurnID == nil else {
             throw ChatRuntimeError.turnAlreadyInProgress
         }
@@ -100,14 +103,17 @@ final class ChatRuntime {
         let turnID = UUID()
         let sentAt = clock.now
         if conversationTimeline.isEmpty {
-            currentSession.title = Self.makeSessionTitle(from: prompt)
+            currentSession.title = Self.makeSessionTitle(from: prompt, attachments: attachments)
             currentSession.createdAt = sentAt
         }
         currentSession.updatedAt = sentAt
 
+        let userEventKind: ChatTimelineEvent.Kind = attachments.isEmpty
+            ? .userMessage(text: prompt)
+            : .userMessageWithAttachments(text: prompt, attachments: attachments)
         let userEvent = ChatTimelineEvent(
             timestamp: sentAt,
-            kind: .userMessage(text: prompt)
+            kind: userEventKind
         )
         let requestTimeline = conversationTimeline + [userEvent]
         let requestMessages = ChatTimelineEvent.messages(from: requestTimeline)
@@ -245,16 +251,23 @@ final class ChatRuntime {
         }
     }
 
-    private static func makeSessionTitle(from prompt: String) -> String {
+    private static func makeSessionTitle(
+        from prompt: String,
+        attachments: [ChatAttachment] = []
+    ) -> String {
         let collapsedPrompt = prompt
             .components(separatedBy: .newlines)
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard !collapsedPrompt.isEmpty else {
-            return "New Chat"
+        if !collapsedPrompt.isEmpty {
+            return collapsedPrompt
         }
 
-        return collapsedPrompt
+        if let first = attachments.first {
+            return first.filename.isEmpty ? "Attachment" : first.filename
+        }
+
+        return "New Chat"
     }
 }

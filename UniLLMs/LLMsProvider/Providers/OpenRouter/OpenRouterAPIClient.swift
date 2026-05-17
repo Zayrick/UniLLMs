@@ -8,6 +8,103 @@
 
 import Foundation
 
+nonisolated enum OpenRouterMessageContent: Codable, Equatable {
+    case text(String)
+    case parts([OpenRouterContentPart])
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let string = try? container.decode(String.self) {
+            self = .text(string)
+            return
+        }
+        if let parts = try? container.decode([OpenRouterContentPart].self) {
+            self = .parts(parts)
+            return
+        }
+        throw DecodingError.dataCorruptedError(
+            in: container,
+            debugDescription: "Unsupported message content payload."
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case let .text(string):
+            try container.encode(string)
+        case let .parts(parts):
+            try container.encode(parts)
+        }
+    }
+}
+
+nonisolated enum OpenRouterContentPart: Codable, Equatable {
+    case text(String)
+    case imageURL(url: String)
+    case file(filename: String, fileData: String)
+
+    nonisolated private enum CodingKeys: String, CodingKey {
+        case type
+        case text
+        case imageURL = "image_url"
+        case file
+    }
+
+    nonisolated private struct ImageURLPayload: Codable, Equatable {
+        var url: String
+    }
+
+    nonisolated private struct FilePayload: Codable, Equatable {
+        var filename: String
+        var fileData: String
+
+        nonisolated private enum CodingKeys: String, CodingKey {
+            case filename
+            case fileData = "file_data"
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let type = try container.decode(String.self, forKey: .type)
+        switch type {
+        case "text":
+            self = .text(try container.decode(String.self, forKey: .text))
+        case "image_url":
+            let payload = try container.decode(ImageURLPayload.self, forKey: .imageURL)
+            self = .imageURL(url: payload.url)
+        case "file":
+            let payload = try container.decode(FilePayload.self, forKey: .file)
+            self = .file(filename: payload.filename, fileData: payload.fileData)
+        default:
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Unsupported content part type: \(type)"
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case let .text(string):
+            try container.encode("text", forKey: .type)
+            try container.encode(string, forKey: .text)
+        case let .imageURL(url):
+            try container.encode("image_url", forKey: .type)
+            try container.encode(ImageURLPayload(url: url), forKey: .imageURL)
+        case let .file(filename, fileData):
+            try container.encode("file", forKey: .type)
+            try container.encode(
+                FilePayload(filename: filename, fileData: fileData),
+                forKey: .file
+            )
+        }
+    }
+}
+
 nonisolated struct OpenRouterChatMessage: Codable, Equatable {
     nonisolated enum Role: String, Codable {
         case user
@@ -28,7 +125,7 @@ nonisolated struct OpenRouterChatMessage: Codable, Equatable {
     }
 
     var role: Role
-    var content: String?
+    var content: OpenRouterMessageContent?
     var toolCalls: [ToolCall]?
     var toolCallID: String?
 

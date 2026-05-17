@@ -76,6 +76,13 @@ nonisolated private extension ChatTimelineEvent {
         case let .userMessage(text),
              let .assistantReasoning(text):
             return text
+        case let .userMessageWithAttachments(text, attachments):
+            let attachmentText = attachments
+                .map { [$0.filename, $0.contentType].joined(separator: " ") }
+                .joined(separator: " ")
+            return [text, attachmentText]
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
         case let .assistantContent(markdown):
             return markdown
         case let .assistantToolCalls(toolCalls):

@@ -14,6 +14,13 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         let backgroundGlobalFrame: CGRect
     }
 
+    struct PendingAttachmentDisplay: Equatable {
+        let id: UUID
+        let image: UIImage?
+        let filename: String
+        let isFile: Bool
+    }
+
     private enum Metrics {
         static let controlHeight: CGFloat = 44.0
         static let spacing: CGFloat = 8.0
@@ -27,6 +34,10 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         static let sendButtonSize: CGFloat = 34.0
         static let iconPointSize: CGFloat = 18.0
         static let transitionDuration: TimeInterval = 0.24
+        static let attachmentChipSize: CGFloat = 110.0
+        static let attachmentChipSpacing: CGFloat = 10.0
+        static let attachmentPreviewVerticalPadding: CGFloat = 10.0
+        static let attachmentPreviewBottomSpacing: CGFloat = 8.0
     }
 
     private let stackView = UIStackView()
@@ -39,20 +50,28 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     private let textView = UITextView()
     private let placeholderLabel = UILabel()
     private let sendButton = UIButton(type: .system)
+    private let attachmentPreviewContainerView = UIView()
+    private let attachmentPreviewScrollView = UIScrollView()
+    private let attachmentPreviewStackView = UIStackView()
 
     private var capsuleContentLeadingConstraint: NSLayoutConstraint!
     private var capsuleContentTrailingConstraint: NSLayoutConstraint!
     private var waveformWidthConstraint: NSLayoutConstraint!
     private var textHeightConstraint: NSLayoutConstraint!
+    private var attachmentPreviewHeightConstraint: NSLayoutConstraint!
+    private var attachmentPreviewBottomSpacingConstraint: NSLayoutConstraint!
     private var lastMeasuredTextWidth: CGFloat = 0.0
     private var isShowingSendControl = false
     private var isShowingStopControl = false
     private var isStreamingResponse = false
+    private var pendingAttachments: [PendingAttachmentDisplay] = []
 
     var onSend: ((SendTransition) -> Void)?
     var onStop: (() -> Void)?
     var onPlusTap: (() -> Void)?
     var onLayoutChange: (() -> Void)?
+    var onRemoveAttachment: ((UUID) -> Void)?
+    var onPreviewAttachment: ((UUID) -> Void)?
     var isSendingEnabled = true {
         didSet {
             updateSendControlAvailability()
@@ -92,7 +111,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     func textViewDidChange(_ textView: UITextView) {
         let hasText = !textView.text.isEmpty
         placeholderLabel.isHidden = hasText
-        updateInputMode(hasText: hasText, animated: true)
+        updateInputMode(animated: true)
         updateTextHeight(animated: true)
     }
 
@@ -103,7 +122,34 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
 
         isStreamingResponse = isActive
         updateWaveformButtonStyle()
-        updateInputMode(hasText: !textView.text.isEmpty, animated: animated)
+        updateInputMode(animated: animated)
+    }
+
+    func setPendingAttachments(_ items: [PendingAttachmentDisplay]) {
+        pendingAttachments = items
+        rebuildAttachmentPreviewChips()
+        let hasAttachments = !items.isEmpty
+
+        attachmentPreviewContainerView.isHidden = !hasAttachments
+        attachmentPreviewHeightConstraint.constant = hasAttachments
+            ? Metrics.attachmentChipSize + Metrics.attachmentPreviewVerticalPadding * 2.0
+            : 0.0
+        attachmentPreviewBottomSpacingConstraint.constant = hasAttachments
+            ? Metrics.attachmentPreviewBottomSpacing
+            : 0.0
+
+        updateInputMode(animated: true)
+
+        UIView.animate(
+            withDuration: 0.2,
+            delay: 0.0,
+            options: [.beginFromCurrentState, .curveEaseInOut],
+            animations: {
+                self.superview?.layoutIfNeeded()
+                self.layoutIfNeeded()
+                self.onLayoutChange?()
+            }
+        )
     }
 
     private func configure() {
@@ -114,7 +160,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         configurePlusButton()
         configureWaveformButton()
         configureCapsule()
-        updateInputMode(hasText: false, animated: false)
+        updateInputMode(animated: false)
     }
 
     private func configureStackView() {
@@ -209,6 +255,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     private func configureCapsule() {
         configureTextView()
         configureSendButton()
+        configureAttachmentPreview()
 
         capsuleContentStackView.axis = .horizontal
         capsuleContentStackView.alignment = .bottom
@@ -216,6 +263,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         capsuleContentStackView.translatesAutoresizingMaskIntoConstraints = false
         textView.translatesAutoresizingMaskIntoConstraints = false
         sendButton.translatesAutoresizingMaskIntoConstraints = false
+        capsuleGlassView.contentView.addSubview(attachmentPreviewContainerView)
         capsuleGlassView.contentView.addSubview(capsuleContentStackView)
         capsuleContentStackView.addArrangedSubview(textView)
         capsuleGlassView.contentView.addSubview(sendButton)
@@ -232,12 +280,26 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
             equalTo: capsuleGlassView.contentView.trailingAnchor,
             constant: -Metrics.capsuleHorizontalInset
         )
+        attachmentPreviewBottomSpacingConstraint = capsuleContentStackView.topAnchor.constraint(
+            equalTo: attachmentPreviewContainerView.bottomAnchor,
+            constant: 0.0
+        )
 
         NSLayoutConstraint.activate([
-            capsuleContentStackView.topAnchor.constraint(
+            attachmentPreviewContainerView.topAnchor.constraint(
                 equalTo: capsuleGlassView.contentView.topAnchor,
                 constant: Metrics.capsuleVerticalInset
             ),
+            attachmentPreviewContainerView.leadingAnchor.constraint(
+                equalTo: capsuleGlassView.contentView.leadingAnchor,
+                constant: Metrics.capsuleHorizontalInset
+            ),
+            attachmentPreviewContainerView.trailingAnchor.constraint(
+                equalTo: capsuleGlassView.contentView.trailingAnchor,
+                constant: -Metrics.capsuleHorizontalInset
+            ),
+
+            attachmentPreviewBottomSpacingConstraint,
             capsuleContentLeadingConstraint,
             capsuleContentTrailingConstraint,
             capsuleContentStackView.bottomAnchor.constraint(
@@ -256,6 +318,41 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
             ),
             sendButton.widthAnchor.constraint(equalToConstant: Metrics.sendButtonSize),
             sendButton.heightAnchor.constraint(equalToConstant: Metrics.sendButtonSize)
+        ])
+    }
+
+    private func configureAttachmentPreview() {
+        attachmentPreviewContainerView.translatesAutoresizingMaskIntoConstraints = false
+        attachmentPreviewContainerView.clipsToBounds = true
+        attachmentPreviewContainerView.isHidden = true
+
+        attachmentPreviewScrollView.translatesAutoresizingMaskIntoConstraints = false
+        attachmentPreviewScrollView.showsHorizontalScrollIndicator = false
+        attachmentPreviewScrollView.showsVerticalScrollIndicator = false
+        attachmentPreviewScrollView.alwaysBounceHorizontal = true
+        attachmentPreviewScrollView.contentInset = .zero
+        attachmentPreviewContainerView.addSubview(attachmentPreviewScrollView)
+
+        attachmentPreviewStackView.axis = .horizontal
+        attachmentPreviewStackView.alignment = .center
+        attachmentPreviewStackView.spacing = Metrics.attachmentChipSpacing
+        attachmentPreviewStackView.translatesAutoresizingMaskIntoConstraints = false
+        attachmentPreviewScrollView.addSubview(attachmentPreviewStackView)
+
+        attachmentPreviewHeightConstraint = attachmentPreviewContainerView.heightAnchor.constraint(equalToConstant: 0.0)
+        attachmentPreviewHeightConstraint.isActive = true
+
+        NSLayoutConstraint.activate([
+            attachmentPreviewScrollView.topAnchor.constraint(equalTo: attachmentPreviewContainerView.topAnchor),
+            attachmentPreviewScrollView.leadingAnchor.constraint(equalTo: attachmentPreviewContainerView.leadingAnchor),
+            attachmentPreviewScrollView.trailingAnchor.constraint(equalTo: attachmentPreviewContainerView.trailingAnchor),
+            attachmentPreviewScrollView.bottomAnchor.constraint(equalTo: attachmentPreviewContainerView.bottomAnchor),
+
+            attachmentPreviewStackView.topAnchor.constraint(equalTo: attachmentPreviewScrollView.contentLayoutGuide.topAnchor),
+            attachmentPreviewStackView.leadingAnchor.constraint(equalTo: attachmentPreviewScrollView.contentLayoutGuide.leadingAnchor),
+            attachmentPreviewStackView.trailingAnchor.constraint(equalTo: attachmentPreviewScrollView.contentLayoutGuide.trailingAnchor),
+            attachmentPreviewStackView.bottomAnchor.constraint(equalTo: attachmentPreviewScrollView.contentLayoutGuide.bottomAnchor),
+            attachmentPreviewStackView.heightAnchor.constraint(equalTo: attachmentPreviewScrollView.frameLayoutGuide.heightAnchor)
         ])
     }
 
@@ -320,7 +417,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         }
 
         let messageText = textView.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !messageText.isEmpty else {
+        guard !messageText.isEmpty || !pendingAttachments.isEmpty else {
             return
         }
 
@@ -333,16 +430,18 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
 
         textView.text = ""
         placeholderLabel.isHidden = false
-        updateInputMode(hasText: false, animated: true)
+        updateInputMode(animated: true)
         updateTextHeight(animated: true)
 
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         onSend?(transition)
     }
 
-    private func updateInputMode(hasText: Bool, animated: Bool) {
+    private func updateInputMode(animated: Bool) {
+        let hasText = !textView.text.isEmpty
+        let hasContent = hasText || !pendingAttachments.isEmpty
         let shouldShowStopControl = isStreamingResponse
-        let shouldShowSendControl = hasText && !shouldShowStopControl
+        let shouldShowSendControl = hasContent && !shouldShowStopControl
         let shouldShowWaveformControl = !shouldShowSendControl
         let stateChanged = shouldShowSendControl != isShowingSendControl
             || shouldShowStopControl != isShowingStopControl
@@ -489,5 +588,172 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         effect.isInteractive = true
         effect.tintColor = tintColor
         return effect
+    }
+
+    private func rebuildAttachmentPreviewChips() {
+        attachmentPreviewStackView.arrangedSubviews.forEach { view in
+            attachmentPreviewStackView.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+
+        for item in pendingAttachments {
+            let chip = ComposerAttachmentChipView(item: item)
+            chip.onRemove = { [weak self] id in
+                self?.onRemoveAttachment?(id)
+            }
+            chip.onPreview = { [weak self] id in
+                self?.onPreviewAttachment?(id)
+            }
+            attachmentPreviewStackView.addArrangedSubview(chip)
+            chip.widthAnchor.constraint(equalToConstant: Metrics.attachmentChipSize).isActive = true
+            chip.heightAnchor.constraint(equalToConstant: Metrics.attachmentChipSize).isActive = true
+        }
+    }
+}
+
+private final class ComposerAttachmentChipView: UIView {
+    private enum Metrics {
+        static let cornerRadius: CGFloat = 16.0
+        static let removeButtonSize: CGFloat = 24.0
+        static let removeButtonInset: CGFloat = 5.0
+        static let removeIconPointSize: CGFloat = 10.0
+        static let fileIconPointSize: CGFloat = 30.0
+        static let filenameFontSize: CGFloat = 11.0
+        static let filenameBottomInset: CGFloat = 7.0
+        static let filenameHorizontalInset: CGFloat = 6.0
+    }
+
+    private let backgroundView = UIView()
+    private let imageView = UIImageView()
+    private let fileIconView = UIImageView()
+    private let filenameLabel = UILabel()
+    private let removeButton = UIButton(type: .system)
+    private let itemID: UUID
+
+    var onRemove: ((UUID) -> Void)?
+    var onPreview: ((UUID) -> Void)?
+
+    init(item: GlassComposerBarView.PendingAttachmentDisplay) {
+        itemID = item.id
+        super.init(frame: .zero)
+        configure(item: item)
+    }
+
+    required init?(coder: NSCoder) {
+        itemID = UUID()
+        super.init(coder: coder)
+    }
+
+    private func configure(item: GlassComposerBarView.PendingAttachmentDisplay) {
+        translatesAutoresizingMaskIntoConstraints = false
+        clipsToBounds = false
+
+        backgroundView.translatesAutoresizingMaskIntoConstraints = false
+        backgroundView.layer.cornerRadius = Metrics.cornerRadius
+        backgroundView.layer.cornerCurve = .continuous
+        backgroundView.clipsToBounds = true
+        backgroundView.backgroundColor = UIColor.secondarySystemFill
+        backgroundView.isUserInteractionEnabled = true
+        backgroundView.isAccessibilityElement = true
+        backgroundView.accessibilityLabel = item.filename
+        backgroundView.accessibilityHint = "Opens a preview"
+        backgroundView.accessibilityTraits = .button
+        backgroundView.addGestureRecognizer(
+            UITapGestureRecognizer(target: self, action: #selector(previewTapped))
+        )
+        addSubview(backgroundView)
+
+        if item.isFile {
+            fileIconView.translatesAutoresizingMaskIntoConstraints = false
+            fileIconView.contentMode = .scaleAspectFit
+            fileIconView.tintColor = .label
+            fileIconView.image = UIImage(
+                systemName: "doc.text.fill",
+                withConfiguration: UIImage.SymbolConfiguration(
+                    pointSize: Metrics.fileIconPointSize,
+                    weight: .semibold
+                )
+            )
+            backgroundView.addSubview(fileIconView)
+
+            filenameLabel.translatesAutoresizingMaskIntoConstraints = false
+            filenameLabel.text = item.filename
+            filenameLabel.font = .systemFont(ofSize: Metrics.filenameFontSize, weight: .medium)
+            filenameLabel.textColor = .label
+            filenameLabel.textAlignment = .center
+            filenameLabel.numberOfLines = 1
+            filenameLabel.lineBreakMode = .byTruncatingMiddle
+            backgroundView.addSubview(filenameLabel)
+        } else {
+            imageView.translatesAutoresizingMaskIntoConstraints = false
+            imageView.contentMode = .scaleAspectFill
+            imageView.clipsToBounds = true
+            imageView.image = item.image
+            backgroundView.addSubview(imageView)
+        }
+
+        var removeConfig = UIButton.Configuration.filled()
+        removeConfig.image = UIImage(
+            systemName: "xmark",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: Metrics.removeIconPointSize, weight: .bold)
+        )
+        removeConfig.baseBackgroundColor = UIColor.black.withAlphaComponent(0.72)
+        removeConfig.baseForegroundColor = .white
+        removeConfig.cornerStyle = .capsule
+        removeConfig.contentInsets = .zero
+        removeButton.configuration = removeConfig
+        removeButton.translatesAutoresizingMaskIntoConstraints = false
+        removeButton.accessibilityLabel = "Remove attachment"
+        removeButton.addAction(
+            UIAction { [weak self] _ in
+                guard let self else { return }
+                self.onRemove?(self.itemID)
+            },
+            for: .touchUpInside
+        )
+        addSubview(removeButton)
+
+        NSLayoutConstraint.activate([
+            backgroundView.topAnchor.constraint(equalTo: topAnchor),
+            backgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            backgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            backgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            removeButton.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.removeButtonInset),
+            removeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.removeButtonInset),
+            removeButton.widthAnchor.constraint(equalToConstant: Metrics.removeButtonSize),
+            removeButton.heightAnchor.constraint(equalToConstant: Metrics.removeButtonSize)
+        ])
+
+        if item.isFile {
+            NSLayoutConstraint.activate([
+                fileIconView.centerXAnchor.constraint(equalTo: backgroundView.centerXAnchor),
+                fileIconView.centerYAnchor.constraint(equalTo: backgroundView.centerYAnchor, constant: -7.0),
+
+                filenameLabel.leadingAnchor.constraint(
+                    equalTo: backgroundView.leadingAnchor,
+                    constant: Metrics.filenameHorizontalInset
+                ),
+                filenameLabel.trailingAnchor.constraint(
+                    equalTo: backgroundView.trailingAnchor,
+                    constant: -Metrics.filenameHorizontalInset
+                ),
+                filenameLabel.bottomAnchor.constraint(
+                    equalTo: backgroundView.bottomAnchor,
+                    constant: -Metrics.filenameBottomInset
+                )
+            ])
+        } else {
+            NSLayoutConstraint.activate([
+                imageView.topAnchor.constraint(equalTo: backgroundView.topAnchor),
+                imageView.leadingAnchor.constraint(equalTo: backgroundView.leadingAnchor),
+                imageView.trailingAnchor.constraint(equalTo: backgroundView.trailingAnchor),
+                imageView.bottomAnchor.constraint(equalTo: backgroundView.bottomAnchor)
+            ])
+        }
+    }
+
+    @objc private func previewTapped() {
+        onPreview?(itemID)
     }
 }

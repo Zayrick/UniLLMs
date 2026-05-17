@@ -3,73 +3,141 @@
 //  UniLLMs
 //
 //  Attachment sheet presented from the composer's plus button.
+//  Shows system list rows that map to Camera, Photo Library, and Files.
 //
 //  Created by Zayrick on 2026/5/16.
 //
 
 import UIKit
 
-final class AttachmentSheetViewController: UIViewController {
-    private enum Metrics {
-        static let contentHorizontalInset: CGFloat = 20.0
-        static let contentVerticalInset: CGFloat = 24.0
-        static let grabberTopSpacing: CGFloat = 8.0
-        static let titleFontSize: CGFloat = 17.0
+final class AttachmentSheetViewController: UITableViewController {
+    enum Action {
+        case camera
+        case photoLibrary
+        case files
     }
 
-    private let titleLabel = UILabel()
-    private let placeholderLabel = UILabel()
+    private enum Row: Int, CaseIterable {
+        case camera
+        case photoLibrary
+        case files
+
+        var action: Action {
+            switch self {
+            case .camera:
+                return .camera
+            case .photoLibrary:
+                return .photoLibrary
+            case .files:
+                return .files
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .camera:
+                return "Camera"
+            case .photoLibrary:
+                return "Photos"
+            case .files:
+                return "Files"
+            }
+        }
+
+        var description: String {
+            switch self {
+            case .camera:
+                return "Take a new photo."
+            case .photoLibrary:
+                return "Choose photos."
+            case .files:
+                return "Attach files."
+            }
+        }
+
+        var symbolName: String {
+            switch self {
+            case .camera:
+                return "camera.fill"
+            case .photoLibrary:
+                return "photo.on.rectangle"
+            case .files:
+                return "doc.fill"
+            }
+        }
+    }
+
+    private static let cellReuseIdentifier = "AttachmentActionCell"
+
+    var onAction: ((Action) -> Void)?
+
+    init() {
+        super.init(style: .insetGrouped)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
 
+        title = "Add Attachment"
+        // Required for the sheet transition; without this, the background overpaints during presentation.
         view.backgroundColor = .clear
-        configureContent()
+        tableView.separatorStyle = .none
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: Self.cellReuseIdentifier)
+        tableView.rowHeight = UITableView.automaticDimension
+        tableView.estimatedRowHeight = 72.0
     }
 
-    private func configureContent() {
-        titleLabel.text = "Attachments"
-        titleLabel.font = .systemFont(ofSize: Metrics.titleFontSize, weight: .semibold)
-        titleLabel.textColor = .label
-        titleLabel.textAlignment = .center
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+    override func numberOfSections(in tableView: UITableView) -> Int {
+        1
+    }
 
-        placeholderLabel.text = "Attachment options will appear here."
-        placeholderLabel.font = .preferredFont(forTextStyle: .body)
-        placeholderLabel.textColor = .secondaryLabel
-        placeholderLabel.numberOfLines = 0
-        placeholderLabel.textAlignment = .center
-        placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        Row.allCases.count
+    }
 
-        view.addSubview(titleLabel)
-        view.addSubview(placeholderLabel)
+    override func tableView(
+        _ tableView: UITableView,
+        cellForRowAt indexPath: IndexPath
+    ) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(
+            withIdentifier: Self.cellReuseIdentifier,
+            for: indexPath
+        )
+        guard let row = Row(rawValue: indexPath.row) else {
+            return cell
+        }
 
-        NSLayoutConstraint.activate([
-            titleLabel.topAnchor.constraint(
-                equalTo: view.safeAreaLayoutGuide.topAnchor,
-                constant: Metrics.contentVerticalInset
-            ),
-            titleLabel.leadingAnchor.constraint(
-                equalTo: view.leadingAnchor,
-                constant: Metrics.contentHorizontalInset
-            ),
-            titleLabel.trailingAnchor.constraint(
-                equalTo: view.trailingAnchor,
-                constant: -Metrics.contentHorizontalInset
-            ),
+        var content = UIListContentConfiguration.subtitleCell()
+        content.image = UIImage(systemName: row.symbolName)
+        content.text = row.title
+        content.secondaryText = row.description
+        content.imageProperties.tintColor = .label
 
-            placeholderLabel.topAnchor.constraint(
-                equalTo: titleLabel.bottomAnchor,
-                constant: Metrics.grabberTopSpacing
-            ),
-            placeholderLabel.leadingAnchor.constraint(
-                equalTo: view.leadingAnchor,
-                constant: Metrics.contentHorizontalInset
-            ),
-            placeholderLabel.trailingAnchor.constraint(
-                equalTo: view.trailingAnchor,
-                constant: -Metrics.contentHorizontalInset
-            )
-        ])
+        cell.backgroundConfiguration = .clear()
+        cell.backgroundColor = .clear
+        cell.contentView.backgroundColor = .clear
+        cell.contentConfiguration = content
+        cell.selectionStyle = .none
+        cell.accessoryType = .none
+        return cell
+    }
+
+    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: false)
+        guard let row = Row(rawValue: indexPath.row) else {
+            return
+        }
+        handleAction(row.action)
+    }
+
+    private func handleAction(_ action: Action) {
+        let handler = onAction
+        dismiss(animated: true) {
+            handler?(action)
+        }
     }
 }

@@ -70,6 +70,7 @@ nonisolated struct ChatMessage: Equatable, Identifiable {
     var toolCalls: [ChatToolCall]?
     var toolCallID: String?
     var toolDisplayName: String?
+    var attachments: [ChatAttachment]
     var createdAt: Date
 
     init(
@@ -80,6 +81,7 @@ nonisolated struct ChatMessage: Equatable, Identifiable {
         toolCalls: [ChatToolCall]? = nil,
         toolCallID: String? = nil,
         toolDisplayName: String? = nil,
+        attachments: [ChatAttachment] = [],
         createdAt: Date = Date()
     ) {
         self.id = id
@@ -89,26 +91,54 @@ nonisolated struct ChatMessage: Equatable, Identifiable {
         self.toolCalls = toolCalls
         self.toolCallID = toolCallID
         self.toolDisplayName = toolDisplayName
+        self.attachments = attachments
         self.createdAt = createdAt
     }
 }
 
 nonisolated struct ChatAttachment: Codable, Equatable, Identifiable {
+    nonisolated enum Kind: String, Codable, Equatable {
+        case image
+        case file
+    }
+
     var id: UUID
+    var kind: Kind
     var filename: String
     var contentType: String
-    var localURL: URL?
+    /// Path stored relative to `ChatAttachmentStore`'s root directory.
+    /// `nil` for attachments that have not yet been written to disk.
+    var relativePath: String?
 
     init(
         id: UUID = UUID(),
+        kind: Kind,
         filename: String,
         contentType: String,
-        localURL: URL? = nil
+        relativePath: String? = nil
     ) {
         self.id = id
+        self.kind = kind
         self.filename = filename
         self.contentType = contentType
-        self.localURL = localURL
+        self.relativePath = relativePath
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case kind
+        case filename
+        case contentType
+        case relativePath
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        kind = try container.decodeIfPresent(Kind.self, forKey: .kind) ?? .file
+        filename = try container.decode(String.self, forKey: .filename)
+        contentType = try container.decode(String.self, forKey: .contentType)
+        relativePath = try container.decodeIfPresent(String.self, forKey: .relativePath)
     }
 }
 
