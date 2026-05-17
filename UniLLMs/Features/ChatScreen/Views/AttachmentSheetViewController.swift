@@ -58,11 +58,11 @@ final class AttachmentSheetViewController: UITableViewController {
         var symbolName: String {
             switch self {
             case .camera:
-                return "camera.fill"
+                return "camera"
             case .photoLibrary:
-                return "photo.on.rectangle"
+                return "photo.on.rectangle.angled"
             case .files:
-                return "doc.fill"
+                return "text.document"
             }
         }
     }
