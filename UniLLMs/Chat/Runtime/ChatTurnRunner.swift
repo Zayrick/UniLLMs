@@ -159,19 +159,19 @@ final class ChatTurnRunner {
                     arguments: try Self.parseArguments(toolCall.arguments)
                 )
                 let result = try await toolManager.execute(call: call, context: executionContext)
-                let completedEvent = ChatToolEvent.completed(displayToolCall, result: result.content)
-                continuation.yield(.timelineEvent(.toolEvent(completedEvent)))
+                let event = Self.toolEvent(for: displayToolCall, result: result)
+                continuation.yield(.timelineEvent(.toolEvent(event)))
                 continuation.yield(
                     .displayDelta(
                         ChatResponseDelta(
-                            displayParts: [.toolEvent(completedEvent)]
+                            displayParts: [.toolEvent(event)]
                         )
                     )
                 )
                 messages.append(
                     ChatMessage(
                         role: .tool,
-                        content: result.content,
+                        content: event.providerMessageContent,
                         toolCallID: result.callID,
                         toolDisplayName: toolDisplayName
                     )
@@ -189,7 +189,7 @@ final class ChatTurnRunner {
                 messages.append(
                     ChatMessage(
                         role: .tool,
-                        content: "Tool execution failed: \(error.localizedDescription)",
+                        content: failedEvent.providerMessageContent,
                         toolCallID: toolCall.id,
                         toolDisplayName: toolDisplayName
                     )
@@ -212,6 +212,14 @@ final class ChatTurnRunner {
         }
 
         return arguments
+    }
+
+    private static func toolEvent(for toolCall: ChatToolCall, result: ToolResult) -> ChatToolEvent {
+        if result.isError {
+            return .failed(toolCall, message: result.content)
+        }
+
+        return .completed(toolCall, result: result.content)
     }
 
     private static func toolDisplayName(for toolID: String, context: ChatContext) -> String {

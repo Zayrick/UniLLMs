@@ -100,7 +100,7 @@ final class MCPHTTPClient: MCPClient {
         return descriptors
     }
 
-    func callTool(originalName: String, arguments: [String: JSONValue]) async throws -> String {
+    func callTool(originalName: String, arguments: [String: JSONValue]) async throws -> MCPToolResult {
         let result = try await sendRequest(
             method: "tools/call",
             params: .object([
@@ -109,7 +109,7 @@ final class MCPHTTPClient: MCPClient {
             ])
         )
 
-        return Self.serializedToolResult(result)
+        return Self.toolResult(from: result)
     }
 
     private func toolDescriptor(
@@ -309,13 +309,10 @@ final class MCPHTTPClient: MCPClient {
         }
     }
 
-    nonisolated private static func serializedToolResult(_ result: JSONValue) -> String {
+    nonisolated static func toolResult(from result: JSONValue) -> MCPToolResult {
         let object = result.objectValue ?? [:]
+        let isError = object["isError"] == .bool(true)
         var lines: [String] = []
-
-        if object["isError"] == .bool(true) {
-            lines.append("MCP tool returned an error.")
-        }
 
         if let content = object["content"]?.arrayValue {
             lines.append(
@@ -332,7 +329,13 @@ final class MCPHTTPClient: MCPClient {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
-        return text.isEmpty ? "Tool executed successfully with no output." : text
+        let fallback = isError
+            ? "Tool execution failed with no output."
+            : "Tool executed successfully with no output."
+        return MCPToolResult(
+            content: text.isEmpty ? fallback : text,
+            isError: isError
+        )
     }
 
     nonisolated private static func serializedContentBlock(_ value: JSONValue) -> String? {

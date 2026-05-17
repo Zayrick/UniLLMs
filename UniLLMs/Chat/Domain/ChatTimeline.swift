@@ -140,34 +140,26 @@ nonisolated extension ChatTimelineEvent {
                 ensureAssistantDraft(startedAt: event.timestamp)
                 assistantDraft?.toolCalls.append(contentsOf: toolCalls)
                 flushAssistantDraft()
-            case let .toolEvent(.started(toolCall)):
-                ensureAssistantDraft(startedAt: event.timestamp)
-                assistantDraft?.toolCalls.append(toolCall)
-                flushAssistantDraft()
-            case let .toolEvent(.completed(toolCall, result)):
-                flushAssistantDraft()
-                messages.append(
-                    ChatMessage(
-                        id: event.id,
-                        role: .tool,
-                        content: result,
-                        toolCallID: toolCall.id,
-                        toolDisplayName: toolCall.presentationName,
-                        createdAt: event.timestamp
+            case let .toolEvent(toolEvent):
+                switch toolEvent {
+                case let .started(toolCall):
+                    ensureAssistantDraft(startedAt: event.timestamp)
+                    assistantDraft?.toolCalls.append(toolCall)
+                    flushAssistantDraft()
+                case let .completed(toolCall, _),
+                     let .failed(toolCall, _):
+                    flushAssistantDraft()
+                    messages.append(
+                        ChatMessage(
+                            id: event.id,
+                            role: .tool,
+                            content: toolEvent.providerMessageContent,
+                            toolCallID: toolCall.id,
+                            toolDisplayName: toolCall.presentationName,
+                            createdAt: event.timestamp
+                        )
                     )
-                )
-            case let .toolEvent(.failed(toolCall, message)):
-                flushAssistantDraft()
-                messages.append(
-                    ChatMessage(
-                        id: event.id,
-                        role: .tool,
-                        content: "Tool execution failed: \(message)",
-                        toolCallID: toolCall.id,
-                        toolDisplayName: toolCall.presentationName,
-                        createdAt: event.timestamp
-                    )
-                )
+                }
             }
         }
 

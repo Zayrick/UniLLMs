@@ -66,10 +66,15 @@ struct MCPToolDescriptor: Equatable {
     let definition: ToolDefinition
 }
 
+struct MCPToolResult: Equatable {
+    let content: String
+    let isError: Bool
+}
+
 protocol MCPClient {
     func connect() async throws
     func loadTools() async throws -> [MCPToolDescriptor]
-    func callTool(originalName: String, arguments: [String: JSONValue]) async throws -> String
+    func callTool(originalName: String, arguments: [String: JSONValue]) async throws -> MCPToolResult
 }
 
 struct MCPToolAdapter: Tool {
@@ -78,8 +83,12 @@ struct MCPToolAdapter: Tool {
     let client: any MCPClient
 
     func execute(call: ToolCall, context: ToolExecutionContext) async throws -> ToolResult {
-        let content = try await client.callTool(originalName: originalName, arguments: call.arguments)
-        return ToolResult(callID: call.id, content: content)
+        let result = try await client.callTool(originalName: originalName, arguments: call.arguments)
+        return ToolResult(
+            callID: call.id,
+            content: result.content,
+            status: result.isError ? .error : .success
+        )
     }
 }
 

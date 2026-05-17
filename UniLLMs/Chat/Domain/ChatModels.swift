@@ -196,6 +196,19 @@ nonisolated enum ChatToolEvent: Codable, Equatable {
     case failed(ChatToolCall, message: String)
 }
 
+nonisolated extension ChatToolEvent {
+    var providerMessageContent: String {
+        switch self {
+        case .started:
+            return ""
+        case let .completed(_, result):
+            return result
+        case let .failed(_, message):
+            return "Tool execution failed: \(message)"
+        }
+    }
+}
+
 /// Ordered display events for one streamed delta. This is transient UI state;
 /// persisted history is represented by `ChatTimelineEvent`.
 nonisolated enum ChatResponseDisplayPart: Equatable {

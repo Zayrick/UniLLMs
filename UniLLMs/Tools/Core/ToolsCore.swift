@@ -45,9 +45,34 @@ nonisolated struct ToolCall: Codable, Equatable, Identifiable {
     var arguments: [String: JSONValue]
 }
 
+nonisolated enum ToolExecutionStatus: String, Codable, Equatable {
+    case success
+    case error
+}
+
 nonisolated struct ToolResult: Codable, Equatable {
     var callID: String
     var content: String
+
+    /// Semantic execution status from the tool layer.
+    ///
+    /// A tool can complete at the transport/protocol level while still
+    /// reporting an execution error that should be visible to the model and UI.
+    var status: ToolExecutionStatus
+
+    init(
+        callID: String,
+        content: String,
+        status: ToolExecutionStatus = .success
+    ) {
+        self.callID = callID
+        self.content = content
+        self.status = status
+    }
+
+    var isError: Bool {
+        status == .error
+    }
 }
 
 struct ToolExecutionContext {
