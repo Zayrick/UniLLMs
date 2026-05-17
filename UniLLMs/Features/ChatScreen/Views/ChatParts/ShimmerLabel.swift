@@ -2,24 +2,20 @@
 //  ShimmerLabel.swift
 //  UniLLMs
 //
-//  UILabel subclass that draws an animated linear-gradient mask over the text to
-//  reproduce the VS Code chat "thinking" shimmer effect.
+//  UILabel subclass that draws an animated linear-gradient mask over an overlaid label
+//  to reproduce a ShinyText shimmer effect.
 //
 
 import UIKit
 
 final class ShimmerLabel: UILabel {
     private enum Constants {
-        static let animationKey = "ShimmerLabel.locations"
-        static let duration: CFTimeInterval = 2.0
-        static let restingStops: [NSNumber] = [0.0, 0.35, 0.5, 0.65, 1.0]
-        static let startStops: [NSNumber] = [0.0, 0.0, 0.12, 0.24, 0.42]
-        static let endStops: [NSNumber] = [0.58, 0.76, 0.88, 1.0, 1.0]
-        static let dimAlpha: CGFloat = 0.42
-        static let highlightAlpha: CGFloat = 1.0
+        static let animationKey = "ShimmerLabel.shine"
+        static let speed: CFTimeInterval = 2.0
     }
 
-    private let gradientLayer = CAGradientLayer()
+    private let shineLabel = UILabel()
+    private let gradientMask = CAGradientLayer()
     private var isAnimating = false
 
     var isShimmering: Bool = false {
@@ -31,11 +27,42 @@ final class ShimmerLabel: UILabel {
         }
     }
 
-    /// Base color used for the static and masked text. Defaults to `.secondaryLabel`.
+    /// Base color used for the static text. Defaults to `.secondaryLabel`.
     var baseColor: UIColor = .secondaryLabel {
         didSet {
             textColor = baseColor
         }
+    }
+    
+    /// The color of the sweeping shine highlight.
+    var shineColor: UIColor = .label {
+        didSet {
+            shineLabel.textColor = shineColor
+        }
+    }
+
+    override var text: String? {
+        didSet { shineLabel.text = text }
+    }
+
+    override var font: UIFont! {
+        didSet { shineLabel.font = font }
+    }
+
+    override var textAlignment: NSTextAlignment {
+        didSet { shineLabel.textAlignment = textAlignment }
+    }
+
+    override var adjustsFontForContentSizeCategory: Bool {
+        didSet { shineLabel.adjustsFontForContentSizeCategory = adjustsFontForContentSizeCategory }
+    }
+    
+    override var numberOfLines: Int {
+        didSet { shineLabel.numberOfLines = numberOfLines }
+    }
+    
+    override var lineBreakMode: NSLineBreakMode {
+        didSet { shineLabel.lineBreakMode = lineBreakMode }
     }
 
     override init(frame: CGRect) {
@@ -54,7 +81,7 @@ final class ShimmerLabel: UILabel {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        updateGradientFrame()
+        gradientMask.frame = shineLabel.bounds
     }
 
     override func didMoveToWindow() {
@@ -64,32 +91,36 @@ final class ShimmerLabel: UILabel {
 
     private func configure() {
         textColor = baseColor
-        gradientLayer.startPoint = CGPoint(x: 0.0, y: 0.5)
-        gradientLayer.endPoint = CGPoint(x: 1.0, y: 0.5)
-        gradientLayer.locations = Constants.restingStops
+        
+        shineLabel.translatesAutoresizingMaskIntoConstraints = false
+        shineLabel.textColor = shineColor
+        shineLabel.isAccessibilityElement = false
+        shineLabel.isHidden = true
+        addSubview(shineLabel)
+        
+        NSLayoutConstraint.activate([
+            shineLabel.topAnchor.constraint(equalTo: topAnchor),
+            shineLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
+            shineLabel.trailingAnchor.constraint(equalTo: trailingAnchor),
+            shineLabel.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+        
+        gradientMask.colors = [
+            UIColor.clear.cgColor,
+            UIColor.black.cgColor,
+            UIColor.clear.cgColor
+        ]
+        gradientMask.locations = [0.0, 0.5, 1.0]
+        gradientMask.startPoint = CGPoint(x: -1.0, y: 0.5)
+        gradientMask.endPoint = CGPoint(x: 0.0, y: 0.5)
+        shineLabel.layer.mask = gradientMask
+
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(reduceMotionStatusDidChange),
             name: UIAccessibility.reduceMotionStatusDidChangeNotification,
             object: nil
         )
-    }
-
-    private func updateGradientFrame() {
-        guard isShimmering else {
-            return
-        }
-        let labelBounds = bounds
-        guard labelBounds.width > 0.0, labelBounds.height > 0.0 else {
-            return
-        }
-        gradientLayer.frame = labelBounds
-    }
-
-    private func applyGradientColors() {
-        let dim = UIColor.black.withAlphaComponent(Constants.dimAlpha).cgColor
-        let highlight = UIColor.black.withAlphaComponent(Constants.highlightAlpha).cgColor
-        gradientLayer.colors = [dim, dim, highlight, dim, dim]
     }
 
     private func updateAnimationState() {
@@ -105,18 +136,26 @@ final class ShimmerLabel: UILabel {
             return
         }
         isAnimating = true
-        applyGradientColors()
-        layer.mask = gradientLayer
-        updateGradientFrame()
+        shineLabel.isHidden = false
+        
+        setNeedsLayout()
+        layoutIfNeeded()
 
-        let animation = CABasicAnimation(keyPath: "locations")
-        animation.fromValue = Constants.startStops
-        animation.toValue = Constants.endStops
-        animation.duration = Constants.duration
-        animation.repeatCount = .infinity
-        animation.isRemovedOnCompletion = false
-        animation.timingFunction = CAMediaTimingFunction(name: .linear)
-        gradientLayer.add(animation, forKey: Constants.animationKey)
+        let startPointAnim = CABasicAnimation(keyPath: "startPoint")
+        startPointAnim.fromValue = CGPoint(x: -1.0, y: 0.5)
+        startPointAnim.toValue = CGPoint(x: 1.0, y: 0.5)
+
+        let endPointAnim = CABasicAnimation(keyPath: "endPoint")
+        endPointAnim.fromValue = CGPoint(x: 0.0, y: 0.5)
+        endPointAnim.toValue = CGPoint(x: 2.0, y: 0.5)
+
+        let animGroup = CAAnimationGroup()
+        animGroup.animations = [startPointAnim, endPointAnim]
+        animGroup.duration = Constants.speed
+        animGroup.repeatCount = .infinity
+        animGroup.isRemovedOnCompletion = false
+        
+        gradientMask.add(animGroup, forKey: Constants.animationKey)
     }
 
     private func stopShimmering() {
@@ -124,9 +163,8 @@ final class ShimmerLabel: UILabel {
             return
         }
         isAnimating = false
-        gradientLayer.removeAnimation(forKey: Constants.animationKey)
-        gradientLayer.locations = Constants.restingStops
-        layer.mask = nil
+        shineLabel.isHidden = true
+        gradientMask.removeAnimation(forKey: Constants.animationKey)
     }
 
     @objc private func reduceMotionStatusDidChange() {
