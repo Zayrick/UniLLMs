@@ -9,10 +9,6 @@
 import Foundation
 
 final class ChatTurnRunner {
-    private enum ToolLoop {
-        static let maximumRounds = 4
-    }
-
     private struct SingleAssistantResponse {
         var content = ""
         var reasoning = ""
@@ -40,14 +36,14 @@ final class ChatTurnRunner {
     ) -> AsyncThrowingStream<ChatTurnEvent, Error> {
         let initialMessages = promptAssembler.assembleMessages(from: context)
         let allowsTools = !context.availableTools.isEmpty
-        let maxRounds = allowsTools ? ToolLoop.maximumRounds : 0
 
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     var requestMessages = initialMessages
 
-                    for round in 0...maxRounds {
+                    while true {
+                        try Task.checkCancellation()
                         let assistantResponse = try await streamSingleResponse(
                             provider: provider,
                             modelID: modelID,
@@ -59,10 +55,6 @@ final class ChatTurnRunner {
                         if !allowsTools || assistantResponse.toolCalls.isEmpty {
                             continuation.finish()
                             return
-                        }
-
-                        guard round < maxRounds else {
-                            throw ToolExecutionLoopError.maximumRoundsExceeded
                         }
 
                         let assistantMessage = ChatMessage(
@@ -90,8 +82,6 @@ final class ChatTurnRunner {
                         )
                         requestMessages.append(contentsOf: toolMessages)
                     }
-
-                    continuation.finish()
                 } catch is CancellationError {
                     continuation.finish()
                 } catch {
@@ -249,14 +239,11 @@ final class ChatTurnRunner {
 
 enum ToolExecutionLoopError: LocalizedError, Equatable {
     case invalidArguments
-    case maximumRoundsExceeded
 
     var errorDescription: String? {
         switch self {
         case .invalidArguments:
             return "The model produced invalid tool arguments."
-        case .maximumRoundsExceeded:
-            return "Tool calling did not finish after the maximum number of rounds."
         }
     }
 }
