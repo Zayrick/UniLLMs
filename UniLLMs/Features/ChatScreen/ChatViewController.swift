@@ -901,6 +901,7 @@ final class ChatViewController: UIViewController {
         responseView.isHidden = true
         responseView.setContentHuggingPriority(.required, for: .vertical)
         responseView.setContentCompressionResistancePriority(.required, for: .vertical)
+        configureAssistantResponseHeightTracking(responseView)
 
         messagesStackView.addArrangedSubview(bubbleView)
         bubbleView.widthAnchor.constraint(
@@ -1242,6 +1243,32 @@ final class ChatViewController: UIViewController {
         }
     }
 
+    private func configureAssistantResponseHeightTracking(_ responseView: AssistantResponseTextView) {
+        responseView.onContentHeightChange = { [weak self, weak responseView] in
+            guard let self,
+                  let responseView,
+                  responseView.superview != nil else {
+                return
+            }
+
+            self.handleAssistantResponseHeightChange(responseView)
+        }
+    }
+
+    private func handleAssistantResponseHeightChange(_ responseView: AssistantResponseTextView) {
+        guard !responseView.isHidden else {
+            return
+        }
+
+        mainPageView.layoutIfNeeded()
+        if isMessagesBottomLocked {
+            scrollMessagesToBottom(animated: false)
+        } else {
+            clampMessagesContentOffsetIfNeeded()
+        }
+        mainPageView.layoutIfNeeded()
+    }
+
     private func finishAssistantResponseStream() {
         if let activeResponseView {
             applyAssistantResponseChange(to: activeResponseView) {
@@ -1496,6 +1523,7 @@ final class ChatViewController: UIViewController {
         responseView.translatesAutoresizingMaskIntoConstraints = false
         responseView.setContentHuggingPriority(.required, for: .vertical)
         responseView.setContentCompressionResistancePriority(.required, for: .vertical)
+        configureAssistantResponseHeightTracking(responseView)
         messagesStackView.addArrangedSubview(responseView)
         responseView.widthAnchor.constraint(
             equalTo: messagesStackView.widthAnchor

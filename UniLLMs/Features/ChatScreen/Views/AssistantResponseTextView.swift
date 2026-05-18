@@ -53,6 +53,7 @@ final class AssistantResponseTextView: UIView {
     private var lastMeasuredTextWidth: CGFloat = 0.0
     private weak var activeThinkingSection: ThinkingSectionView?
     private var toolSectionsByCallID: [String: ThinkingSectionView] = [:]
+    var onContentHeightChange: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -390,12 +391,17 @@ final class AssistantResponseTextView: UIView {
         contentMarkdownView.backgroundColor = .clear
         contentMarkdownView.isOpaque = false
         contentMarkdownView.onNeedsHeightUpdate = { [weak self] in
-            self?.updateTextViewHeights()
+            self?.handleContentMarkdownHeightUpdate()
         }
         contentMarkdownView.setContentCompressionResistancePriority(.required, for: .vertical)
         contentMarkdownView.setContentHuggingPriority(.required, for: .vertical)
         contentMarkdownView.translatesAutoresizingMaskIntoConstraints = false
         return contentMarkdownView
+    }
+
+    private func handleContentMarkdownHeightUpdate() {
+        updateTextViewHeights()
+        onContentHeightChange?()
     }
 
     private func configureCopyMarkdownButton() {

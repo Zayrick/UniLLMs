@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		A9498EF02FAEB00000763196 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = A9498EF22FAEB00000763196 /* Markdown */; };
+		A9498EF32FAEB00000763196 /* MarkdownDisplayView in Frameworks */ = {isa = PBXBuildFile; productRef = A9498EF52FAEB00000763196 /* MarkdownDisplayView */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -70,6 +71,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A9498EF02FAEB00000763196 /* Markdown in Frameworks */,
+				A9498EF32FAEB00000763196 /* MarkdownDisplayView in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -131,6 +133,7 @@
 			name = UniLLMs;
 			packageProductDependencies = (
 				A9498EF22FAEB00000763196 /* Markdown */,
+				A9498EF52FAEB00000763196 /* MarkdownDisplayView */,
 			);
 			productName = UniLLMs;
 			productReference = A9498EB62FAE793500763196 /* UniLLMs.app */;
@@ -216,6 +219,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				A9498EF12FAEB00000763196 /* XCRemoteSwiftPackageReference "swift-markdown" */,
+				A9498EF42FAEB00000763196 /* XCLocalSwiftPackageReference "MarkdownDisplayView" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A9498EB72FAE793500763196 /* Products */;
@@ -595,6 +599,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		A9498EF42FAEB00000763196 /* XCLocalSwiftPackageReference "MarkdownDisplayView" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Vendor/MarkdownDisplayView;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		A9498EF12FAEB00000763196 /* XCRemoteSwiftPackageReference "swift-markdown" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -611,6 +622,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A9498EF12FAEB00000763196 /* XCRemoteSwiftPackageReference "swift-markdown" */;
 			productName = Markdown;
+		};
+		A9498EF52FAEB00000763196 /* MarkdownDisplayView */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A9498EF42FAEB00000763196 /* XCLocalSwiftPackageReference "MarkdownDisplayView" */;
+			productName = MarkdownDisplayView;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
