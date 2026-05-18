@@ -100,16 +100,47 @@ final class StreamingMarkdownView: UIView {
     }
 
     private func applyStreamUpdate(_ update: ChatMarkdownStreamUpdate) {
-        removeCurrentSegmentViews()
-
         for segment in update.completedSegments {
+            if !currentSegmentViews.isEmpty {
+                removeCurrentSegmentViews()
+            }
             completedSegmentMarkdown.append(segment)
             addRenderedSegment(segment)
         }
 
         currentSegmentMarkdown = update.currentSegment
         if let currentSegment = update.currentSegment {
+            let renderer = ChatMarkdownRenderer(traitCollection: traitCollection)
+            let blocks = renderer.render(markdown: currentSegment)
+            
+            if currentSegmentViews.count == blocks.count {
+                var canUpdateInPlace = true
+                for i in 0..<blocks.count {
+                    if case .text = blocks[i], currentSegmentViews[i] is ChatMarkdownTextView {
+                        continue
+                    } else {
+                        canUpdateInPlace = false
+                        break
+                    }
+                }
+                
+                if canUpdateInPlace {
+                    for i in 0..<blocks.count {
+                        if case let .text(attributedText) = blocks[i],
+                           let textView = currentSegmentViews[i] as? ChatMarkdownTextView {
+                            textView.updateMarkdownAttributedTextWithBlur(attributedText)
+                        }
+                    }
+                    invalidateIntrinsicContentSize()
+                    onNeedsHeightUpdate?()
+                    return
+                }
+            }
+            
+            removeCurrentSegmentViews()
             currentSegmentViews = addRenderedSegment(currentSegment)
+        } else {
+            removeCurrentSegmentViews()
         }
 
         invalidateIntrinsicContentSize()

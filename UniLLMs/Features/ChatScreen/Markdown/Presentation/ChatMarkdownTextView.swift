@@ -13,6 +13,10 @@ final class ChatMarkdownTextView: UITextView {
     private let markdownLayoutManager: ChatMarkdownLayoutManager
     private let markdownTextContainer: NSTextContainer
 
+    private var displayLink: CADisplayLink?
+    private var animatingRanges: [NSRange: CFTimeInterval] = [:]
+    private var targetAttributedText: NSAttributedString?
+
     init(attributedText: NSAttributedString) {
         let textStorage = NSTextStorage()
         let layoutManager = ChatMarkdownLayoutManager()
@@ -49,6 +53,109 @@ final class ChatMarkdownTextView: UITextView {
         accessibilityLabel = attributedText.string
         invalidateIntrinsicContentSize()
         setNeedsDisplay()
+    }
+
+    func updateMarkdownAttributedTextWithBlur(_ newText: NSAttributedString) {
+        let oldLength = targetAttributedText?.length ?? markdownTextStorage.length
+        
+        if newText.length > oldLength {
+            let addedLength = newText.length - oldLength
+            let newRange = NSRange(location: oldLength, length: addedLength)
+            
+            targetAttributedText = newText
+            animatingRanges[newRange] = CACurrentMediaTime()
+            
+            let mutableText = NSMutableAttributedString(attributedString: newText)
+            applyBlur(to: mutableText, in: newRange, progress: 0.0)
+            
+            markdownTextStorage.setAttributedString(mutableText)
+            accessibilityLabel = mutableText.string
+            invalidateIntrinsicContentSize()
+            setNeedsDisplay()
+            
+            startDisplayLink()
+        } else {
+            animatingRanges.removeAll()
+            stopDisplayLink()
+            targetAttributedText = newText
+            setMarkdownAttributedText(newText)
+        }
+    }
+    
+    private func applyBlur(to mutableText: NSMutableAttributedString, in range: NSRange, progress: CGFloat) {
+        let alpha = min(1.0, max(0.0, progress))
+        let blurRadius = 6.0 * (1.0 - alpha)
+        
+        mutableText.enumerateAttribute(.foregroundColor, in: range, options: []) { colorValue, colorRange, _ in
+            guard let color = colorValue as? UIColor else { return }
+            
+            let newColor = color.withAlphaComponent(color.cgColor.alpha * alpha)
+            mutableText.addAttribute(.foregroundColor, value: newColor, range: colorRange)
+            
+            if progress < 1.0 {
+                let shadow = NSShadow()
+                shadow.shadowBlurRadius = blurRadius
+                shadow.shadowColor = color.withAlphaComponent(color.cgColor.alpha * (1.0 - alpha))
+                shadow.shadowOffset = .zero
+                mutableText.addAttribute(.shadow, value: shadow, range: colorRange)
+            } else {
+                mutableText.removeAttribute(.shadow, range: colorRange)
+            }
+        }
+    }
+    
+    private func startDisplayLink() {
+        if displayLink == nil {
+            let link = CADisplayLink(target: self, selector: #selector(handleDisplayLink(_:)))
+            link.add(to: .main, forMode: .common)
+            displayLink = link
+        }
+    }
+    
+    private func stopDisplayLink() {
+        displayLink?.invalidate()
+        displayLink = nil
+    }
+    
+    @objc private func handleDisplayLink(_ link: CADisplayLink) {
+        guard let target = targetAttributedText else {
+            stopDisplayLink()
+            return
+        }
+        
+        let currentTime = CACurrentMediaTime()
+        let duration: CFTimeInterval = 0.4
+        
+        let mutableText = NSMutableAttributedString(attributedString: target)
+        var hasActiveAnimations = false
+        var completedRanges: [NSRange] = []
+        
+        for (range, startTime) in animatingRanges {
+            guard range.upperBound <= mutableText.length else {
+                completedRanges.append(range)
+                continue
+            }
+            
+            let elapsed = currentTime - startTime
+            let progress = CGFloat(elapsed / duration)
+            
+            if progress >= 1.0 {
+                completedRanges.append(range)
+            } else {
+                hasActiveAnimations = true
+                applyBlur(to: mutableText, in: range, progress: progress)
+            }
+        }
+        
+        for r in completedRanges {
+            animatingRanges.removeValue(forKey: r)
+        }
+        
+        markdownTextStorage.setAttributedString(mutableText)
+        
+        if !hasActiveAnimations {
+            stopDisplayLink()
+        }
     }
 
     private func configure() {
