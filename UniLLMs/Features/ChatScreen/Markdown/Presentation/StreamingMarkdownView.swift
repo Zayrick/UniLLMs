@@ -3,6 +3,11 @@
 //  UniLLMs
 //
 //  UIView that renders accumulated streamed Markdown as presentation blocks.
+//  Ingestion is decoupled from rendering: `appendMarkdown` only writes to a
+//  pending buffer in O(1); a CADisplayLink drains the buffer at most once per
+//  screen refresh and adapts (skips frames) when a render exceeds the frame
+//  budget, providing natural backpressure on fast token streams.
+//
 //  Created by Zayrick on 2026/5/12.
 //
 
@@ -17,6 +22,13 @@ final class StreamingMarkdownView: UIView {
     private var traitChangeRegistration: (any UITraitChangeRegistration)?
     var onNeedsHeightUpdate: (() -> Void)?
 
+    private var pendingMarkdown = ""
+    private var displayLink: CADisplayLink?
+    private var displayLinkProxy: DisplayLinkProxy?
+    private var framesToSkip: Int = 0
+    private var lastRenderDuration: CFTimeInterval = 0
+    private var isStreaming = false
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         configure()
@@ -29,15 +41,24 @@ final class StreamingMarkdownView: UIView {
         configureTraitObservation()
     }
 
+    deinit {
+        displayLink?.invalidate()
+    }
+
     func appendMarkdown(_ string: String) {
         guard !string.isEmpty else {
             return
         }
 
-        applyStreamUpdate(segmenter.append(string))
+        pendingMarkdown.append(string)
+        isStreaming = true
+        startDisplayLinkIfNeeded()
     }
 
     func setFinishedMarkdown(_ markdown: String) {
+        stopDisplayLink()
+        pendingMarkdown = ""
+        isStreaming = false
         segmenter.reset()
         completedSegmentMarkdown = markdown.isEmpty ? [] : [markdown]
         currentSegmentMarkdown = nil
@@ -53,10 +74,16 @@ final class StreamingMarkdownView: UIView {
     }
 
     func finishStreamingContent() {
+        isStreaming = false
+        stopDisplayLink()
+        flushPendingMarkdown()
         applyStreamUpdate(segmenter.finish())
     }
 
     func resetMarkdown() {
+        stopDisplayLink()
+        pendingMarkdown = ""
+        isStreaming = false
         segmenter.reset()
         completedSegmentMarkdown = []
         currentSegmentMarkdown = nil
@@ -99,6 +126,62 @@ final class StreamingMarkdownView: UIView {
         }
     }
 
+    // MARK: - Frame-driven scheduling
+
+    private func startDisplayLinkIfNeeded() {
+        guard displayLink == nil else { return }
+        let proxy = DisplayLinkProxy(target: self)
+        let link = CADisplayLink(target: proxy, selector: #selector(DisplayLinkProxy.tick(_:)))
+        link.add(to: .main, forMode: .common)
+        displayLinkProxy = proxy
+        displayLink = link
+    }
+
+    private func stopDisplayLink() {
+        displayLink?.invalidate()
+        displayLink = nil
+        displayLinkProxy = nil
+        framesToSkip = 0
+    }
+
+    fileprivate func handleDisplayLinkTick() {
+        if framesToSkip > 0 {
+            framesToSkip -= 1
+            return
+        }
+
+        flushPendingMarkdown()
+
+        if pendingMarkdown.isEmpty && !isStreaming {
+            stopDisplayLink()
+        } else if pendingMarkdown.isEmpty {
+            // Streaming still active but caught up — pause the link to save CPU.
+            // It restarts on the next appendMarkdown.
+            stopDisplayLink()
+        }
+    }
+
+    private func flushPendingMarkdown() {
+        guard !pendingMarkdown.isEmpty else { return }
+        let chunk = pendingMarkdown
+        pendingMarkdown = ""
+
+        let start = CACurrentMediaTime()
+        applyStreamUpdate(segmenter.append(chunk))
+        lastRenderDuration = CACurrentMediaTime() - start
+
+        // Adaptive backoff: if the render exceeded the frame budget, skip
+        // proportionally many frames so the runloop has room to breathe.
+        let frameBudget: CFTimeInterval = 1.0 / 60.0
+        if lastRenderDuration > frameBudget {
+            framesToSkip = min(Int(lastRenderDuration / frameBudget), 6)
+        } else {
+            framesToSkip = 0
+        }
+    }
+
+    // MARK: - Rendering
+
     private func applyStreamUpdate(_ update: ChatMarkdownStreamUpdate) {
         for segment in update.completedSegments {
             if !currentSegmentViews.isEmpty {
@@ -112,7 +195,7 @@ final class StreamingMarkdownView: UIView {
         if let currentSegment = update.currentSegment {
             let renderer = ChatMarkdownRenderer(traitCollection: traitCollection)
             let blocks = renderer.render(markdown: currentSegment)
-            
+
             if currentSegmentViews.count == blocks.count {
                 var canUpdateInPlace = true
                 for i in 0..<blocks.count {
@@ -123,7 +206,7 @@ final class StreamingMarkdownView: UIView {
                         break
                     }
                 }
-                
+
                 if canUpdateInPlace {
                     for i in 0..<blocks.count {
                         if case let .text(attributedText) = blocks[i],
@@ -136,7 +219,7 @@ final class StreamingMarkdownView: UIView {
                     return
                 }
             }
-            
+
             removeCurrentSegmentViews()
             currentSegmentViews = addRenderedSegment(currentSegment)
         } else {
@@ -261,5 +344,17 @@ final class StreamingMarkdownView: UIView {
                 verticalFittingPriority: .fittingSizeLevel
             ).height
         )
+    }
+}
+
+private final class DisplayLinkProxy {
+    weak var target: StreamingMarkdownView?
+
+    init(target: StreamingMarkdownView) {
+        self.target = target
+    }
+
+    @objc func tick(_ link: CADisplayLink) {
+        target?.handleDisplayLinkTick()
     }
 }
