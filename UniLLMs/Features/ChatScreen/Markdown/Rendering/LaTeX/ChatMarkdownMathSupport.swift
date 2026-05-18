@@ -65,6 +65,12 @@ enum ChatMarkdownMathDelimiterScanner {
                 continue
             }
 
+            if let mhchemSpan = mhchemCommandSpan(startingAt: index, in: text) {
+                spans.append(mhchemSpan)
+                index = mhchemSpan.range.upperBound
+                continue
+            }
+
             if text[index] == "$",
                isSingleDollar(at: index, in: text),
                isDollarOpening(at: index, in: text),
@@ -87,6 +93,53 @@ enum ChatMarkdownMathDelimiterScanner {
         }
 
         return spans
+    }
+
+    private static func mhchemCommandSpan(
+        startingAt index: String.Index,
+        in text: String
+    ) -> ChatMarkdownMathInlineSpan? {
+        guard !isEscaped(index, in: text),
+              text[index] == "\\",
+              let commandStartIndex = text.index(index, offsetBy: 1, limitedBy: text.endIndex),
+              commandStartIndex < text.endIndex else {
+            return nil
+        }
+
+        let supportedCommands = ["ce", "pu"]
+        guard let command = supportedCommands.first(where: { command in
+            text[commandStartIndex...].hasPrefix(command)
+        }),
+              let openingBraceIndex = text.index(
+                commandStartIndex,
+                offsetBy: command.count,
+                limitedBy: text.endIndex
+              ),
+              openingBraceIndex < text.endIndex,
+              text[openingBraceIndex] == "{" else {
+            return nil
+        }
+
+        var depth = 1
+        var currentIndex = text.index(after: openingBraceIndex)
+        while currentIndex < text.endIndex {
+            if text[currentIndex] == "{", !isEscaped(currentIndex, in: text) {
+                depth += 1
+            } else if text[currentIndex] == "}", !isEscaped(currentIndex, in: text) {
+                depth -= 1
+                if depth == 0 {
+                    let upperBound = text.index(after: currentIndex)
+                    return ChatMarkdownMathInlineSpan(
+                        latex: String(text[index..<upperBound]),
+                        range: index..<upperBound
+                    )
+                }
+            }
+
+            currentIndex = text.index(after: currentIndex)
+        }
+
+        return nil
     }
 
     private static func closingDollar(after openingIndex: String.Index, in text: String) -> String.Index? {
@@ -743,6 +796,19 @@ private final class ChatMarkdownLatexParser {
             return (parseLeftRight(font: font), false)
         case "begin":
             return (parseMatrix(font: font), false)
+        case "ce":
+            return (parseChemistry(font: font), false)
+        case "pu":
+            return (parsePhysicalUnit(font: font), false)
+        case "xrightarrow", "xleftarrow", "xleftrightarrow",
+            "xRightarrow", "xLeftarrow", "xLeftrightarrow",
+            "xhookrightarrow", "xhookleftarrow",
+            "xtwoheadrightarrow", "xtwoheadleftarrow",
+            "xrightharpoonup", "xleftharpoonup",
+            "xrightharpoondown", "xleftharpoondown",
+            "xrightleftharpoons", "xleftrightharpoons",
+            "xmapsto", "xtofrom", "xlongequal":
+            return (parseExtensibleArrow(command, font: font), false)
         case "text", "mathrm":
             return (parseNextItem(font: ChatMarkdownLatexFont.main(size: font.pointSize)), false)
         case "mathbf", "textbf":
@@ -887,6 +953,714 @@ private final class ChatMarkdownLatexParser {
         return ChatMarkdownMathMatrixNode(rows: rows, kind: matrixKind, color: textColor)
     }
 
+    private func parseExtensibleArrow(_ command: String, font: UIFont) -> ChatMarkdownMathNode {
+        let labelFont = scriptFont(for: font)
+        let lower = parseOptionalBracketExpression(font: labelFont)
+        let upper = parseNextItem(font: labelFont)
+
+        return ChatMarkdownMathExtensibleArrowNode(
+            kind: ChatMarkdownMathExtensibleArrowNode.Kind(command: command),
+            upper: upper,
+            lower: lower,
+            color: textColor,
+            font: font
+        )
+    }
+
+    private func parseOptionalBracketExpression(font: UIFont) -> ChatMarkdownMathNode? {
+        guard index < tokens.count, tokens[index] == .text("[") else {
+            return nil
+        }
+
+        index += 1
+        let node = parseExpression(font: font) { $0 == .text("]") }
+        consume(.text("]"))
+        return node
+    }
+
+    private func parsePhysicalUnit(font: UIFont) -> ChatMarkdownMathNode {
+        guard index < tokens.count, tokens[index] == .lBrace else {
+            return ChatMarkdownMathTextNode(
+                text: "pu",
+                font: ChatMarkdownLatexFont.main(size: font.pointSize),
+                color: textColor
+            )
+        }
+
+        let rawUnit = parseRequiredGroupText()
+        return ChatMarkdownPhysicalUnitParser(
+            rawText: rawUnit,
+            font: ChatMarkdownLatexFont.main(size: font.pointSize),
+            textColor: textColor
+        ).parse()
+    }
+
+    private func parseChemistry(font: UIFont) -> ChatMarkdownMathNode {
+        guard index < tokens.count, tokens[index] == .lBrace else {
+            return ChatMarkdownMathTextNode(
+                text: "ce",
+                font: ChatMarkdownLatexFont.main(size: font.pointSize),
+                color: textColor
+            )
+        }
+
+        index += 1
+        let chemistryFont = ChatMarkdownLatexFont.main(size: font.pointSize)
+        let node = parseChemistryExpression(font: chemistryFont) { $0 == .rBrace }
+        consume(.rBrace)
+        return node
+    }
+
+    private func parseChemistryExpression(
+        font: UIFont,
+        until shouldStop: (ChatMarkdownLatexToken) -> Bool
+    ) -> ChatMarkdownMathNode {
+        var nodes: [ChatMarkdownMathNode] = []
+        var canAttachImplicitSubscript = false
+        var previousWasSpace = true
+        var pendingPreUpper: ChatMarkdownMathNode?
+        var pendingPreLower: ChatMarkdownMathNode?
+
+        while index < tokens.count {
+            let token = tokens[index]
+            if shouldStop(token) {
+                break
+            }
+
+            if let arrow = parseChemicalArrowIfPresent(font: font) {
+                appendChemicalSpace(to: &nodes, font: font)
+                nodes.append(arrow)
+                appendChemicalSpace(to: &nodes, font: font)
+                consumeChemicalWhitespace()
+                canAttachImplicitSubscript = false
+                previousWasSpace = true
+                continue
+            }
+
+            switch token {
+            case .text("$"):
+                if let mathNode = parseChemicalMathEscape(font: font) {
+                    nodes.append(
+                        applyChemicalPrescripts(
+                            to: mathNode,
+                            upper: &pendingPreUpper,
+                            lower: &pendingPreLower
+                        )
+                    )
+                    canAttachImplicitSubscript = true
+                    previousWasSpace = false
+                } else {
+                    index += 1
+                }
+
+            case let .text(text) where text.isWhitespaceOnly:
+                index += 1
+                appendChemicalSpace(to: &nodes, font: font)
+                canAttachImplicitSubscript = false
+                previousWasSpace = true
+
+            case let .text(text) where text.first?.isNumber == true:
+                let number = consumeChemicalNumberRun()
+                if canAttachImplicitSubscript, let base = nodes.popLast() {
+                    nodes.append(
+                        ChatMarkdownMathScriptsNode(
+                            base: base,
+                            upper: nil,
+                            lower: chemicalTextNode(number, font: scriptFont(for: font))
+                        )
+                    )
+                    canAttachImplicitSubscript = true
+                } else {
+                    nodes.append(chemicalTextNode(number, font: font))
+                    canAttachImplicitSubscript = false
+                }
+                previousWasSpace = false
+
+            case .text("+"):
+                if shouldRenderChemicalSignAsCharge(previousWasSpace: previousWasSpace),
+                   let base = nodes.popLast() {
+                    index += 1
+                    nodes.append(
+                        ChatMarkdownMathScriptsNode(
+                            base: base,
+                            upper: chemicalTextNode("+", font: scriptFont(for: font)),
+                            lower: nil
+                        )
+                    )
+                    canAttachImplicitSubscript = true
+                    previousWasSpace = false
+                } else {
+                    index += 1
+                    appendChemicalOperator("+", to: &nodes, font: font)
+                    canAttachImplicitSubscript = false
+                    previousWasSpace = true
+                }
+
+            case .text("-"):
+                if shouldRenderChemicalSignAsCharge(previousWasSpace: previousWasSpace),
+                   let base = nodes.popLast() {
+                    index += 1
+                    nodes.append(
+                        ChatMarkdownMathScriptsNode(
+                            base: base,
+                            upper: chemicalTextNode("−", font: scriptFont(for: font)),
+                            lower: nil
+                        )
+                    )
+                    canAttachImplicitSubscript = true
+                    previousWasSpace = false
+                } else {
+                    index += 1
+                    nodes.append(chemicalTextNode("−", font: font))
+                    canAttachImplicitSubscript = false
+                    previousWasSpace = false
+                }
+
+            case .hat:
+                index += 1
+                if previousWasSpace, isChemicalGasMarkerAtCurrentScriptPosition() {
+                    nodes.append(chemicalTextNode("↑", font: font))
+                    canAttachImplicitSubscript = false
+                } else if canAttachImplicitSubscript, let base = nodes.popLast() {
+                    nodes.append(
+                        ChatMarkdownMathScriptsNode(
+                            base: base,
+                            upper: parseChemicalScriptItem(font: scriptFont(for: font)),
+                            lower: nil
+                        )
+                    )
+                    canAttachImplicitSubscript = true
+                } else {
+                    pendingPreUpper = parseChemicalScriptItem(font: scriptFont(for: font))
+                    canAttachImplicitSubscript = false
+                }
+                previousWasSpace = false
+
+            case .underscore:
+                index += 1
+                if canAttachImplicitSubscript, let base = nodes.popLast() {
+                    nodes.append(
+                        ChatMarkdownMathScriptsNode(
+                            base: base,
+                            upper: nil,
+                            lower: parseChemicalScriptItem(font: scriptFont(for: font))
+                        )
+                    )
+                    canAttachImplicitSubscript = true
+                } else {
+                    pendingPreLower = parseChemicalScriptItem(font: scriptFont(for: font))
+                    canAttachImplicitSubscript = false
+                }
+                previousWasSpace = false
+
+            case let .text(text):
+                let chemicalText = consumeChemicalText(startingWith: text)
+                let node = chemicalDisplayNode(
+                    for: chemicalText,
+                    previousWasSpace: previousWasSpace,
+                    font: font
+                )
+                nodes.append(
+                    applyChemicalPrescripts(
+                        to: node,
+                        upper: &pendingPreUpper,
+                        lower: &pendingPreLower
+                    )
+                )
+                canAttachImplicitSubscript = chemicalText.canPrecedeChemicalSubscript
+                previousWasSpace = false
+
+            case let .command(command):
+                if command == "bond" {
+                    index += 1
+                    let bond = parseRequiredGroupText()
+                    nodes.append(chemicalBondNode(for: bond, font: font))
+                    canAttachImplicitSubscript = false
+                    previousWasSpace = false
+                } else if command == "cdot" {
+                    index += 1
+                    nodes.append(chemicalCenteredDots(count: 1, font: font))
+                    canAttachImplicitSubscript = false
+                    previousWasSpace = false
+                } else if let symbol = chemicalSymbol(for: command) {
+                    index += 1
+                    nodes.append(
+                        applyChemicalPrescripts(
+                            to: chemicalTextNode(symbol, font: font),
+                            upper: &pendingPreUpper,
+                            lower: &pendingPreLower
+                        )
+                    )
+                    canAttachImplicitSubscript = false
+                    previousWasSpace = false
+                } else {
+                    let fallbackNode = parseAtomWithScripts(font: font)
+                    if let fallbackNode {
+                        nodes.append(
+                            applyChemicalPrescripts(
+                                to: fallbackNode,
+                                upper: &pendingPreUpper,
+                                lower: &pendingPreLower
+                            )
+                        )
+                    } else {
+                        index += 1
+                    }
+                    canAttachImplicitSubscript = true
+                    previousWasSpace = false
+                }
+
+            case .lBrace:
+                index += 1
+                let groupNode = parseChemistryExpression(font: font) { $0 == .rBrace }
+                consume(.rBrace)
+                nodes.append(
+                    applyChemicalPrescripts(
+                        to: groupNode,
+                        upper: &pendingPreUpper,
+                        lower: &pendingPreLower
+                    )
+                )
+                canAttachImplicitSubscript = true
+                previousWasSpace = false
+
+            case .newLine:
+                index += 1
+                appendChemicalSpace(to: &nodes, font: font)
+                canAttachImplicitSubscript = false
+                previousWasSpace = true
+
+            case .ampersand, .rBrace:
+                return horizontalNode(for: nodes, font: font)
+            }
+        }
+
+        return horizontalNode(for: nodes, font: font)
+    }
+
+    private func applyChemicalPrescripts(
+        to base: ChatMarkdownMathNode,
+        upper: inout ChatMarkdownMathNode?,
+        lower: inout ChatMarkdownMathNode?
+    ) -> ChatMarkdownMathNode {
+        guard upper != nil || lower != nil else {
+            return base
+        }
+
+        let node = ChatMarkdownMathPrescriptsNode(base: base, upper: upper, lower: lower)
+        upper = nil
+        lower = nil
+        return node
+    }
+
+    private func parseChemicalMathEscape(font: UIFont) -> ChatMarkdownMathNode? {
+        guard index < tokens.count, tokens[index] == .text("$") else {
+            return nil
+        }
+
+        index += 1
+        var rawLatex = ""
+        while index < tokens.count {
+            if tokens[index] == .text("$") {
+                index += 1
+                let parser = ChatMarkdownLatexParser(
+                    latex: rawLatex,
+                    fontSize: font.pointSize,
+                    textColor: textColor,
+                    displayStyle: false
+                )
+                return parser.parse()
+            }
+
+            rawLatex += tokens[index].rawText
+            index += 1
+        }
+
+        return chemicalTextNode("$" + rawLatex, font: font)
+    }
+
+    private func consumeChemicalText(startingWith text: String) -> String {
+        guard text.first?.isLetter == true else {
+            index += 1
+            return text
+        }
+
+        var result = text
+        index += 1
+
+        if text.first?.isUppercase == true {
+            while index < tokens.count,
+                  case let .text(nextText) = tokens[index],
+                  nextText.count == 1,
+                  nextText.first?.isLowercase == true {
+                result += nextText
+                index += 1
+            }
+        }
+
+        return result
+    }
+
+    private func chemicalDisplayText(for text: String, previousWasSpace: Bool) -> String {
+        if text == "v", previousWasSpace {
+            return "↓"
+        }
+        return text
+    }
+
+    private func chemicalDisplayNode(
+        for text: String,
+        previousWasSpace: Bool,
+        font: UIFont
+    ) -> ChatMarkdownMathNode {
+        let displayText = chemicalDisplayText(for: text, previousWasSpace: previousWasSpace)
+        if displayText.allSatisfy({ $0 == "." }) {
+            return chemicalCenteredDots(count: max(1, displayText.count), font: font)
+        }
+        return chemicalTextNode(displayText, font: font)
+    }
+
+    private func chemicalBondNode(for bond: String, font: UIFont) -> ChatMarkdownMathNode {
+        if bond.allSatisfy({ $0 == "." }) {
+            return chemicalCenteredDots(count: max(1, bond.count), font: font)
+        }
+        return chemicalTextNode(chemicalBondText(for: bond), font: font)
+    }
+
+    private func chemicalBondText(for bond: String) -> String {
+        switch bond {
+        case "-":
+            return "−"
+        case "=":
+            return "="
+        case "#":
+            return "≡"
+        case "~":
+            return "⋯"
+        case "->":
+            return "→"
+        case "<-":
+            return "←"
+        default:
+            return bond
+                .replacingOccurrences(of: "-", with: "−")
+                .replacingOccurrences(of: "#", with: "≡")
+        }
+    }
+
+    private func chemicalCenteredDots(count: Int, font: UIFont) -> ChatMarkdownMathNode {
+        ChatMarkdownMathCenteredDotsNode(
+            count: count,
+            font: font,
+            color: textColor
+        )
+    }
+
+    private func isChemicalGasMarkerAtCurrentScriptPosition() -> Bool {
+        guard index < tokens.count else {
+            return true
+        }
+
+        switch tokens[index] {
+        case .rBrace:
+            return true
+        case let .text(text):
+            return text.isWhitespaceOnly
+        default:
+            return false
+        }
+    }
+
+    private func parseChemicalScriptItem(font: UIFont) -> ChatMarkdownMathNode {
+        guard index < tokens.count else {
+            return chemicalTextNode("", font: font)
+        }
+
+        if tokens[index] == .lBrace {
+            index += 1
+            let node = parseChemicalScriptText(font: font) { $0 == .rBrace }
+            consume(.rBrace)
+            return node
+        }
+
+        if case .text = tokens[index] {
+            var text = ""
+            if case let .text(tokenText) = tokens[index],
+               tokenText.first?.isNumber == true {
+                text += consumeChemicalNumberRun()
+            } else {
+                text += tokens[index].rawText
+                index += 1
+            }
+
+            if let sign = consumeTrailingChemicalChargeSign() {
+                text += sign
+            }
+            return chemicalTextNode(text, font: font)
+        }
+
+        if case let .command(command) = tokens[index],
+           let symbol = chemicalSymbol(for: command) {
+            index += 1
+            return chemicalTextNode(symbol, font: font)
+        }
+
+        return parseAtomWithScripts(font: font) ?? chemicalTextNode("", font: font)
+    }
+
+    private func parseChemicalScriptText(
+        font: UIFont,
+        until shouldStop: (ChatMarkdownLatexToken) -> Bool
+    ) -> ChatMarkdownMathNode {
+        var nodes: [ChatMarkdownMathNode] = []
+
+        while index < tokens.count {
+            let token = tokens[index]
+            if shouldStop(token) {
+                break
+            }
+
+            switch token {
+            case let .text(text) where text.isWhitespaceOnly:
+                index += 1
+                appendChemicalSpace(to: &nodes, font: font)
+            case .text("-"):
+                index += 1
+                nodes.append(chemicalTextNode("−", font: font))
+            case let .text(text):
+                index += 1
+                nodes.append(chemicalTextNode(text, font: font))
+            case let .command(command):
+                index += 1
+                nodes.append(chemicalTextNode(chemicalSymbol(for: command) ?? command, font: font))
+            case .lBrace:
+                index += 1
+                let group = parseChemicalScriptText(font: font) { $0 == .rBrace }
+                consume(.rBrace)
+                nodes.append(group)
+            case .newLine:
+                index += 1
+                appendChemicalSpace(to: &nodes, font: font)
+            case .hat, .underscore:
+                index += 1
+                nodes.append(chemicalTextNode(token.rawText, font: font))
+            case .ampersand, .rBrace:
+                return horizontalNode(for: nodes, font: font)
+            }
+        }
+
+        return horizontalNode(for: nodes, font: font)
+    }
+
+    private func parseChemicalArrowIfPresent(font: UIFont) -> ChatMarkdownMathNode? {
+        guard index < tokens.count else {
+            return nil
+        }
+
+        if case let .command(command) = tokens[index],
+           let arrowKind = chemicalArrowKind(for: command) {
+            index += 1
+            return chemicalArrowNode(kind: arrowKind, font: font)
+        }
+
+        let first = tokens[index].rawText
+        let second = rawText(offsetBy: 1) ?? ""
+        let third = rawText(offsetBy: 2) ?? ""
+        let fourth = rawText(offsetBy: 3) ?? ""
+
+        switch (first, second, third, fourth) {
+        case ("<", "-", "-", ">"), ("<", "=", ">", ">"), ("<", "<", "=", ">"):
+            index += 4
+            return chemicalArrowNode(kind: .equilibrium, font: font)
+        case ("<", "=", ">", _), ("<", "-", ">", _):
+            index += 3
+            return chemicalArrowNode(kind: .equilibrium, font: font)
+        case ("-", "-", ">", _):
+            index += 3
+            return chemicalArrowNode(kind: .right, font: font)
+        case ("<", "-", "-", _):
+            index += 3
+            return chemicalArrowNode(kind: .left, font: font)
+        case ("-", ">", _, _):
+            index += 2
+            return chemicalArrowNode(kind: .right, font: font)
+        case ("<", "-", _, _):
+            index += 2
+            return chemicalArrowNode(kind: .left, font: font)
+        case ("=", ">", _, _):
+            index += 2
+            return chemicalArrowNode(kind: .doubleRight, font: font)
+        default:
+            return nil
+        }
+    }
+
+    private func shouldRenderChemicalSignAsCharge(previousWasSpace: Bool) -> Bool {
+        guard !previousWasSpace, let nextToken = nextNonWhitespaceToken() else {
+            return !previousWasSpace
+        }
+
+        switch nextToken {
+        case .rBrace:
+            return true
+        case .text("+"), .text("-"), .text(">"):
+            return true
+        case let .command(command):
+            return chemicalArrowKind(for: command) != nil
+        default:
+            return false
+        }
+    }
+
+    private func consumeChemicalNumberRun() -> String {
+        var number = ""
+        while index < tokens.count,
+              case let .text(text) = tokens[index],
+              text.first?.isNumber == true {
+            number += text
+            index += 1
+        }
+        return number
+    }
+
+    private func consumeChemicalWhitespace() {
+        while index < tokens.count,
+              case let .text(text) = tokens[index],
+              text.isWhitespaceOnly {
+            index += 1
+        }
+    }
+
+    private func consumeTrailingChemicalChargeSign() -> String? {
+        guard index < tokens.count else {
+            return nil
+        }
+
+        switch tokens[index] {
+        case .text("+"):
+            index += 1
+            return "+"
+        case .text("-"):
+            index += 1
+            return "−"
+        default:
+            return nil
+        }
+    }
+
+    private func nextNonWhitespaceToken() -> ChatMarkdownLatexToken? {
+        var lookahead = index + 1
+        while lookahead < tokens.count {
+            if case let .text(text) = tokens[lookahead], text.isWhitespaceOnly {
+                lookahead += 1
+                continue
+            }
+            return tokens[lookahead]
+        }
+        return nil
+    }
+
+    private func rawText(offsetBy offset: Int) -> String? {
+        let targetIndex = index + offset
+        guard targetIndex < tokens.count else {
+            return nil
+        }
+        return tokens[targetIndex].rawText
+    }
+
+    private func chemicalSymbol(for command: String) -> String? {
+        switch command {
+        case "pm":
+            return "±"
+        case "mp":
+            return "∓"
+        case "cdot":
+            return "·"
+        case "degree":
+            return "°"
+        case "ca":
+            return "≈"
+        default:
+            return ChatMarkdownLatexSymbols.map[command]
+        }
+    }
+
+    private func chemicalArrowKind(for command: String) -> ChatMarkdownMathExtensibleArrowNode.Kind? {
+        switch command {
+        case "rightarrow", "to", "longrightarrow":
+            return .right
+        case "leftarrow", "longleftarrow":
+            return .left
+        case "leftrightarrow", "rightleftharpoons":
+            return .equilibrium
+        case "Rightarrow":
+            return .doubleRight
+        case "Leftarrow":
+            return .doubleLeft
+        default:
+            return nil
+        }
+    }
+
+    private func appendChemicalOperator(
+        _ symbol: String,
+        to nodes: inout [ChatMarkdownMathNode],
+        font: UIFont
+    ) {
+        appendChemicalSpace(to: &nodes, font: font)
+        nodes.append(chemicalTextNode(symbol, font: font))
+        appendChemicalSpace(to: &nodes, font: font)
+    }
+
+    private func appendChemicalSpace(to nodes: inout [ChatMarkdownMathNode], font: UIFont) {
+        if let lastNode = nodes.last, lastNode is ChatMarkdownMathSpaceNode {
+            return
+        }
+        nodes.append(ChatMarkdownMathSpaceNode(width: font.pointSize * 0.38))
+    }
+
+    private func chemicalArrowNode(
+        kind: ChatMarkdownMathExtensibleArrowNode.Kind,
+        font: UIFont
+    ) -> ChatMarkdownMathNode {
+        ChatMarkdownMathExtensibleArrowNode(
+            kind: kind,
+            upper: parseOptionalChemicalBracketExpression(font: scriptFont(for: font)),
+            lower: parseOptionalChemicalBracketExpression(font: scriptFont(for: font)),
+            color: textColor,
+            font: font
+        )
+    }
+
+    private func parseOptionalChemicalBracketExpression(font: UIFont) -> ChatMarkdownMathNode? {
+        guard index < tokens.count, tokens[index] == .text("[") else {
+            return nil
+        }
+
+        index += 1
+        let node = parseChemistryExpression(font: font) { $0 == .text("]") }
+        consume(.text("]"))
+        return node
+    }
+
+    private func chemicalTextNode(_ text: String, font: UIFont) -> ChatMarkdownMathTextNode {
+        ChatMarkdownMathTextNode(text: text, font: font, color: textColor)
+    }
+
+    private func scriptFont(for font: UIFont) -> UIFont {
+        ChatMarkdownLatexFont.main(size: max(6.0, font.pointSize * 0.62))
+    }
+
+    private func horizontalNode(for nodes: [ChatMarkdownMathNode], font: UIFont) -> ChatMarkdownMathNode {
+        if nodes.isEmpty {
+            return chemicalTextNode("", font: font)
+        }
+        if nodes.count == 1 {
+            return nodes[0]
+        }
+        return ChatMarkdownMathHorizontalNode(children: nodes)
+    }
+
     private func parseRequiredGroupText() -> String {
         guard index < tokens.count, tokens[index] == .lBrace else {
             return ""
@@ -929,6 +1703,23 @@ private final class ChatMarkdownLatexParser {
     }
 }
 
+private extension String {
+    var isWhitespaceOnly: Bool {
+        !isEmpty && allSatisfy(\.isWhitespace)
+    }
+
+    var canPrecedeChemicalSubscript: Bool {
+        guard let first else {
+            return false
+        }
+
+        if first.isLetter {
+            return true
+        }
+        return self == ")" || self == "]"
+    }
+}
+
 private extension ChatMarkdownLatexToken {
     var rawText: String {
         switch self {
@@ -952,6 +1743,173 @@ private extension ChatMarkdownLatexToken {
     }
 }
 
+private final class ChatMarkdownPhysicalUnitParser {
+    private let characters: [Character]
+    private let font: UIFont
+    private let textColor: UIColor
+    private var index = 0
+
+    init(rawText: String, font: UIFont, textColor: UIColor) {
+        characters = Array(rawText)
+        self.font = font
+        self.textColor = textColor
+    }
+
+    func parse() -> ChatMarkdownMathNode {
+        var nodes: [ChatMarkdownMathNode] = []
+        var previousWasUnit = false
+
+        while index < characters.count {
+            let character = characters[index]
+            if character.isWhitespace {
+                appendSpace(to: &nodes)
+                previousWasUnit = false
+                index += 1
+            } else if character == "*" {
+                appendOperator("·", to: &nodes)
+                previousWasUnit = false
+                index += 1
+            } else if character == "/" {
+                appendOperator("/", to: &nodes)
+                previousWasUnit = false
+                while index + 1 < characters.count, characters[index + 1] == "/" {
+                    index += 1
+                }
+                index += 1
+            } else if character.isNumber || character == "." || character == "," {
+                let number = consumeNumberNode()
+                if previousWasUnit, let base = nodes.popLast(), let numberText = number.plainText {
+                    nodes.append(
+                        ChatMarkdownMathScriptsNode(
+                            base: base,
+                            upper: textNode(numberText, font: scriptFont),
+                            lower: nil
+                        )
+                    )
+                } else {
+                    nodes.append(number.node)
+                }
+                previousWasUnit = false
+            } else if character == "-" && previousWasUnit && nextCharacterIsNumber {
+                index += 1
+                let exponent = "−" + consumeNumber()
+                if let base = nodes.popLast() {
+                    nodes.append(
+                        ChatMarkdownMathScriptsNode(
+                            base: base,
+                            upper: textNode(exponent, font: scriptFont),
+                            lower: nil
+                        )
+                    )
+                }
+                previousWasUnit = false
+            } else {
+                let unit = consumeUnitText()
+                nodes.append(textNode(unit, font: font))
+                previousWasUnit = unit.contains { $0.isLetter }
+            }
+        }
+
+        if nodes.isEmpty {
+            return textNode("", font: font)
+        }
+        if nodes.count == 1 {
+            return nodes[0]
+        }
+        return ChatMarkdownMathHorizontalNode(children: nodes)
+    }
+
+    private var scriptFont: UIFont {
+        ChatMarkdownLatexFont.main(size: max(6.0, font.pointSize * 0.62))
+    }
+
+    private var nextCharacterIsNumber: Bool {
+        index + 1 < characters.count && characters[index + 1].isNumber
+    }
+
+    private func consumeNumberNode() -> (node: ChatMarkdownMathNode, plainText: String?) {
+        let significand = consumeDecimal()
+        guard index < characters.count,
+              characters[index] == "e" || characters[index] == "E",
+              index + 1 < characters.count else {
+            return (textNode(significand, font: font), significand)
+        }
+
+        index += 1
+        var exponent = ""
+        if index < characters.count, characters[index] == "-" {
+            exponent = "−"
+            index += 1
+        } else if index < characters.count, characters[index] == "+" {
+            index += 1
+        }
+        exponent += consumeDecimal()
+
+        let base = ChatMarkdownMathHorizontalNode(
+            children: [
+                textNode(significand, font: font),
+                textNode("×10", font: font)
+            ]
+        )
+        return (
+            ChatMarkdownMathScriptsNode(
+                base: base,
+                upper: textNode(exponent, font: scriptFont),
+                lower: nil
+            ),
+            nil
+        )
+    }
+
+    private func consumeNumber() -> String {
+        consumeNumberNode().plainText ?? ""
+    }
+
+    private func consumeDecimal() -> String {
+        var result = ""
+        while index < characters.count {
+            let character = characters[index]
+            if character.isNumber || character == "." || character == "," {
+                result.append(character == "," ? "." : character)
+                index += 1
+            } else {
+                break
+            }
+        }
+        return result
+    }
+
+    private func consumeUnitText() -> String {
+        var result = ""
+        while index < characters.count {
+            let character = characters[index]
+            if character.isWhitespace || character == "/" || character == "*" {
+                break
+            }
+            result.append(character)
+            index += 1
+        }
+        return result
+    }
+
+    private func appendOperator(_ symbol: String, to nodes: inout [ChatMarkdownMathNode]) {
+        appendSpace(to: &nodes)
+        nodes.append(textNode(symbol, font: font))
+        appendSpace(to: &nodes)
+    }
+
+    private func appendSpace(to nodes: inout [ChatMarkdownMathNode]) {
+        if let lastNode = nodes.last, lastNode is ChatMarkdownMathSpaceNode {
+            return
+        }
+        nodes.append(ChatMarkdownMathSpaceNode(width: font.pointSize * 0.34))
+    }
+
+    private func textNode(_ text: String, font: UIFont) -> ChatMarkdownMathTextNode {
+        ChatMarkdownMathTextNode(text: text, font: font, color: textColor)
+    }
+}
+
 private enum ChatMarkdownLatexSymbols {
     static let verticalLimits: Set<String> = ["sum", "prod", "coprod", "lim", "max", "min", "sup", "inf"]
     static let functions: Set<String> = ["sin", "cos", "tan", "log", "ln", "exp", "det", "dim", "mod", "gcd"]
@@ -972,7 +1930,8 @@ private enum ChatMarkdownLatexSymbols {
         "subset": "⊂", "subseteq": "⊆", "supset": "⊃", "supseteq": "⊇",
         "perp": "⊥", "parallel": "∥", "rightarrow": "→", "to": "→",
         "leftarrow": "←", "longrightarrow": "⟶", "longleftarrow": "⟵",
-        "Rightarrow": "⇒", "Leftarrow": "⇐", "iff": "⇔", "leftrightarrow": "↔",
+        "rightleftharpoons": "⇌", "Rightarrow": "⇒", "Leftarrow": "⇐",
+        "iff": "⇔", "leftrightarrow": "↔",
         "uparrow": "↑", "downarrow": "↓", "infty": "∞", "forall": "∀",
         "exists": "∃", "emptyset": "∅", "empty": "∅", "therefore": "∴",
         "because": "∵", "partial": "∂", "nabla": "∇", "hbar": "ℏ",
@@ -1095,6 +2054,51 @@ private final class ChatMarkdownMathHorizontalNode: ChatMarkdownMathNode {
     }
 }
 
+private final class ChatMarkdownMathPrescriptsNode: ChatMarkdownMathNode {
+    let base: ChatMarkdownMathNode
+    let upper: ChatMarkdownMathNode?
+    let lower: ChatMarkdownMathNode?
+    let size: CGSize
+    let baseline: CGFloat
+
+    init(base: ChatMarkdownMathNode, upper: ChatMarkdownMathNode?, lower: ChatMarkdownMathNode?) {
+        self.base = base
+        self.upper = upper
+        self.lower = lower
+
+        let scriptWidth = max(upper?.size.width ?? 0.0, lower?.size.width ?? 0.0)
+        let upperLift = upper.map { max(0.0, $0.size.height - base.size.height * 0.35) } ?? 0.0
+        baseline = upperLift + base.baseline
+        let lowerDepth = lower.map { $0.size.height * 0.85 } ?? 0.0
+        size = CGSize(
+            width: scriptWidth + base.size.width,
+            height: max(upperLift + base.size.height, baseline + lowerDepth)
+        )
+    }
+
+    func draw(in context: CGContext, at point: CGPoint) {
+        let scriptWidth = max(upper?.size.width ?? 0.0, lower?.size.width ?? 0.0)
+        let baseY = point.y + baseline - base.baseline
+        base.draw(in: context, at: CGPoint(x: point.x + scriptWidth, y: baseY))
+
+        if let upper {
+            upper.draw(
+                in: context,
+                at: CGPoint(x: point.x + scriptWidth - upper.size.width, y: point.y)
+            )
+        }
+        if let lower {
+            lower.draw(
+                in: context,
+                at: CGPoint(
+                    x: point.x + scriptWidth - lower.size.width,
+                    y: point.y + baseline - lower.baseline + lower.size.height * 0.28
+                )
+            )
+        }
+    }
+}
+
 private final class ChatMarkdownMathScriptsNode: ChatMarkdownMathNode {
     let base: ChatMarkdownMathNode
     let upper: ChatMarkdownMathNode?
@@ -1180,6 +2184,216 @@ private final class ChatMarkdownMathLimitsNode: ChatMarkdownMathNode {
         if let lower {
             lower.draw(in: context, at: CGPoint(x: centerX - lower.size.width / 2.0, y: y))
         }
+    }
+}
+
+private final class ChatMarkdownMathCenteredDotsNode: ChatMarkdownMathNode {
+    let count: Int
+    let font: UIFont
+    let color: UIColor
+    let size: CGSize
+    let baseline: CGFloat
+    private let radius: CGFloat
+    private let gap: CGFloat
+    private let axisOffsetFromBaseline: CGFloat
+
+    init(count: Int, font: UIFont, color: UIColor) {
+        self.count = max(1, count)
+        self.font = font
+        self.color = color
+        radius = max(1.1, font.pointSize * 0.085)
+        gap = max(2.0, font.pointSize * 0.18)
+        axisOffsetFromBaseline = max(2.0, font.xHeight * 0.5)
+        baseline = ceil(font.ascender)
+        size = CGSize(
+            width: CGFloat(self.count) * radius * 2.0 + CGFloat(max(0, self.count - 1)) * gap,
+            height: ceil(font.ascender - font.descender)
+        )
+    }
+
+    func draw(in context: CGContext, at point: CGPoint) {
+        context.setFillColor(color.cgColor)
+        let centerY = point.y + baseline - axisOffsetFromBaseline
+        var centerX = point.x + radius
+        for _ in 0..<count {
+            context.fillEllipse(
+                in: CGRect(
+                    x: centerX - radius,
+                    y: centerY - radius,
+                    width: radius * 2.0,
+                    height: radius * 2.0
+                )
+            )
+            centerX += radius * 2.0 + gap
+        }
+    }
+}
+
+private final class ChatMarkdownMathExtensibleArrowNode: ChatMarkdownMathNode {
+    enum Kind {
+        case right
+        case left
+        case leftRight
+        case doubleRight
+        case doubleLeft
+        case doubleLeftRight
+        case equal
+        case equilibrium
+
+        init(command: String) {
+            switch command {
+            case "xleftarrow", "xhookleftarrow", "xtwoheadleftarrow",
+                "xleftharpoonup", "xleftharpoondown":
+                self = .left
+            case "xleftrightarrow":
+                self = .leftRight
+            case "xRightarrow":
+                self = .doubleRight
+            case "xLeftarrow":
+                self = .doubleLeft
+            case "xLeftrightarrow":
+                self = .doubleLeftRight
+            case "xlongequal":
+                self = .equal
+            case "xrightleftharpoons", "xleftrightharpoons", "xtofrom":
+                self = .equilibrium
+            default:
+                self = .right
+            }
+        }
+    }
+
+    let kind: Kind
+    let upper: ChatMarkdownMathNode?
+    let lower: ChatMarkdownMathNode?
+    let color: UIColor
+    let size: CGSize
+    let baseline: CGFloat
+    private let arrowHeight: CGFloat = 8.0
+    private let labelGap: CGFloat = 2.0
+    private let axisOffsetFromBaseline: CGFloat
+
+    init(
+        kind: Kind,
+        upper: ChatMarkdownMathNode?,
+        lower: ChatMarkdownMathNode?,
+        color: UIColor,
+        font: UIFont
+    ) {
+        self.kind = kind
+        self.upper = upper
+        self.lower = lower
+        self.color = color
+        axisOffsetFromBaseline = max(2.0, font.xHeight * 0.5)
+
+        let labelWidth = max(upper?.size.width ?? 0.0, lower?.size.width ?? 0.0)
+        let arrowWidth = max(font.pointSize * 1.8, labelWidth + font.pointSize * 0.8)
+        let upperHeight = upper?.size.height ?? 0.0
+        let lowerHeight = lower?.size.height ?? 0.0
+        let upperGap = upper == nil ? 0.0 : labelGap
+        let lowerGap = lower == nil ? 0.0 : labelGap
+
+        let lineCenterY = upperHeight + upperGap + arrowHeight / 2.0
+        baseline = lineCenterY + axisOffsetFromBaseline
+        size = CGSize(
+            width: ceil(arrowWidth),
+            height: ceil(max(
+                upperHeight + upperGap + arrowHeight + lowerGap + lowerHeight,
+                baseline
+            ))
+        )
+    }
+
+    func draw(in context: CGContext, at point: CGPoint) {
+        let centerX = point.x + size.width / 2.0
+        if let upper {
+            upper.draw(in: context, at: CGPoint(x: centerX - upper.size.width / 2.0, y: point.y))
+        }
+
+        let lineY = point.y + baseline - axisOffsetFromBaseline
+        drawArrowLine(in: context, from: point.x, to: point.x + size.width, y: lineY)
+
+        if let lower {
+            let lowerY = lineY + arrowHeight / 2.0 + labelGap
+            lower.draw(in: context, at: CGPoint(x: centerX - lower.size.width / 2.0, y: lowerY))
+        }
+    }
+
+    private func drawArrowLine(in context: CGContext, from startX: CGFloat, to endX: CGFloat, y: CGFloat) {
+        context.setStrokeColor(color.cgColor)
+        context.setLineWidth(1.1)
+        context.setLineCap(.round)
+        context.setLineJoin(.round)
+
+        switch kind {
+        case .doubleRight, .doubleLeft, .doubleLeftRight:
+            drawDoubleLine(in: context, from: startX, to: endX, y: y)
+        case .equal:
+            drawEqualLine(in: context, from: startX, to: endX, y: y)
+        case .equilibrium:
+            drawEquilibrium(in: context, from: startX, to: endX, y: y)
+        case .right, .left, .leftRight:
+            drawSingleLine(in: context, from: startX, to: endX, y: y)
+        }
+
+        context.strokePath()
+    }
+
+    private func drawSingleLine(in context: CGContext, from startX: CGFloat, to endX: CGFloat, y: CGFloat) {
+        let head = min(CGFloat(5.0), max(CGFloat(3.0), (endX - startX) * 0.18))
+        context.move(to: CGPoint(x: startX, y: y))
+        context.addLine(to: CGPoint(x: endX, y: y))
+        if kind == .right || kind == .leftRight {
+            drawRightHead(in: context, x: endX, y: y, size: head)
+        }
+        if kind == .left || kind == .leftRight {
+            drawLeftHead(in: context, x: startX, y: y, size: head)
+        }
+    }
+
+    private func drawDoubleLine(in context: CGContext, from startX: CGFloat, to endX: CGFloat, y: CGFloat) {
+        let head = min(CGFloat(5.0), max(CGFloat(3.0), (endX - startX) * 0.18))
+        let offset: CGFloat = 1.6
+        context.move(to: CGPoint(x: startX, y: y - offset))
+        context.addLine(to: CGPoint(x: endX, y: y - offset))
+        context.move(to: CGPoint(x: startX, y: y + offset))
+        context.addLine(to: CGPoint(x: endX, y: y + offset))
+        if kind == .doubleRight || kind == .doubleLeftRight {
+            drawRightHead(in: context, x: endX, y: y, size: head)
+        }
+        if kind == .doubleLeft || kind == .doubleLeftRight {
+            drawLeftHead(in: context, x: startX, y: y, size: head)
+        }
+    }
+
+    private func drawEqualLine(in context: CGContext, from startX: CGFloat, to endX: CGFloat, y: CGFloat) {
+        context.move(to: CGPoint(x: startX, y: y - 1.6))
+        context.addLine(to: CGPoint(x: endX, y: y - 1.6))
+        context.move(to: CGPoint(x: startX, y: y + 1.6))
+        context.addLine(to: CGPoint(x: endX, y: y + 1.6))
+    }
+
+    private func drawEquilibrium(in context: CGContext, from startX: CGFloat, to endX: CGFloat, y: CGFloat) {
+        let head = min(CGFloat(5.0), max(CGFloat(3.0), (endX - startX) * 0.18))
+        let offset: CGFloat = 2.0
+        context.move(to: CGPoint(x: startX, y: y - offset))
+        context.addLine(to: CGPoint(x: endX, y: y - offset))
+        drawRightHead(in: context, x: endX, y: y - offset, size: head)
+        context.move(to: CGPoint(x: endX, y: y + offset))
+        context.addLine(to: CGPoint(x: startX, y: y + offset))
+        drawLeftHead(in: context, x: startX, y: y + offset, size: head)
+    }
+
+    private func drawRightHead(in context: CGContext, x: CGFloat, y: CGFloat, size: CGFloat) {
+        context.move(to: CGPoint(x: x - size, y: y - size))
+        context.addLine(to: CGPoint(x: x, y: y))
+        context.addLine(to: CGPoint(x: x - size, y: y + size))
+    }
+
+    private func drawLeftHead(in context: CGContext, x: CGFloat, y: CGFloat, size: CGFloat) {
+        context.move(to: CGPoint(x: x + size, y: y - size))
+        context.addLine(to: CGPoint(x: x, y: y))
+        context.addLine(to: CGPoint(x: x + size, y: y + size))
     }
 }
 
