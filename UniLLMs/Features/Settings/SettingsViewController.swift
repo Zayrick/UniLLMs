@@ -13,6 +13,50 @@ final class SettingsViewController: UITableViewController {
         case providers
         case tools
         case systemPrompts
+
+        var title: String {
+            switch self {
+            case .providers:
+                return "LLMs Provider"
+            case .tools:
+                return "Tools"
+            case .systemPrompts:
+                return "System Prompts"
+            }
+        }
+
+        var detail: String {
+            switch self {
+            case .providers:
+                return "Manage API providers, credentials, and available models"
+            case .tools:
+                return "Configure tool calling, built-in tools, and MCP servers"
+            case .systemPrompts:
+                return "Create reusable instructions for new conversations"
+            }
+        }
+
+        var symbolName: String {
+            switch self {
+            case .providers:
+                return "globe"
+            case .tools:
+                return "hammer"
+            case .systemPrompts:
+                return "text.quote"
+            }
+        }
+
+        var iconTintColor: UIColor {
+            switch self {
+            case .providers:
+                return .systemBlue
+            case .tools:
+                return .systemGreen
+            case .systemPrompts:
+                return .systemPurple
+            }
+        }
     }
 
     private let dependencies: AppDependencyContainer
@@ -58,19 +102,17 @@ final class SettingsViewController: UITableViewController {
         _ tableView: UITableView,
         cellForRowAt indexPath: IndexPath
     ) -> UITableViewCell {
-        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
         guard let row = Row(rawValue: indexPath.row) else {
             return cell
         }
 
-        switch row {
-        case .providers:
-            cell.textLabel?.text = "LLMs Provider"
-        case .tools:
-            cell.textLabel?.text = "Tools"
-        case .systemPrompts:
-            cell.textLabel?.text = "System Prompts"
-        }
+        var contentConfiguration = cell.defaultContentConfiguration()
+        contentConfiguration.text = row.title
+        contentConfiguration.secondaryText = row.detail
+        contentConfiguration.image = UIImage(systemName: row.symbolName)
+        contentConfiguration.imageProperties.tintColor = row.iconTintColor
+        cell.contentConfiguration = contentConfiguration
         cell.accessoryType = .disclosureIndicator
         return cell
     }
