@@ -10,21 +10,35 @@ import UIKit
 
 final class SystemPromptEditorViewController: UITableViewController {
     private enum Section: Int, CaseIterable {
-        case metadata
-        case content
-    }
+        case name
+        case prompt
 
-    private enum MetadataRow: Int, CaseIterable {
-        case title
+        var headerTitle: String? {
+            self == .prompt ? "Prompt" : nil
+        }
+
+        var footerTitle: String? {
+            switch self {
+            case .name:
+                return "Use a short name so this prompt is easy to find later."
+            case .prompt:
+                return "These instructions are saved as the system message for conversations that use this prompt."
+            }
+        }
     }
 
     private let dependencies: AppDependencyContainer
-    private var saveButtonItem: UIBarButtonItem?
     private var prompt: SystemPromptRecord
     private var savedPrompt: SystemPromptRecord
     private var isNewPrompt: Bool
-    private var titleText: String
-    private var contentText: String
+    private var nameText: String
+    private var promptText: String
+
+    private lazy var saveButtonItem = UIBarButtonItem(
+        barButtonSystemItem: .save,
+        target: self,
+        action: #selector(savePrompt)
+    )
 
     init(
         prompt: SystemPromptRecord,
@@ -35,8 +49,8 @@ final class SystemPromptEditorViewController: UITableViewController {
         savedPrompt = prompt
         self.isNewPrompt = isNewPrompt
         self.dependencies = dependencies
-        titleText = prompt.title
-        contentText = prompt.content
+        nameText = prompt.title
+        promptText = prompt.content
         super.init(style: .insetGrouped)
     }
 
@@ -46,15 +60,20 @@ final class SystemPromptEditorViewController: UITableViewController {
         prompt = dependencies.systemPromptManager.makePromptDraft()
         savedPrompt = prompt
         isNewPrompt = true
-        titleText = prompt.title
-        contentText = prompt.content
+        nameText = prompt.title
+        promptText = prompt.content
         super.init(coder: coder)
     }
 
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        title = isNewPrompt ? "New System Prompt" : prompt.displayTitle
+        title = navigationTitle
+        navigationItem.largeTitleDisplayMode = .never
+        navigationItem.rightBarButtonItem = saveButtonItem
+        tableView.keyboardDismissMode = .interactive
+        tableView.rowHeight = UITableView.automaticDimension
+        tableView.estimatedRowHeight = 96
         tableView.register(
             ProviderTextFieldCell.self,
             forCellReuseIdentifier: ProviderTextFieldCell.reuseIdentifier
@@ -63,7 +82,7 @@ final class SystemPromptEditorViewController: UITableViewController {
             SystemPromptTextViewCell.self,
             forCellReuseIdentifier: SystemPromptTextViewCell.reuseIdentifier
         )
-        configureSaveButton()
+        updateSaveButtonState()
     }
 
     override func numberOfSections(in tableView: UITableView) -> Int {
@@ -71,73 +90,45 @@ final class SystemPromptEditorViewController: UITableViewController {
     }
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        guard let section = Section(rawValue: section) else {
-            return 0
-        }
+        1
+    }
 
-        switch section {
-        case .metadata:
-            return MetadataRow.allCases.count
-        case .content:
-            return 1
-        }
+    override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        Section(rawValue: section)?.headerTitle
+    }
+
+    override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
+        Section(rawValue: section)?.footerTitle
     }
 
     override func tableView(
         _ tableView: UITableView,
         cellForRowAt indexPath: IndexPath
     ) -> UITableViewCell {
-        guard let section = Section(rawValue: indexPath.section) else {
+        switch Section(rawValue: indexPath.section) {
+        case .some(.name):
+            return nameCell()
+        case .some(.prompt):
+            return promptCell()
+        case .none:
             return UITableViewCell()
-        }
-
-        switch section {
-        case .metadata:
-            return metadataCell(for: indexPath)
-        case .content:
-            return contentCell()
         }
     }
 
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
 
-        guard let section = Section(rawValue: indexPath.section) else {
-            return
-        }
-
-        switch section {
-        case .metadata:
-            (tableView.cellForRow(at: indexPath) as? ProviderTextFieldCell)?.activateTextField()
-        case .content:
-            (tableView.cellForRow(at: indexPath) as? SystemPromptTextViewCell)?.activateTextView()
+        switch tableView.cellForRow(at: indexPath) {
+        case let cell as ProviderTextFieldCell:
+            cell.activateTextField()
+        case let cell as SystemPromptTextViewCell:
+            cell.activateTextView()
+        default:
+            break
         }
     }
 
-    private func metadataCell(for indexPath: IndexPath) -> UITableViewCell {
-        guard let row = MetadataRow(rawValue: indexPath.row) else {
-            return UITableViewCell()
-        }
-
-        switch row {
-        case .title:
-            return textFieldCell(
-                title: "Title",
-                text: titleText,
-                placeholder: "Example: Translation Assistant"
-            ) { [weak self] text in
-                self?.titleText = text
-                self?.updateAfterFieldChange()
-            }
-        }
-    }
-
-    private func textFieldCell(
-        title: String,
-        text: String,
-        placeholder: String,
-        onChange: @escaping (String) -> Void
-    ) -> UITableViewCell {
+    private func nameCell() -> UITableViewCell {
         guard let cell = tableView.dequeueReusableCell(
             withIdentifier: ProviderTextFieldCell.reuseIdentifier
         ) as? ProviderTextFieldCell else {
@@ -145,18 +136,21 @@ final class SystemPromptEditorViewController: UITableViewController {
         }
 
         cell.configure(
-            title: title,
-            text: text,
-            placeholder: placeholder,
+            title: "Name",
+            text: nameText,
+            placeholder: "Translation Assistant",
             isSecureTextEntry: false,
             keyboardType: .default,
             textContentType: nil
         )
-        cell.onTextChange = onChange
+        cell.onTextChange = { [weak self] text in
+            self?.nameText = text
+            self?.updateAfterFieldChange()
+        }
         return cell
     }
 
-    private func contentCell() -> UITableViewCell {
+    private func promptCell() -> UITableViewCell {
         guard let cell = tableView.dequeueReusableCell(
             withIdentifier: SystemPromptTextViewCell.reuseIdentifier
         ) as? SystemPromptTextViewCell else {
@@ -164,25 +158,14 @@ final class SystemPromptEditorViewController: UITableViewController {
         }
 
         cell.configure(
-            title: "Content",
-            text: contentText,
-            placeholder: "Enter system prompt content"
+            text: promptText,
+            placeholder: "Describe the assistant's role, tone, rules, and constraints."
         )
         cell.onTextChange = { [weak self] text in
-            self?.contentText = text
+            self?.promptText = text
             self?.updateAfterFieldChange()
         }
         return cell
-    }
-
-    private func configureSaveButton() {
-        let saveItem = UIBarButtonItem(
-            barButtonSystemItem: .save,
-            target: self,
-            action: #selector(savePrompt)
-        )
-        saveButtonItem = saveItem
-        updateSaveButtonState()
     }
 
     @objc private func savePrompt() {
@@ -195,44 +178,50 @@ final class SystemPromptEditorViewController: UITableViewController {
         promptForSaving.updatedAt = Date()
         prompt = promptForSaving
         dependencies.systemPromptManager.savePrompt(prompt)
-        isNewPrompt = false
         savedPrompt = prompt
+        isNewPrompt = false
         title = prompt.displayTitle
         updateSaveButtonState()
         navigationController?.popViewController(animated: true)
     }
 
     private func updateAfterFieldChange() {
-        let trimmedTitle = titleText.trimmingCharacters(in: .whitespacesAndNewlines)
-        title = trimmedTitle.isEmpty ? (isNewPrompt ? "New System Prompt" : savedPrompt.displayTitle) : trimmedTitle
+        title = navigationTitle
         updateSaveButtonState()
     }
 
     private func updateSaveButtonState() {
-        navigationItem.rightBarButtonItem = canSavePrompt ? saveButtonItem : nil
+        saveButtonItem.isEnabled = canSavePrompt
+    }
+
+    private var navigationTitle: String {
+        let trimmedName = nameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedName.isEmpty {
+            return trimmedName
+        }
+
+        return isNewPrompt ? "New System Prompt" : savedPrompt.displayTitle
     }
 
     private var canSavePrompt: Bool {
-        promptForSaving != nil && (isNewPrompt || hasUnsavedChanges)
-    }
+        guard let promptForSaving else {
+            return false
+        }
 
-    private var hasUnsavedChanges: Bool {
-        let trimmedTitle = titleText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedContent = contentText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedTitle != savedPrompt.title || trimmedContent != savedPrompt.content
+        return isNewPrompt || promptForSaving != savedPrompt
     }
 
     private var promptForSaving: SystemPromptRecord? {
-        let trimmedTitle = titleText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedContent = contentText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedTitle.isEmpty,
-              !trimmedContent.isEmpty else {
+        let trimmedName = nameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedPrompt = promptText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty,
+              !trimmedPrompt.isEmpty else {
             return nil
         }
 
         var updatedPrompt = prompt
-        updatedPrompt.title = trimmedTitle
-        updatedPrompt.content = trimmedContent
+        updatedPrompt.title = trimmedName
+        updatedPrompt.content = trimmedPrompt
         return updatedPrompt
     }
 }
@@ -240,8 +229,10 @@ final class SystemPromptEditorViewController: UITableViewController {
 private final class SystemPromptTextViewCell: UITableViewCell {
     static let reuseIdentifier = "SystemPromptTextViewCell"
 
-    private let contentStackView = UIStackView()
-    private let fieldTitleLabel = UILabel()
+    private enum Layout {
+        static let minimumHeight: CGFloat = 180
+    }
+
     private let textView = UITextView()
     private let placeholderLabel = UILabel()
 
@@ -261,18 +252,12 @@ private final class SystemPromptTextViewCell: UITableViewCell {
         super.prepareForReuse()
 
         onTextChange = nil
-        fieldTitleLabel.text = nil
         textView.text = ""
         placeholderLabel.text = nil
         updatePlaceholderVisibility()
     }
 
-    func configure(
-        title: String,
-        text: String,
-        placeholder: String
-    ) {
-        fieldTitleLabel.text = title
+    func configure(text: String, placeholder: String) {
         textView.text = text
         placeholderLabel.text = placeholder
         updatePlaceholderVisibility()
@@ -285,49 +270,41 @@ private final class SystemPromptTextViewCell: UITableViewCell {
     private func configure() {
         selectionStyle = .none
 
-        contentStackView.axis = .vertical
-        contentStackView.spacing = 8
-        contentStackView.translatesAutoresizingMaskIntoConstraints = false
-
-        fieldTitleLabel.font = .preferredFont(forTextStyle: .body)
-        fieldTitleLabel.adjustsFontForContentSizeCategory = true
-        fieldTitleLabel.textColor = .label
-
         textView.delegate = self
         textView.font = .preferredFont(forTextStyle: .body)
         textView.adjustsFontForContentSizeCategory = true
         textView.backgroundColor = .clear
-        textView.layer.borderWidth = 0
-        textView.layer.cornerRadius = 0
-        textView.textContainerInset = UIEdgeInsets(top: 4, left: 0, bottom: 4, right: 0)
-        textView.isScrollEnabled = true
+        textView.textContainerInset = .zero
+        textView.textContainer.lineFragmentPadding = 0
+        textView.accessibilityLabel = "Prompt"
         textView.translatesAutoresizingMaskIntoConstraints = false
 
         placeholderLabel.font = .preferredFont(forTextStyle: .body)
         placeholderLabel.adjustsFontForContentSizeCategory = true
         placeholderLabel.textColor = .placeholderText
+        placeholderLabel.lineBreakMode = .byWordWrapping
+        placeholderLabel.numberOfLines = 0
+        placeholderLabel.isUserInteractionEnabled = false
         placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        textView.addSubview(placeholderLabel)
-        contentStackView.addArrangedSubview(fieldTitleLabel)
-        contentStackView.addArrangedSubview(textView)
-        contentView.addSubview(contentStackView)
+        contentView.addSubview(textView)
+        contentView.addSubview(placeholderLabel)
 
         let margins = contentView.layoutMarginsGuide
         NSLayoutConstraint.activate([
-            contentStackView.topAnchor.constraint(equalTo: margins.topAnchor),
-            contentStackView.leadingAnchor.constraint(equalTo: margins.leadingAnchor),
-            contentStackView.trailingAnchor.constraint(equalTo: margins.trailingAnchor),
-            contentStackView.bottomAnchor.constraint(equalTo: margins.bottomAnchor),
-            textView.heightAnchor.constraint(greaterThanOrEqualToConstant: 240),
-            placeholderLabel.topAnchor.constraint(equalTo: textView.topAnchor, constant: 4),
-            placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: 5),
-            placeholderLabel.trailingAnchor.constraint(lessThanOrEqualTo: textView.trailingAnchor, constant: -5)
+            textView.topAnchor.constraint(equalTo: margins.topAnchor),
+            textView.leadingAnchor.constraint(equalTo: margins.leadingAnchor),
+            textView.trailingAnchor.constraint(equalTo: margins.trailingAnchor),
+            textView.bottomAnchor.constraint(equalTo: margins.bottomAnchor),
+            textView.heightAnchor.constraint(greaterThanOrEqualToConstant: Layout.minimumHeight),
+            placeholderLabel.topAnchor.constraint(equalTo: textView.topAnchor),
+            placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor),
+            placeholderLabel.trailingAnchor.constraint(equalTo: textView.trailingAnchor)
         ])
     }
 
     private func updatePlaceholderVisibility() {
-        placeholderLabel.isHidden = !(textView.text ?? "").isEmpty
+        placeholderLabel.isHidden = !textView.text.isEmpty
     }
 }
 
