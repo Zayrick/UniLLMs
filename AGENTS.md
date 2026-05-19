@@ -14,9 +14,19 @@ AI agents may run read-only `git` commands for inspection. Do not perform Git op
 
 Respect unrelated local changes. The worktree may contain user edits or generated files; do not revert files you did not change. Keep edits scoped to the requested app target, test target, or documentation files.
 
+## Freshness & Web Research Requirement
+
+Before generating content that depends on Apple SDKs, OpenRouter APIs, OpenAI APIs, third-party libraries, command-line tools, platform behavior, or other fast-moving interfaces, AI agents must use the available web lookup, browser, or official documentation tools to verify the latest API names, signatures, request and response shapes, setup steps, deprecations, and recommended usage. This check must happen before writing implementation plans, code changes, tests, documentation, or user-facing explanations that rely on those details.
+
+Prefer primary sources: Apple Developer Documentation, OpenRouter documentation, OpenAI documentation, official package/library documentation, release notes, and official source repositories. When the answer or implementation relies on a specific external API or behavior, summarize the verified source and date in the response or working notes. Do not rely only on model memory for modern APIs, SDK behavior, authentication details, Info.plist/privacy requirements, entitlement usage, dependency setup, or request/response schemas.
+
+If network access or documentation lookup is unavailable, explicitly state that current web verification could not be performed before making assumptions. In that case, make the smallest well-supported change possible, avoid speculative API usage, and ask the user before proceeding when the missing information could affect correctness, security, or data compatibility.
+
+This requirement does not weaken the repository's build restrictions. Web research is allowed for freshness, but agents still must not compile, build, test, archive, install, or launch the app unless the user explicitly asks for that specific action.
+
 ## Implementation Principles
 
-When work depends on Apple SDKs, OpenRouter APIs, or other fast-moving interfaces, prefer checking the latest official documentation or source references through the network when network access is available. Do not rely on stale memory for modern APIs. If network access is unavailable, state that limitation and make the smallest well-supported assumption.
+When work depends on Apple SDKs, OpenRouter APIs, or other fast-moving interfaces, follow the Freshness & Web Research Requirement above before generating content. Do not rely on stale memory for modern APIs. If network access is unavailable, state that limitation and make the smallest well-supported assumption.
 
 Prefer native Apple frameworks and platform conventions over third-party dependencies or custom infrastructure. Use UIKit, Foundation, URLSession, UserDefaults, Core Data, Auto Layout, asset catalogs, and XCTest directly when they solve the problem cleanly. Add dependencies, wrappers, or abstractions only when they remove real complexity or are explicitly requested.
 
