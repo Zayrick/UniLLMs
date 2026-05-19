@@ -25,7 +25,7 @@ final class LLMsProviderViewController: UITableViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        title = "LLMs Provider"
+        title = "LLM Providers"
 
         configureAddButton()
         configureProviderReordering()
@@ -54,6 +54,7 @@ final class LLMsProviderViewController: UITableViewController {
     private func reloadProviders() {
         providers = dependencies.providerStore.fetchProviders()
         tableView.reloadData()
+        setNeedsUpdateContentUnavailableConfiguration()
     }
 
     private func providerMenu() -> UIMenu {
@@ -88,8 +89,33 @@ final class LLMsProviderViewController: UITableViewController {
         }
     }
 
+    override func updateContentUnavailableConfiguration(
+        using state: UIContentUnavailableConfigurationState
+    ) {
+        guard providers.isEmpty else {
+            contentUnavailableConfiguration = nil
+            return
+        }
+
+        var configuration = UIContentUnavailableConfiguration.empty()
+        configuration.image = UIImage(systemName: "globe")
+        configuration.text = "No LLM Providers"
+        configuration.secondaryText = "Add a provider to connect credentials and make models available in chat."
+        configuration.button = addProviderButtonConfiguration()
+        configuration.buttonProperties.menu = providerMenu()
+        contentUnavailableConfiguration = configuration
+    }
+
+    private func addProviderButtonConfiguration() -> UIButton.Configuration {
+        var configuration = UIButton.Configuration.filled()
+        configuration.title = "Add Provider"
+        configuration.image = UIImage(systemName: "plus")
+        configuration.imagePadding = 6
+        return configuration
+    }
+
     override func numberOfSections(in tableView: UITableView) -> Int {
-        1
+        providers.isEmpty ? 0 : 1
     }
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
@@ -163,13 +189,7 @@ final class LLMsProviderViewController: UITableViewController {
                 return
             }
 
-            let provider = providers.remove(at: indexPath.row)
-            dependencies.providerStore.deleteProvider(id: provider.id)
-            tableView.performBatchUpdates {
-                tableView.deleteRows(at: [indexPath], with: .fade)
-            } completion: { _ in
-                completion(true)
-            }
+            deleteProvider(at: indexPath, completion: completion)
         }
         deleteAction.image = UIImage(systemName: "trash")
 
@@ -195,6 +215,25 @@ final class LLMsProviderViewController: UITableViewController {
             to: destinationIndexPath.row
         )
         return true
+    }
+
+    private func deleteProvider(at indexPath: IndexPath, completion: @escaping (Bool) -> Void) {
+        let provider = providers.remove(at: indexPath.row)
+        dependencies.providerStore.deleteProvider(id: provider.id)
+
+        guard !providers.isEmpty else {
+            tableView.reloadData()
+            setNeedsUpdateContentUnavailableConfiguration()
+            completion(true)
+            return
+        }
+
+        tableView.performBatchUpdates {
+            tableView.deleteRows(at: [indexPath], with: .fade)
+        } completion: { [weak self] _ in
+            self?.setNeedsUpdateContentUnavailableConfiguration()
+            completion(true)
+        }
     }
 
     private func dragItem(for provider: LLMsProviderRecord) -> UIDragItem {

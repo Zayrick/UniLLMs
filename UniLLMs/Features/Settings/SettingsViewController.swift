@@ -17,7 +17,7 @@ final class SettingsViewController: UITableViewController {
         var title: String {
             switch self {
             case .providers:
-                return "LLMs Provider"
+                return "LLM Providers"
             case .tools:
                 return "Tools"
             case .systemPrompts:
@@ -25,14 +25,24 @@ final class SettingsViewController: UITableViewController {
             }
         }
 
-        var detail: String {
+        func detail(providerCount: Int, systemPromptCount: Int) -> String {
             switch self {
             case .providers:
-                return "Manage API providers, credentials, and available models"
+                guard providerCount > 0 else {
+                    return "No providers configured. Add one to make chat models available."
+                }
+
+                let countDescription = providerCount == 1 ? "1 provider" : "\(providerCount) providers"
+                return "\(countDescription) configured. Manage credentials and models."
             case .tools:
                 return "Configure tool calling, built-in tools, and MCP servers"
             case .systemPrompts:
-                return "Create reusable instructions for new conversations"
+                guard systemPromptCount > 0 else {
+                    return "No prompts saved. Add reusable instructions for new conversations."
+                }
+
+                let countDescription = systemPromptCount == 1 ? "1 prompt" : "\(systemPromptCount) prompts"
+                return "\(countDescription) saved. Manage reusable instructions."
             }
         }
 
@@ -60,6 +70,8 @@ final class SettingsViewController: UITableViewController {
     }
 
     private let dependencies: AppDependencyContainer
+    private var providerCount = 0
+    private var systemPromptCount = 0
 
     init(dependencies: AppDependencyContainer = AppEnvironment.shared.dependencies) {
         self.dependencies = dependencies
@@ -74,16 +86,29 @@ final class SettingsViewController: UITableViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        title = "Setting"
+        title = "Settings"
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             barButtonSystemItem: .close,
             target: self,
             action: #selector(close)
         )
+        reloadSettingsState()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+
+        reloadSettingsState()
     }
 
     @objc private func close() {
         dismiss(animated: true)
+    }
+
+    private func reloadSettingsState() {
+        providerCount = dependencies.providerStore.fetchProviders().count
+        systemPromptCount = dependencies.systemPromptManager.savedPrompts().count
+        tableView.reloadData()
     }
 
     override func numberOfSections(in tableView: UITableView) -> Int {
@@ -95,7 +120,7 @@ final class SettingsViewController: UITableViewController {
     }
 
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        "config"
+        "Configuration"
     }
 
     override func tableView(
@@ -109,7 +134,11 @@ final class SettingsViewController: UITableViewController {
 
         var contentConfiguration = cell.defaultContentConfiguration()
         contentConfiguration.text = row.title
-        contentConfiguration.secondaryText = row.detail
+        contentConfiguration.secondaryText = row.detail(
+            providerCount: providerCount,
+            systemPromptCount: systemPromptCount
+        )
+        contentConfiguration.secondaryTextProperties.numberOfLines = 2
         contentConfiguration.image = UIImage(systemName: row.symbolName)
         contentConfiguration.imageProperties.tintColor = row.iconTintColor
         cell.contentConfiguration = contentConfiguration

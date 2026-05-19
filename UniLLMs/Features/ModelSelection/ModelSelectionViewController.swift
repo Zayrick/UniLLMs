@@ -151,8 +151,8 @@ final class ModelSelectionViewController: UITableViewController, UISearchResults
             }
 
             return unavailableCell(
-                title: "No LLMs Provider",
-                detail: "Add providers in Settings before selecting a model."
+                title: "No LLM Providers",
+                detail: "Add a provider in Settings before selecting a model."
             )
         }
 

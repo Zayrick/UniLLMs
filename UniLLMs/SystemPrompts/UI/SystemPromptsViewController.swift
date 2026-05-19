@@ -65,6 +65,7 @@ final class SystemPromptsViewController: UITableViewController {
     private func reloadContent() {
         prompts = dependencies.systemPromptManager.savedPrompts()
         tableView.reloadData()
+        setNeedsUpdateContentUnavailableConfiguration()
     }
 
     @objc private func addPrompt() {
@@ -80,21 +81,44 @@ final class SystemPromptsViewController: UITableViewController {
     }
 
     override func numberOfSections(in tableView: UITableView) -> Int {
-        1
+        prompts.isEmpty ? 0 : 1
     }
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        max(prompts.count, 1)
+        prompts.count
+    }
+
+    override func updateContentUnavailableConfiguration(
+        using state: UIContentUnavailableConfigurationState
+    ) {
+        guard prompts.isEmpty else {
+            contentUnavailableConfiguration = nil
+            return
+        }
+
+        var configuration = UIContentUnavailableConfiguration.empty()
+        configuration.image = UIImage(systemName: "text.quote")
+        configuration.text = "No System Prompts"
+        configuration.secondaryText = "Save reusable instructions and apply them when starting new conversations."
+        configuration.button = addPromptButtonConfiguration()
+        configuration.buttonProperties.primaryAction = UIAction { [weak self] _ in
+            self?.addPrompt()
+        }
+        contentUnavailableConfiguration = configuration
+    }
+
+    private func addPromptButtonConfiguration() -> UIButton.Configuration {
+        var configuration = UIButton.Configuration.filled()
+        configuration.title = "Add Prompt"
+        configuration.image = UIImage(systemName: "plus")
+        configuration.imagePadding = 6
+        return configuration
     }
 
     override func tableView(
         _ tableView: UITableView,
         cellForRowAt indexPath: IndexPath
     ) -> UITableViewCell {
-        guard !prompts.isEmpty else {
-            return emptyPromptCell()
-        }
-
         return promptCell(for: indexPath)
     }
 
@@ -137,18 +161,6 @@ final class SystemPromptsViewController: UITableViewController {
         let configuration = UISwipeActionsConfiguration(actions: [deleteAction])
         configuration.performsFirstActionWithFullSwipe = false
         return configuration
-    }
-
-    private func emptyPromptCell() -> UITableViewCell {
-        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
-        var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = "No System Prompts"
-        contentConfiguration.secondaryText = "Tap + to add one"
-        contentConfiguration.image = UIImage(systemName: "text.quote")
-        contentConfiguration.imageProperties.tintColor = .secondaryLabel
-        cell.contentConfiguration = contentConfiguration
-        cell.selectionStyle = .none
-        return cell
     }
 
     private func promptCell(for indexPath: IndexPath) -> UITableViewCell {
