@@ -2,7 +2,7 @@
 //  AppDependencyContainer.swift
 //  UniLLMs
 //
-//  Assembles the default service graph for App, Chat, Provider, Tools, MCP, Memory, and Archive modules.
+//  Assembles the default service graph for App, Chat, Provider, Tools, System Prompts, MCP, Memory, and Archive modules.
 //  Created by Zayrick on 2026/5/11.
 //
 
@@ -18,6 +18,7 @@ final class AppDependencyContainer {
     let toolSettingsManager: ToolSettingsManager
     let toolCatalog: ToolCatalog
     let toolManager: ToolManager
+    let systemPromptManager: SystemPromptManager
     let memoryManager: MemoryManager
     let chatHistoryStore: UserDefaultsChatStore
     let chatRuntime: ChatRuntime
@@ -26,7 +27,8 @@ final class AppDependencyContainer {
 
     init(
         coreDataStack: CoreDataStack = CoreDataStack(),
-        providerStore: LLMsProviderStore = .shared
+        providerStore: LLMsProviderStore = .shared,
+        systemPromptStore: any SystemPromptStore = UserDefaultsSystemPromptStore.shared
     ) {
         self.coreDataStack = coreDataStack
         self.providerStore = providerStore
@@ -48,6 +50,7 @@ final class AppDependencyContainer {
             store: toolSettingsStore
         )
         self.toolSettingsManager = toolSettingsManager
+        systemPromptManager = SystemPromptManager(store: systemPromptStore)
         memoryManager = MemoryManager()
         chatHistoryStore = UserDefaultsChatStore()
         let mcpServerManager = MCPServerManager()

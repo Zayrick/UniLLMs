@@ -2,7 +2,7 @@
 //  SettingsViewController.swift
 //  UniLLMs
 //
-//  Displays settings entry points and navigates to LLM provider management.
+//  Displays settings entry points.
 //  Created by Zayrick on 2026/5/11.
 //
 
@@ -12,6 +12,7 @@ final class SettingsViewController: UITableViewController {
     private enum Row: Int, CaseIterable {
         case providers
         case tools
+        case systemPrompts
     }
 
     private let dependencies: AppDependencyContainer
@@ -67,6 +68,8 @@ final class SettingsViewController: UITableViewController {
             cell.textLabel?.text = "LLMs Provider"
         case .tools:
             cell.textLabel?.text = "Tools"
+        case .systemPrompts:
+            cell.textLabel?.text = "System Prompts"
         }
         cell.accessoryType = .disclosureIndicator
         return cell
@@ -87,6 +90,11 @@ final class SettingsViewController: UITableViewController {
         case .tools:
             navigationController?.pushViewController(
                 ToolsViewController(dependencies: dependencies),
+                animated: true
+            )
+        case .systemPrompts:
+            navigationController?.pushViewController(
+                SystemPromptsViewController(dependencies: dependencies),
                 animated: true
             )
         }
