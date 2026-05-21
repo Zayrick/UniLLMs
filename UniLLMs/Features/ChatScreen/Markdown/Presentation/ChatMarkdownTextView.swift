@@ -9,6 +9,13 @@
 import UIKit
 
 final class ChatMarkdownTextView: UITextView {
+    private enum TextEffectConfiguration {
+        // Text blur/clear insertion effect is currently disabled. Keep the
+        // implementation in place so it can be re-enabled after the streaming
+        // renderer settles.
+        static let isInsertBlurEffectEnabled = false
+    }
+
     private let markdownTextStorage: NSTextStorage
     private let markdownLayoutManager: ChatMarkdownLayoutManager
     private let markdownTextContainer: NSTextContainer
@@ -91,6 +98,7 @@ final class ChatMarkdownTextView: UITextView {
             // Pure attribute change at most — fall back to wholesale swap so
             // any restyling (e.g. emphasis applied to existing chars) lands.
             if !newText.isEqual(to: markdownTextStorage) {
+                clearActiveInsertAnimations()
                 markdownTextStorage.setAttributedString(newText)
                 accessibilityLabel = newText.string
                 targetAttributedText = newText
@@ -103,13 +111,15 @@ final class ChatMarkdownTextView: UITextView {
         let insertedSlice = newText.attributedSubstring(from: insertedRange)
         let mutableInsert = NSMutableAttributedString(attributedString: insertedSlice)
 
-        // Only animate when the change is a tail extension: replacedRange has
-        // length 0 (pure insertion) or the inserted region is longer than the
-        // replaced one (predictive closer growth still counts). Mid-string
-        // edits without a net growth skip the blur to avoid distracting flashes.
-        let shouldAnimate = insertedRange.length > 0 && replacedRange.length == 0
+        // The text effect is intentionally disabled for now; this condition
+        // preserves the old behavior behind a single switch.
+        let shouldAnimate = TextEffectConfiguration.isInsertBlurEffectEnabled
+            && insertedRange.length > 0
+            && replacedRange.length == 0
         if shouldAnimate {
             applyBlur(to: mutableInsert, in: NSRange(location: 0, length: mutableInsert.length), progress: 0.0)
+        } else {
+            clearActiveInsertAnimations()
         }
 
         markdownTextStorage.beginEditing()
@@ -165,6 +175,14 @@ final class ChatMarkdownTextView: UITextView {
     private func stopDisplayLink() {
         displayLink?.invalidate()
         displayLink = nil
+    }
+
+    private func clearActiveInsertAnimations() {
+        guard !animatingRanges.isEmpty else {
+            return
+        }
+        animatingRanges.removeAll()
+        stopDisplayLink()
     }
     
     @objc private func handleDisplayLink(_ link: CADisplayLink) {

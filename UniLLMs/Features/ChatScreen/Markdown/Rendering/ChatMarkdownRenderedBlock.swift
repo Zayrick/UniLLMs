@@ -16,6 +16,9 @@ struct ChatMarkdownImageBlock: Equatable {
 struct ChatMarkdownCodeBlock: Equatable {
     let code: String
     let language: String?
+    /// True only when the source contains a real closing fence. Streaming code
+    /// blocks keep their own open state instead of relying on a synthetic ``` tail.
+    var isClosed: Bool = true
 
     var displayLanguage: String {
         guard let language = language?.trimmingCharacters(in: .whitespacesAndNewlines),

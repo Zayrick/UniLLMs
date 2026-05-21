@@ -140,15 +140,30 @@ struct IncrementalMarkdownLineParser {
 
         case let .displayMath(opener):
             appendLine(line, to: index)
-            if line.isComplete, Self.isDisplayMathClose(blocks[index].rawMarkdown, opener: opener) {
+            if Self.isDisplayMathClose(blocks[index].rawMarkdown, opener: opener) {
                 blocks[index].isClosed = true
+                clearPendingPartialIfOwned(by: blocks[index].id)
             }
             return true
 
         case .htmlDetails:
             appendLine(line, to: index)
-            if line.isComplete, Self.htmlDetailsBalanced(in: blocks[index].rawMarkdown) {
+            if Self.htmlDetailsBalanced(in: blocks[index].rawMarkdown) {
                 blocks[index].isClosed = true
+                clearPendingPartialIfOwned(by: blocks[index].id)
+            }
+            return true
+
+        case .htmlOther:
+            if line.isComplete, Self.isBlankLine(line.text) {
+                blocks[index].isClosed = true
+                blocks[index].revision = bumpRevision()
+                return false
+            }
+            appendLine(line, to: index)
+            if Self.htmlOtherBalanced(in: blocks[index].rawMarkdown) {
+                blocks[index].isClosed = true
+                clearPendingPartialIfOwned(by: blocks[index].id)
             }
             return true
 
@@ -177,7 +192,7 @@ struct IncrementalMarkdownLineParser {
             promoteToTableIfPossible(at: index)
             return true
 
-        case .htmlOther, .image, .thematicBreak:
+        case .image, .thematicBreak:
             return false
         }
     }
@@ -224,8 +239,22 @@ struct IncrementalMarkdownLineParser {
 
         switch kind {
         case .thematicBreak, .image:
-            if line.isComplete {
+            blocks[blocks.count - 1].isClosed = true
+            clearPendingPartialIfOwned(by: id)
+        case let .displayMath(opener):
+            if Self.isDisplayMathClose(raw, opener: opener) {
                 blocks[blocks.count - 1].isClosed = true
+                clearPendingPartialIfOwned(by: id)
+            }
+        case .htmlDetails:
+            if Self.htmlDetailsBalanced(in: raw) {
+                blocks[blocks.count - 1].isClosed = true
+                clearPendingPartialIfOwned(by: id)
+            }
+        case .htmlOther:
+            if Self.htmlOtherBalanced(in: raw) {
+                blocks[blocks.count - 1].isClosed = true
+                clearPendingPartialIfOwned(by: id)
             }
         default:
             break
@@ -241,6 +270,14 @@ struct IncrementalMarkdownLineParser {
             pendingPartialOwner = blocks[index].id
         }
         blocks[index].revision = bumpRevision()
+    }
+
+    private mutating func clearPendingPartialIfOwned(by id: IncrementalMarkdownBlockID) {
+        guard pendingPartialOwner == id else {
+            return
+        }
+        pendingPartialLine = ""
+        pendingPartialOwner = nil
     }
 
     private mutating func nextBlockID() -> IncrementalMarkdownBlockID {
@@ -266,6 +303,9 @@ struct IncrementalMarkdownLineParser {
         if startsHTMLDetails(line) {
             return .htmlDetails
         }
+        if startsHTMLBlock(line) {
+            return .htmlOther
+        }
         if isStandaloneImageLine(line) {
             return .image
         }
@@ -279,6 +319,7 @@ struct IncrementalMarkdownLineParser {
         if fenceMarker(in: line) != nil { return true }
         if displayMathOpener(in: line) != nil { return true }
         if startsHTMLDetails(line) { return true }
+        if startsHTMLBlock(line) { return true }
         if isStandaloneImageLine(line) { return true }
         if isThematicBreak(line) { return true }
         if isATXHeading(line) { return true }
@@ -334,6 +375,29 @@ struct IncrementalMarkdownLineParser {
         ChatMarkdownHTMLSupport.startsWithOpeningDetailsTag(line)
     }
 
+    private static func startsHTMLBlock(_ line: String) -> Bool {
+        for token in ChatMarkdownHTMLSupport.tokens(in: line) {
+            switch token {
+            case let .text(text), let .cdata(text):
+                if !ChatMarkdownHTMLSupport.decodeEntities(in: text)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .isEmpty {
+                    return false
+                }
+            case .comment, .declaration, .processingInstruction:
+                return true
+            case let .tag(tag):
+                guard !tag.isClosing else {
+                    return false
+                }
+                return ChatMarkdownHTMLSupport.blockTagNames.contains(tag.name)
+                    || ChatMarkdownHTMLSupport.disallowedRawHTMLTagNames.contains(tag.name)
+            }
+        }
+
+        return false
+    }
+
     private static func htmlDetailsBalanced(in markdown: String) -> Bool {
         var depth = 0
         var seenOpening = false
@@ -344,6 +408,53 @@ struct IncrementalMarkdownLineParser {
             seenOpening = seenOpening || balance.openingCount > 0
         }
         return seenOpening && depth == 0
+    }
+
+    private static func htmlOtherBalanced(in markdown: String) -> Bool {
+        var firstTagName: String?
+        var depth = 0
+        var sawRawHTMLBoundary = false
+
+        for token in ChatMarkdownHTMLSupport.tokens(in: markdown) {
+            switch token {
+            case .comment, .declaration, .processingInstruction:
+                sawRawHTMLBoundary = true
+            case let .tag(tag):
+                guard ChatMarkdownHTMLSupport.blockTagNames.contains(tag.name)
+                        || ChatMarkdownHTMLSupport.disallowedRawHTMLTagNames.contains(tag.name) else {
+                    continue
+                }
+
+                if firstTagName == nil {
+                    guard !tag.isClosing else {
+                        return true
+                    }
+                    firstTagName = tag.name
+                    sawRawHTMLBoundary = true
+                    if tag.isSelfClosing {
+                        return true
+                    }
+                    depth = 1
+                    continue
+                }
+
+                guard tag.name == firstTagName else {
+                    continue
+                }
+                if tag.isClosing {
+                    depth = max(0, depth - 1)
+                    if depth == 0 {
+                        return true
+                    }
+                } else if !tag.isSelfClosing {
+                    depth += 1
+                }
+            case .text, .cdata:
+                continue
+            }
+        }
+
+        return sawRawHTMLBoundary && firstTagName == nil
     }
 
     private static func isStandaloneImageLine(_ line: String) -> Bool {
@@ -387,7 +498,7 @@ struct IncrementalMarkdownLineParser {
             .drop(while: { $0.isEmpty })
         var trimmed = Array(cells)
         if trimmed.last == "" { trimmed.removeLast() }
-        guard !trimmed.isEmpty else { return false }
+        guard trimmed.count >= 2 else { return false }
         return trimmed.allSatisfy { cell in
             guard !cell.isEmpty else { return false }
             var content = cell

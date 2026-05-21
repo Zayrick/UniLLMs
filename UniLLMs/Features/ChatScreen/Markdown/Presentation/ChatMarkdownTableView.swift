@@ -42,16 +42,8 @@ final class ChatMarkdownTableView: UIView {
     /// scroll-offset are preserved.
     func update(tableData: ChatMarkdownTableData) {
         let newLayout = ChatMarkdownTableLayout.makeLayout(for: tableData)
-        let newContent = ChatMarkdownTableContentView(
-            tableData: tableData,
-            layout: newLayout,
-            style: style,
-            traitCollection: traitCollectionForRendering
-        )
-        tableView.removeFromSuperview()
         layout = newLayout
-        tableView = newContent
-        scrollView.addSubview(tableView)
+        tableView.update(tableData: tableData, layout: newLayout)
         invalidateIntrinsicContentSize()
         setNeedsLayout()
     }
@@ -108,8 +100,8 @@ final class ChatMarkdownTableView: UIView {
 }
 
 private final class ChatMarkdownTableContentView: UIView {
-    private let tableData: ChatMarkdownTableData
-    private let layout: ChatMarkdownTableLayout
+    private var tableData: ChatMarkdownTableData
+    private var layout: ChatMarkdownTableLayout
     private let style: ChatMarkdownRenderStyle
     private let traitCollectionForRendering: UITraitCollection
     private var cellTextViews: [ChatMarkdownTextView] = []
@@ -135,6 +127,16 @@ private final class ChatMarkdownTableContentView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         layoutCellTextViews()
+    }
+
+    func update(tableData: ChatMarkdownTableData, layout: ChatMarkdownTableLayout) {
+        self.tableData = tableData
+        self.layout = layout
+        frame.size = layout.contentSize
+        reconcileCellTextViews()
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
+        setNeedsDisplay()
     }
 
     override func draw(_ rect: CGRect) {
@@ -170,20 +172,45 @@ private final class ChatMarkdownTableContentView: UIView {
         isOpaque = false
         isAccessibilityElement = false
 
-        for (rowIndex, row) in tableData.rows.enumerated() {
-            for (columnIndex, cell) in row.enumerated() {
-                let textView = ChatMarkdownTextView(attributedText: cell.attributedText)
+        reconcileCellTextViews()
+    }
+
+    private func reconcileCellTextViews() {
+        let cells = flattenedCells()
+        for index in cells.indices {
+            let cell = cells[index].cell
+            let textView: ChatMarkdownTextView
+            if cellTextViews.indices.contains(index) {
+                textView = cellTextViews[index]
+                textView.replaceTailAttributedText(cell.attributedText)
+            } else {
+                textView = ChatMarkdownTextView(attributedText: cell.attributedText)
                 textView.setMarkdownLineBreakMode(.byCharWrapping)
                 textView.isAccessibilityElement = true
-                textView.accessibilityLabel = accessibilityLabel(
-                    for: cell,
-                    rowIndex: rowIndex,
-                    columnIndex: columnIndex
-                )
                 addSubview(textView)
                 cellTextViews.append(textView)
             }
+            textView.accessibilityLabel = accessibilityLabel(
+                for: cell,
+                rowIndex: cells[index].rowIndex,
+                columnIndex: cells[index].columnIndex
+            )
         }
+
+        while cellTextViews.count > cells.count {
+            let textView = cellTextViews.removeLast()
+            textView.removeFromSuperview()
+        }
+    }
+
+    private func flattenedCells() -> [(cell: ChatMarkdownTableCell, rowIndex: Int, columnIndex: Int)] {
+        var cells: [(cell: ChatMarkdownTableCell, rowIndex: Int, columnIndex: Int)] = []
+        for (rowIndex, row) in tableData.rows.enumerated() {
+            for (columnIndex, cell) in row.enumerated() {
+                cells.append((cell, rowIndex, columnIndex))
+            }
+        }
+        return cells
     }
 
     private func accessibilityLabel(

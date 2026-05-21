@@ -19,111 +19,118 @@ final class ChatMarkdownCodeBlockView: UIView {
         static let codeVerticalInset: CGFloat = 9.0
         static let codeLeadingInset: CGFloat = 12.0
         static let codeTrailingInset: CGFloat = 14.0
-        static let lineNumberLeadingInset: CGFloat = 10.0
-        static let lineNumberTrailingInset: CGFloat = 9.0
+        static let lineNumberHorizontalInset: CGFloat = 10.0
     }
 
     private let containerView = UIView()
     private let languageLabel = UILabel()
     private let codeViewport = UIView()
     private let scrollView = ChatMarkdownCodeScrollView()
-    private let codeLabel = UILabel()
-    private let lineNumberLabel = UILabel()
+    private let codeContentView = ChatMarkdownCodeContentView()
+    private let lineNumberView = ChatMarkdownCodeLineNumberView()
 
     private let style: ChatMarkdownRenderStyle
-    private let traitCollectionForRendering: UITraitCollection
     private var displayLanguage: String
-    private var codeAttributedText: NSAttributedString
-    private var lineNumberAttributedText: NSAttributedString
+    private var isClosed: Bool
+    private var codeText: String
+    private var codeLines: [String]
     private var codeTextSize: CGSize
     private var lineNumberColumnWidth: CGFloat
     private var headerHeight: CGFloat
     private var codeFont: UIFont
-    private var lineNumberFont: UIFont
     private var headerFont: UIFont
-    private var codeAttributes: [NSAttributedString.Key: Any]
-    private var lineNumberAttributes: [NSAttributedString.Key: Any]
+    private var codeLineSpacing: CGFloat
+    private var codeTextColor: UIColor
+    private var lineNumberTextColor: UIColor
 
     init(
         codeBlock: ChatMarkdownCodeBlock,
         style: ChatMarkdownRenderStyle,
         traitCollection: UITraitCollection
     ) {
-        self.style = style
-        self.traitCollectionForRendering = traitCollection
-        displayLanguage = codeBlock.displayLanguage
-
-        let code = Self.normalizedDisplayCode(codeBlock.code)
-        let lineCount = Self.lineCount(in: code)
-        codeFont = style.codeFont(compatibleWith: traitCollection)
-        lineNumberFont = UIFont.monospacedDigitSystemFont(
-            ofSize: codeFont.pointSize,
-            weight: .regular
-        )
-        headerFont = ChatMarkdownFontTraits.adding(
+        let initialCodeText = Self.normalizedDisplayCode(codeBlock.code)
+        let initialCodeLines = Self.codeLines(in: initialCodeText)
+        let initialCodeFont = style.codeFont(compatibleWith: traitCollection)
+        let initialCodeLineSpacing = style.codeLineSpacing(compatibleWith: traitCollection)
+        let initialHeaderFont = ChatMarkdownFontTraits.adding(
             .traitBold,
             to: UIFont.preferredFont(
                 forTextStyle: .caption1,
                 compatibleWith: traitCollection
             )
         )
-        codeAttributes = Self.codeAttributes(
-            font: codeFont,
-            color: style.codeTextColor,
-            lineSpacing: style.codeLineSpacing(compatibleWith: traitCollection)
-        )
-        lineNumberAttributes = Self.lineNumberAttributes(
-            font: lineNumberFont,
-            color: style.secondaryTextColor.withAlphaComponent(0.72),
-            lineSpacing: style.codeLineSpacing(compatibleWith: traitCollection)
-        )
 
-        codeAttributedText = NSAttributedString(string: code, attributes: codeAttributes)
-        lineNumberAttributedText = NSAttributedString(
-            string: Self.lineNumberText(lineCount: lineCount),
-            attributes: lineNumberAttributes
+        self.style = style
+        displayLanguage = codeBlock.displayLanguage
+        isClosed = codeBlock.isClosed
+        codeText = initialCodeText
+        codeLines = initialCodeLines
+        codeFont = initialCodeFont
+        codeLineSpacing = initialCodeLineSpacing
+        codeTextColor = style.codeTextColor
+        lineNumberTextColor = style.secondaryTextColor.withAlphaComponent(0.72)
+        headerFont = initialHeaderFont
+        codeTextSize = Self.codeTextSize(
+            for: initialCodeLines,
+            font: initialCodeFont,
+            lineSpacing: initialCodeLineSpacing
         )
-        codeTextSize = Self.codeTextSize(for: codeAttributedText, font: codeFont)
         lineNumberColumnWidth = Self.lineNumberColumnWidth(
-            lineCount: lineCount,
-            attributes: lineNumberAttributes
+            lineCount: initialCodeLines.count,
+            font: initialCodeFont
         )
-        headerHeight = ceil(headerFont.lineHeight)
+        headerHeight = ceil(initialHeaderFont.lineHeight)
 
         super.init(frame: .zero)
         configure(headerFont: headerFont)
     }
 
     /// Replace the code body and (optionally) the language without recreating
-    /// the view. Only the parts that changed are touched so the streaming view
-    /// can swallow many ticks per second without recreating the block.
+    /// the whole block. The code and line number columns share one row model so
+    /// every line number is positioned from the same y-origin as its code row.
     func update(codeBlock: ChatMarkdownCodeBlock) {
         let newLanguage = codeBlock.displayLanguage
         if newLanguage != displayLanguage {
             displayLanguage = newLanguage
             languageLabel.text = newLanguage
-            scrollView.accessibilityLabel = "\(newLanguage) code"
+            updateCodeAccessibilityLabel()
         }
 
-        let code = Self.normalizedDisplayCode(codeBlock.code)
-        if code == codeAttributedText.string {
+        if codeBlock.isClosed != isClosed {
+            isClosed = codeBlock.isClosed
+            updateCodeAccessibilityLabel()
+        }
+
+        let newCodeText = Self.normalizedDisplayCode(codeBlock.code)
+        guard newCodeText != codeText else {
             return
         }
-        let lineCount = Self.lineCount(in: code)
-        codeAttributedText = NSAttributedString(string: code, attributes: codeAttributes)
-        lineNumberAttributedText = NSAttributedString(
-            string: Self.lineNumberText(lineCount: lineCount),
-            attributes: lineNumberAttributes
+
+        codeText = newCodeText
+        codeLines = Self.codeLines(in: newCodeText)
+        codeTextSize = Self.codeTextSize(
+            for: codeLines,
+            font: codeFont,
+            lineSpacing: codeLineSpacing
         )
-        codeTextSize = Self.codeTextSize(for: codeAttributedText, font: codeFont)
         lineNumberColumnWidth = Self.lineNumberColumnWidth(
-            lineCount: lineCount,
-            attributes: lineNumberAttributes
+            lineCount: codeLines.count,
+            font: codeFont
         )
 
-        codeLabel.attributedText = codeAttributedText
-        codeLabel.accessibilityLabel = codeAttributedText.string
-        lineNumberLabel.attributedText = lineNumberAttributedText
+        codeContentView.update(
+            lines: codeLines,
+            font: codeFont,
+            textColor: codeTextColor,
+            lineSpacing: codeLineSpacing
+        )
+        codeContentView.accessibilityLabel = codeText
+        lineNumberView.update(
+            lineCount: codeLines.count,
+            font: codeFont,
+            textColor: lineNumberTextColor,
+            lineSpacing: codeLineSpacing
+        )
 
         invalidateIntrinsicContentSize()
         setNeedsLayout()
@@ -192,20 +199,17 @@ final class ChatMarkdownCodeBlockView: UIView {
         scrollView.isScrollEnabled = contentWidth > codeAreaWidth + 0.5
         scrollView.alwaysBounceHorizontal = scrollView.isScrollEnabled
 
-        codeLabel.frame = CGRect(
+        codeContentView.frame = CGRect(
             x: Metrics.codeLeadingInset,
             y: Metrics.codeVerticalInset,
             width: max(1.0, codeTextSize.width),
             height: max(1.0, codeTextSize.height)
         )
 
-        lineNumberLabel.frame = CGRect(
-            x: Metrics.lineNumberLeadingInset,
+        lineNumberView.frame = CGRect(
+            x: 0.0,
             y: Metrics.codeVerticalInset,
-            width: max(
-                1.0,
-                lineNumberColumnWidth - Metrics.lineNumberLeadingInset - Metrics.lineNumberTrailingInset
-            ),
+            width: max(1.0, lineNumberColumnWidth),
             height: max(1.0, codeTextSize.height)
         )
 
@@ -245,24 +249,33 @@ final class ChatMarkdownCodeBlockView: UIView {
         scrollView.delaysContentTouches = false
         scrollView.canCancelContentTouches = true
         scrollView.isDirectionalLockEnabled = true
-        scrollView.accessibilityLabel = "\(displayLanguage) code"
+        updateCodeAccessibilityLabel()
         codeViewport.addSubview(scrollView)
 
-        codeLabel.attributedText = codeAttributedText
-        codeLabel.backgroundColor = .clear
-        codeLabel.numberOfLines = 0
-        codeLabel.lineBreakMode = .byClipping
-        codeLabel.isAccessibilityElement = true
-        codeLabel.accessibilityLabel = codeAttributedText.string
-        scrollView.addSubview(codeLabel)
+        codeContentView.update(
+            lines: codeLines,
+            font: codeFont,
+            textColor: codeTextColor,
+            lineSpacing: codeLineSpacing
+        )
+        codeContentView.isAccessibilityElement = true
+        codeContentView.accessibilityLabel = codeText
+        scrollView.addSubview(codeContentView)
 
-        lineNumberLabel.attributedText = lineNumberAttributedText
-        lineNumberLabel.backgroundColor = .clear
-        lineNumberLabel.numberOfLines = 0
-        lineNumberLabel.lineBreakMode = .byClipping
-        lineNumberLabel.textAlignment = .right
-        lineNumberLabel.isAccessibilityElement = false
-        codeViewport.addSubview(lineNumberLabel)
+        lineNumberView.update(
+            lineCount: codeLines.count,
+            font: codeFont,
+            textColor: lineNumberTextColor,
+            lineSpacing: codeLineSpacing
+        )
+        lineNumberView.isAccessibilityElement = false
+        codeViewport.addSubview(lineNumberView)
+    }
+
+    private func updateCodeAccessibilityLabel() {
+        scrollView.accessibilityLabel = isClosed
+            ? "\(displayLanguage) code"
+            : "\(displayLanguage) code, streaming"
     }
 
     private func clampHorizontalOffset() {
@@ -291,74 +304,199 @@ final class ChatMarkdownCodeBlockView: UIView {
         return normalizedCode.isEmpty ? " " : normalizedCode
     }
 
-    private static func lineCount(in code: String) -> Int {
-        max(1, code.components(separatedBy: "\n").count)
+    private static func codeLines(in code: String) -> [String] {
+        let lines = code.components(separatedBy: "\n")
+        return lines.isEmpty ? [" "] : lines
     }
 
-    private static func lineNumberText(lineCount: Int) -> String {
-        (1...max(1, lineCount))
-            .map(String.init)
-            .joined(separator: "\n")
-    }
-
-    private static func codeAttributes(
+    private static func codeTextSize(
+        for lines: [String],
         font: UIFont,
-        color: UIColor,
         lineSpacing: CGFloat
-    ) -> [NSAttributedString.Key: Any] {
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineBreakMode = .byClipping
-        paragraphStyle.lineSpacing = lineSpacing
-
-        return [
-            .font: font,
-            .foregroundColor: color,
-            .paragraphStyle: paragraphStyle
-        ]
-    }
-
-    private static func lineNumberAttributes(
-        font: UIFont,
-        color: UIColor,
-        lineSpacing: CGFloat
-    ) -> [NSAttributedString.Key: Any] {
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.alignment = .right
-        paragraphStyle.lineBreakMode = .byClipping
-        paragraphStyle.lineSpacing = lineSpacing
-
-        return [
-            .font: font,
-            .foregroundColor: color,
-            .paragraphStyle: paragraphStyle
-        ]
-    }
-
-    private static func codeTextSize(for attributedText: NSAttributedString, font: UIFont) -> CGSize {
-        let measuredSize = attributedText.boundingRect(
-            with: CGSize(
-                width: CGFloat.greatestFiniteMagnitude,
-                height: CGFloat.greatestFiniteMagnitude
-            ),
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
-            context: nil
-        ).size
-
-        return CGSize(
-            width: max(1.0, ceil(measuredSize.width)),
-            height: max(ceil(font.lineHeight), ceil(measuredSize.height))
+    ) -> CGSize {
+        let attributes: [NSAttributedString.Key: Any] = [.font: font]
+        let maxLineWidth = lines
+            .map { ceil(($0 as NSString).size(withAttributes: attributes).width) }
+            .max() ?? 1.0
+        let height = ChatMarkdownCodeLineLayout.contentHeight(
+            lineCount: lines.count,
+            font: font,
+            lineSpacing: lineSpacing
         )
+
+        return CGSize(width: max(1.0, maxLineWidth), height: height)
     }
 
     private static func lineNumberColumnWidth(
         lineCount: Int,
-        attributes: [NSAttributedString.Key: Any]
+        font: UIFont
     ) -> CGFloat {
-        let digitCount = max(1, String(lineCount).count)
+        let digitCount = max(1, String(max(1, lineCount)).count)
         let sample = String(repeating: "8", count: digitCount) as NSString
-        let numberWidth = ceil(sample.size(withAttributes: attributes).width)
+        let numberWidth = ceil(sample.size(withAttributes: [.font: font]).width)
 
-        return Metrics.lineNumberLeadingInset + numberWidth + Metrics.lineNumberTrailingInset
+        return Metrics.lineNumberHorizontalInset * 2.0 + numberWidth
+    }
+}
+
+private enum ChatMarkdownCodeLineLayout {
+    static func lineAdvance(font: UIFont, lineSpacing: CGFloat) -> CGFloat {
+        font.lineHeight + lineSpacing
+    }
+
+    static func lineOriginY(
+        lineIndex: Int,
+        font: UIFont,
+        lineSpacing: CGFloat
+    ) -> CGFloat {
+        CGFloat(lineIndex) * lineAdvance(font: font, lineSpacing: lineSpacing)
+    }
+
+    static func contentHeight(
+        lineCount: Int,
+        font: UIFont,
+        lineSpacing: CGFloat
+    ) -> CGFloat {
+        let normalizedLineCount = max(1, lineCount)
+        let textHeight = CGFloat(normalizedLineCount) * font.lineHeight
+        let spacingHeight = CGFloat(normalizedLineCount - 1) * lineSpacing
+        return max(ceil(font.lineHeight), ceil(textHeight + spacingHeight))
+    }
+
+    static func visibleLineRange(
+        in rect: CGRect,
+        lineCount: Int,
+        font: UIFont,
+        lineSpacing: CGFloat
+    ) -> ClosedRange<Int>? {
+        let normalizedLineCount = max(1, lineCount)
+        let advance = lineAdvance(font: font, lineSpacing: lineSpacing)
+        guard advance > 0.0 else {
+            return nil
+        }
+
+        let firstLine = max(0, Int(floor(rect.minY / advance)))
+        let lastLine = min(normalizedLineCount - 1, Int(ceil(rect.maxY / advance)))
+        guard firstLine <= lastLine else {
+            return nil
+        }
+
+        return firstLine...lastLine
+    }
+}
+
+private final class ChatMarkdownCodeContentView: UIView {
+    private var lines: [String] = [" "]
+    private var font: UIFont = .monospacedSystemFont(ofSize: 14.0, weight: .regular)
+    private var textColor: UIColor = .label
+    private var lineSpacing: CGFloat = 0.0
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        isOpaque = false
+        contentMode = .redraw
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(
+        lines: [String],
+        font: UIFont,
+        textColor: UIColor,
+        lineSpacing: CGFloat
+    ) {
+        self.lines = lines.isEmpty ? [" "] : lines
+        self.font = font
+        self.textColor = textColor
+        self.lineSpacing = lineSpacing
+        setNeedsDisplay()
+    }
+
+    override func draw(_ rect: CGRect) {
+        guard let visibleLines = ChatMarkdownCodeLineLayout.visibleLineRange(
+            in: rect,
+            lineCount: lines.count,
+            font: font,
+            lineSpacing: lineSpacing
+        ) else {
+            return
+        }
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: textColor
+        ]
+        for lineIndex in visibleLines {
+            let line = lines[lineIndex] as NSString
+            let y = ChatMarkdownCodeLineLayout.lineOriginY(
+                lineIndex: lineIndex,
+                font: font,
+                lineSpacing: lineSpacing
+            )
+            line.draw(at: CGPoint(x: 0.0, y: y), withAttributes: attributes)
+        }
+    }
+}
+
+private final class ChatMarkdownCodeLineNumberView: UIView {
+    private var lineCount: Int = 1
+    private var font: UIFont = .monospacedSystemFont(ofSize: 14.0, weight: .regular)
+    private var textColor: UIColor = .secondaryLabel
+    private var lineSpacing: CGFloat = 0.0
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        isOpaque = false
+        isUserInteractionEnabled = false
+        contentMode = .redraw
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(
+        lineCount: Int,
+        font: UIFont,
+        textColor: UIColor,
+        lineSpacing: CGFloat
+    ) {
+        self.lineCount = max(1, lineCount)
+        self.font = font
+        self.textColor = textColor
+        self.lineSpacing = lineSpacing
+        setNeedsDisplay()
+    }
+
+    override func draw(_ rect: CGRect) {
+        guard let visibleLines = ChatMarkdownCodeLineLayout.visibleLineRange(
+            in: rect,
+            lineCount: lineCount,
+            font: font,
+            lineSpacing: lineSpacing
+        ) else {
+            return
+        }
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: textColor
+        ]
+        for lineIndex in visibleLines {
+            let numberText = "\(lineIndex + 1)" as NSString
+            let numberSize = numberText.size(withAttributes: attributes)
+            let x = floor((bounds.width - numberSize.width) * 0.5)
+            let y = ChatMarkdownCodeLineLayout.lineOriginY(
+                lineIndex: lineIndex,
+                font: font,
+                lineSpacing: lineSpacing
+            )
+            numberText.draw(at: CGPoint(x: x, y: y), withAttributes: attributes)
+        }
     }
 }
 

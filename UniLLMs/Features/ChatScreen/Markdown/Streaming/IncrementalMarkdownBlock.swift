@@ -27,8 +27,8 @@ struct IncrementalMarkdownBlockID: Hashable {
 /// kind-stable growth only patches the existing view.
 enum IncrementalMarkdownBlockKind: Equatable {
     /// Plain paragraph / heading / list / block quote / inline-only markdown.
-    /// Rendered through `ChatMarkdownRenderer` and patched into a reusable
-    /// `ChatMarkdownTextView`.
+    /// Open blocks use the streaming tokenizer; closed blocks use the full
+    /// renderer and patch into the reusable `ChatMarkdownTextView`.
     case textual
 
     /// Fenced code block. While open, the body is appended into a live
@@ -46,8 +46,8 @@ enum IncrementalMarkdownBlockKind: Equatable {
     /// Raw HTML `<details>...</details>` block; rendered as text after close.
     case htmlDetails
 
-    /// Standalone HTML block other than `<details>`/`<table>` (still routed
-    /// through the markdown renderer).
+    /// Standalone HTML block other than `<details>`. HTML tables are promoted
+    /// to the table presentation form by the view layer.
     case htmlOther
 
     /// Standalone image line (`![alt](src)`).

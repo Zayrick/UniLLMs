@@ -7,7 +7,7 @@
 //  data structure with stable IDs, and a CADisplayLink-driven tick diffs the
 //  current block list against the rendered view tree, mutating individual
 //  block views in place instead of rebuilding the segment. Predictive
-//  completion (`InlineMarkdownAutoCloser`) keeps emphasis/links visually stable
+//  completion keeps emphasis and inline code visually stable
 //  while their closing markers are still in flight.
 //
 //  Created by Zayrick on 2026/5/12.
@@ -438,6 +438,9 @@ final class StreamingMarkdownView: UIView {
         case .htmlDetails:
             return block.isClosed ? .closedDetails : .openDetailsPlaceholder
         case .htmlOther:
+            if block.rawMarkdown.localizedCaseInsensitiveContains("<table") {
+                return .table
+            }
             return .text
         case .thematicBreak:
             return .thematicBreak
@@ -446,17 +449,24 @@ final class StreamingMarkdownView: UIView {
 
     private func renderTextual(block: IncrementalMarkdownBlock, monospaced: Bool = false) -> NSAttributedString {
         if monospaced {
-            let font = UIFont.monospacedSystemFont(ofSize: UIFont.preferredFont(forTextStyle: .body).pointSize, weight: .regular)
+            let font = UIFont.monospacedSystemFont(
+                ofSize: UIFont.preferredFont(forTextStyle: .body).pointSize,
+                weight: .regular
+            )
             return NSAttributedString(
                 string: block.rawMarkdown,
                 attributes: [.font: font, .foregroundColor: UIColor.label]
             )
         }
-        let effective = block.isClosed
-            ? block.rawMarkdown
-            : InlineMarkdownAutoCloser.autoClosed(block.rawMarkdown)
+
+        guard block.isClosed else {
+            return StreamingMarkdownTextRenderer(
+                context: makeRenderingContext()
+            ).render(rawMarkdown: block.rawMarkdown, isOpen: true)
+        }
+
         let renderer = makeRenderer()
-        let rendered = renderer.render(markdown: effective)
+        let rendered = renderer.render(markdown: block.rawMarkdown)
         let combined = NSMutableAttributedString()
         for piece in rendered {
             if case let .text(attr) = piece {
@@ -469,27 +479,45 @@ final class StreamingMarkdownView: UIView {
 
     private func extractCodeBlock(from block: IncrementalMarkdownBlock) -> ChatMarkdownCodeBlock {
         guard case let .fencedCode(fence, language) = block.kind else {
-            return ChatMarkdownCodeBlock(code: block.rawMarkdown, language: nil)
+            return ChatMarkdownCodeBlock(code: block.rawMarkdown, language: nil, isClosed: true)
         }
         var lines = block.rawMarkdown.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         // Drop the opening fence line (always present once a fenced-code block exists).
         if !lines.isEmpty {
             lines.removeFirst()
         }
-        // Drop the closing fence line when closed.
-        if block.isClosed, let last = lines.last,
-           IncrementalMarkdownLineParser.isFencedCodeClose(last, openingFence: fence) {
-            lines.removeLast()
-        }
-        // Drop a trailing empty element produced by the split when rawMarkdown ended with "\n".
+        // Drop the split artifact before checking for an explicit close fence;
+        // otherwise a real trailing ``` followed by "\n" would be left visible
+        // inside the code block.
         if let last = lines.last, last.isEmpty {
             lines.removeLast()
         }
+        // The component-level closed state is based only on an explicit closing
+        // fence. A stream finishing without one remains an open code block; no
+        // synthetic ``` line is appended just to make parsing look complete.
+        let hasExplicitClosingFence = lines.last.map {
+            IncrementalMarkdownLineParser.isFencedCodeClose($0, openingFence: fence)
+        } ?? false
+        if hasExplicitClosingFence {
+            lines.removeLast()
+        }
         let body = lines.joined(separator: "\n")
-        return ChatMarkdownCodeBlock(code: body, language: language)
+        return ChatMarkdownCodeBlock(code: body, language: language, isClosed: hasExplicitClosingFence)
     }
 
     private func renderTable(block: IncrementalMarkdownBlock) -> ChatMarkdownTableData? {
+        let context = makeRenderingContext()
+        if case .htmlOther = block.kind,
+           let tableData = ChatMarkdownHTMLTableRenderer(context: context)
+            .renderTableData(fromHTML: block.rawMarkdown) {
+            return tableData
+        }
+
+        if let tableData = StreamingMarkdownTableRenderer(context: context)
+            .renderTableData(fromMarkdown: block.rawMarkdown, isOpen: !block.isClosed) {
+            return tableData
+        }
+
         let renderer = makeRenderer()
         let blocks = renderer.render(markdown: block.rawMarkdown)
         if case let .table(td) = blocks.first {
@@ -511,6 +539,10 @@ final class StreamingMarkdownView: UIView {
 
     private func makeRenderer() -> ChatMarkdownRenderer {
         ChatMarkdownRenderer(traitCollection: traitCollection)
+    }
+
+    private func makeRenderingContext() -> ChatMarkdownRenderingContext {
+        ChatMarkdownRenderingContext(style: .assistant, traitCollection: traitCollection)
     }
 
     // MARK: - Trait change
@@ -556,4 +588,3 @@ private final class DisplayLinkProxy {
         target?.handleDisplayLinkTick()
     }
 }
-
