@@ -9,15 +9,19 @@
 import UIKit
 
 final class ChatMarkdownTableView: UIView {
-    private let layout: ChatMarkdownTableLayout
+    private var layout: ChatMarkdownTableLayout
     private let scrollView = ChatMarkdownTableScrollView()
-    private let tableView: ChatMarkdownTableContentView
+    private var tableView: ChatMarkdownTableContentView
+    private let style: ChatMarkdownRenderStyle
+    private let traitCollectionForRendering: UITraitCollection
 
     init(
         tableData: ChatMarkdownTableData,
         style: ChatMarkdownRenderStyle,
         traitCollection: UITraitCollection
     ) {
+        self.style = style
+        traitCollectionForRendering = traitCollection
         layout = ChatMarkdownTableLayout.makeLayout(for: tableData)
         tableView = ChatMarkdownTableContentView(
             tableData: tableData,
@@ -31,6 +35,25 @@ final class ChatMarkdownTableView: UIView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    /// Rebuild the inner content view in place when streaming adds rows or
+    /// adjusts existing ones. The outer scroll view, gestures, and any
+    /// scroll-offset are preserved.
+    func update(tableData: ChatMarkdownTableData) {
+        let newLayout = ChatMarkdownTableLayout.makeLayout(for: tableData)
+        let newContent = ChatMarkdownTableContentView(
+            tableData: tableData,
+            layout: newLayout,
+            style: style,
+            traitCollection: traitCollectionForRendering
+        )
+        tableView.removeFromSuperview()
+        layout = newLayout
+        tableView = newContent
+        scrollView.addSubview(tableView)
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
     }
 
     override var intrinsicContentSize: CGSize {

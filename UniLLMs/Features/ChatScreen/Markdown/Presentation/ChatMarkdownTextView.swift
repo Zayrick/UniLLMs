@@ -51,35 +51,85 @@ final class ChatMarkdownTextView: UITextView {
     private func setMarkdownAttributedText(_ attributedText: NSAttributedString) {
         markdownTextStorage.setAttributedString(attributedText)
         accessibilityLabel = attributedText.string
+        targetAttributedText = attributedText
         invalidateIntrinsicContentSize()
         setNeedsDisplay()
     }
 
-    func updateMarkdownAttributedTextWithBlur(_ newText: NSAttributedString) {
-        let oldLength = targetAttributedText?.length ?? markdownTextStorage.length
-        
-        if newText.length > oldLength {
-            let addedLength = newText.length - oldLength
-            let newRange = NSRange(location: oldLength, length: addedLength)
-            
-            targetAttributedText = newText
-            animatingRanges[newRange] = CACurrentMediaTime()
-            
-            let mutableText = NSMutableAttributedString(attributedString: newText)
-            applyBlur(to: mutableText, in: newRange, progress: 0.0)
-            
-            markdownTextStorage.setAttributedString(mutableText)
-            accessibilityLabel = mutableText.string
-            invalidateIntrinsicContentSize()
-            setNeedsDisplay()
-            
-            startDisplayLink()
-        } else {
-            animatingRanges.removeAll()
-            stopDisplayLink()
-            targetAttributedText = newText
-            setMarkdownAttributedText(newText)
+    /// Replace the trailing portion of the rendered text without touching the
+    /// common prefix or common suffix. This keeps glyph layout for unchanged
+    /// regions in place — which is the whole point of the new streaming
+    /// pipeline — and produces an `NSRange` describing the *inserted* slice
+    /// so the blur animation can target only the freshly-arrived characters.
+    func replaceTailAttributedText(_ newText: NSAttributedString) {
+        let oldString = markdownTextStorage.string as NSString
+        let newString = newText.string as NSString
+        let oldLength = oldString.length
+        let newLength = newString.length
+
+        // Common prefix length in UTF-16 units.
+        var prefix = 0
+        let maxPrefix = min(oldLength, newLength)
+        while prefix < maxPrefix,
+              oldString.character(at: prefix) == newString.character(at: prefix) {
+            prefix += 1
         }
+
+        // Common suffix length — must not overlap the common prefix.
+        var suffix = 0
+        let maxSuffix = min(oldLength - prefix, newLength - prefix)
+        while suffix < maxSuffix,
+              oldString.character(at: oldLength - 1 - suffix)
+              == newString.character(at: newLength - 1 - suffix) {
+            suffix += 1
+        }
+
+        let replacedRange = NSRange(location: prefix, length: oldLength - prefix - suffix)
+        let insertedRange = NSRange(location: prefix, length: newLength - prefix - suffix)
+
+        if replacedRange.length == 0, insertedRange.length == 0 {
+            // Pure attribute change at most — fall back to wholesale swap so
+            // any restyling (e.g. emphasis applied to existing chars) lands.
+            if !newText.isEqual(to: markdownTextStorage) {
+                markdownTextStorage.setAttributedString(newText)
+                accessibilityLabel = newText.string
+                targetAttributedText = newText
+                invalidateIntrinsicContentSize()
+                setNeedsDisplay()
+            }
+            return
+        }
+
+        let insertedSlice = newText.attributedSubstring(from: insertedRange)
+        let mutableInsert = NSMutableAttributedString(attributedString: insertedSlice)
+
+        // Only animate when the change is a tail extension: replacedRange has
+        // length 0 (pure insertion) or the inserted region is longer than the
+        // replaced one (predictive closer growth still counts). Mid-string
+        // edits without a net growth skip the blur to avoid distracting flashes.
+        let shouldAnimate = insertedRange.length > 0 && replacedRange.length == 0
+        if shouldAnimate {
+            applyBlur(to: mutableInsert, in: NSRange(location: 0, length: mutableInsert.length), progress: 0.0)
+        }
+
+        markdownTextStorage.beginEditing()
+        markdownTextStorage.replaceCharacters(in: replacedRange, with: mutableInsert)
+        markdownTextStorage.endEditing()
+
+        accessibilityLabel = newString as String
+        targetAttributedText = newText
+        invalidateIntrinsicContentSize()
+        setNeedsDisplay()
+
+        if shouldAnimate {
+            animatingRanges[insertedRange] = CACurrentMediaTime()
+            startDisplayLink()
+        }
+    }
+
+    /// Legacy entry-point kept for callers that have not migrated yet.
+    func updateMarkdownAttributedTextWithBlur(_ newText: NSAttributedString) {
+        replaceTailAttributedText(newText)
     }
     
     private func applyBlur(to mutableText: NSMutableAttributedString, in range: NSRange, progress: CGFloat) {
@@ -122,39 +172,61 @@ final class ChatMarkdownTextView: UITextView {
             stopDisplayLink()
             return
         }
-        
+
         let currentTime = CACurrentMediaTime()
         let duration: CFTimeInterval = 0.4
-        
-        let mutableText = NSMutableAttributedString(attributedString: target)
+
         var hasActiveAnimations = false
         var completedRanges: [NSRange] = []
-        
+
+        markdownTextStorage.beginEditing()
         for (range, startTime) in animatingRanges {
-            guard range.upperBound <= mutableText.length else {
+            guard range.upperBound <= markdownTextStorage.length,
+                  range.upperBound <= target.length else {
                 completedRanges.append(range)
                 continue
             }
-            
+
             let elapsed = currentTime - startTime
-            let progress = CGFloat(elapsed / duration)
-            
+            let progress = CGFloat(min(1.0, max(0.0, elapsed / duration)))
+            applyBlurToStorage(in: range, progress: progress, target: target)
+
             if progress >= 1.0 {
                 completedRanges.append(range)
             } else {
                 hasActiveAnimations = true
-                applyBlur(to: mutableText, in: range, progress: progress)
             }
         }
-        
+        markdownTextStorage.endEditing()
+
         for r in completedRanges {
             animatingRanges.removeValue(forKey: r)
         }
-        
-        markdownTextStorage.setAttributedString(mutableText)
-        
+
         if !hasActiveAnimations {
             stopDisplayLink()
+        }
+    }
+
+    private func applyBlurToStorage(in range: NSRange, progress: CGFloat, target: NSAttributedString) {
+        let alpha = min(1.0, max(0.0, progress))
+        let blurRadius = 6.0 * (1.0 - alpha)
+
+        target.enumerateAttribute(.foregroundColor, in: range, options: []) { colorValue, colorRange, _ in
+            guard let color = colorValue as? UIColor else { return }
+            let baseAlpha = color.cgColor.alpha
+            let blendedColor = color.withAlphaComponent(baseAlpha * alpha)
+            markdownTextStorage.addAttribute(.foregroundColor, value: blendedColor, range: colorRange)
+
+            if progress < 1.0 {
+                let shadow = NSShadow()
+                shadow.shadowBlurRadius = blurRadius
+                shadow.shadowColor = color.withAlphaComponent(baseAlpha * (1.0 - alpha))
+                shadow.shadowOffset = .zero
+                markdownTextStorage.addAttribute(.shadow, value: shadow, range: colorRange)
+            } else {
+                markdownTextStorage.removeAttribute(.shadow, range: colorRange)
+            }
         }
     }
 

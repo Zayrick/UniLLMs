@@ -31,12 +31,18 @@ final class ChatMarkdownCodeBlockView: UIView {
     private let lineNumberLabel = UILabel()
 
     private let style: ChatMarkdownRenderStyle
-    private let displayLanguage: String
-    private let codeAttributedText: NSAttributedString
-    private let lineNumberAttributedText: NSAttributedString
-    private let codeTextSize: CGSize
-    private let lineNumberColumnWidth: CGFloat
-    private let headerHeight: CGFloat
+    private let traitCollectionForRendering: UITraitCollection
+    private var displayLanguage: String
+    private var codeAttributedText: NSAttributedString
+    private var lineNumberAttributedText: NSAttributedString
+    private var codeTextSize: CGSize
+    private var lineNumberColumnWidth: CGFloat
+    private var headerHeight: CGFloat
+    private var codeFont: UIFont
+    private var lineNumberFont: UIFont
+    private var headerFont: UIFont
+    private var codeAttributes: [NSAttributedString.Key: Any]
+    private var lineNumberAttributes: [NSAttributedString.Key: Any]
 
     init(
         codeBlock: ChatMarkdownCodeBlock,
@@ -44,28 +50,29 @@ final class ChatMarkdownCodeBlockView: UIView {
         traitCollection: UITraitCollection
     ) {
         self.style = style
+        self.traitCollectionForRendering = traitCollection
         displayLanguage = codeBlock.displayLanguage
 
         let code = Self.normalizedDisplayCode(codeBlock.code)
         let lineCount = Self.lineCount(in: code)
-        let codeFont = style.codeFont(compatibleWith: traitCollection)
-        let lineNumberFont = UIFont.monospacedDigitSystemFont(
+        codeFont = style.codeFont(compatibleWith: traitCollection)
+        lineNumberFont = UIFont.monospacedDigitSystemFont(
             ofSize: codeFont.pointSize,
             weight: .regular
         )
-        let headerFont = ChatMarkdownFontTraits.adding(
+        headerFont = ChatMarkdownFontTraits.adding(
             .traitBold,
             to: UIFont.preferredFont(
                 forTextStyle: .caption1,
                 compatibleWith: traitCollection
             )
         )
-        let codeAttributes = Self.codeAttributes(
+        codeAttributes = Self.codeAttributes(
             font: codeFont,
             color: style.codeTextColor,
             lineSpacing: style.codeLineSpacing(compatibleWith: traitCollection)
         )
-        let lineNumberAttributes = Self.lineNumberAttributes(
+        lineNumberAttributes = Self.lineNumberAttributes(
             font: lineNumberFont,
             color: style.secondaryTextColor.withAlphaComponent(0.72),
             lineSpacing: style.codeLineSpacing(compatibleWith: traitCollection)
@@ -85,6 +92,41 @@ final class ChatMarkdownCodeBlockView: UIView {
 
         super.init(frame: .zero)
         configure(headerFont: headerFont)
+    }
+
+    /// Replace the code body and (optionally) the language without recreating
+    /// the view. Only the parts that changed are touched so the streaming view
+    /// can swallow many ticks per second without recreating the block.
+    func update(codeBlock: ChatMarkdownCodeBlock) {
+        let newLanguage = codeBlock.displayLanguage
+        if newLanguage != displayLanguage {
+            displayLanguage = newLanguage
+            languageLabel.text = newLanguage
+            scrollView.accessibilityLabel = "\(newLanguage) code"
+        }
+
+        let code = Self.normalizedDisplayCode(codeBlock.code)
+        if code == codeAttributedText.string {
+            return
+        }
+        let lineCount = Self.lineCount(in: code)
+        codeAttributedText = NSAttributedString(string: code, attributes: codeAttributes)
+        lineNumberAttributedText = NSAttributedString(
+            string: Self.lineNumberText(lineCount: lineCount),
+            attributes: lineNumberAttributes
+        )
+        codeTextSize = Self.codeTextSize(for: codeAttributedText, font: codeFont)
+        lineNumberColumnWidth = Self.lineNumberColumnWidth(
+            lineCount: lineCount,
+            attributes: lineNumberAttributes
+        )
+
+        codeLabel.attributedText = codeAttributedText
+        codeLabel.accessibilityLabel = codeAttributedText.string
+        lineNumberLabel.attributedText = lineNumberAttributedText
+
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
     }
 
     required init?(coder: NSCoder) {
