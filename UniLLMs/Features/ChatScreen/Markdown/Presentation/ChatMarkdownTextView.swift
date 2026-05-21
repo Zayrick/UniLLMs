@@ -9,20 +9,11 @@
 import UIKit
 
 final class ChatMarkdownTextView: UITextView {
-    private enum TextEffectConfiguration {
-        // Text blur/clear insertion effect is currently disabled. Keep the
-        // implementation in place so it can be re-enabled after the streaming
-        // renderer settles.
-        static let isInsertBlurEffectEnabled = false
-    }
-
     private let markdownTextStorage: NSTextStorage
     private let markdownLayoutManager: ChatMarkdownLayoutManager
     private let markdownTextContainer: NSTextContainer
 
-    private var displayLink: CADisplayLink?
-    private var animatingRanges: [NSRange: CFTimeInterval] = [:]
-    private var targetAttributedText: NSAttributedString?
+    private var currentAttributedText = NSAttributedString()
 
     init(attributedText: NSAttributedString) {
         let textStorage = NSTextStorage()
@@ -58,23 +49,24 @@ final class ChatMarkdownTextView: UITextView {
     private func setMarkdownAttributedText(_ attributedText: NSAttributedString) {
         markdownTextStorage.setAttributedString(attributedText)
         accessibilityLabel = attributedText.string
-        targetAttributedText = attributedText
+        currentAttributedText = attributedText
         invalidateIntrinsicContentSize()
         setNeedsDisplay()
     }
 
-    /// Replace the trailing portion of the rendered text without touching the
-    /// common prefix or common suffix. This keeps glyph layout for unchanged
-    /// regions in place — which is the whole point of the new streaming
-    /// pipeline — and produces an `NSRange` describing the *inserted* slice
-    /// so the blur animation can target only the freshly-arrived characters.
+    /// Reconcile text storage without assigning `attributedText` wholesale.
+    /// UIKit treats a whole attributedText assignment as new content; keeping
+    /// TextKit storage alive avoids link-color churn and preserves layout state.
     func replaceTailAttributedText(_ newText: NSAttributedString) {
+        guard !currentAttributedText.isEqual(to: newText) else {
+            return
+        }
+
         let oldString = markdownTextStorage.string as NSString
         let newString = newText.string as NSString
         let oldLength = oldString.length
         let newLength = newString.length
 
-        // Common prefix length in UTF-16 units.
         var prefix = 0
         let maxPrefix = min(oldLength, newLength)
         while prefix < maxPrefix,
@@ -82,7 +74,6 @@ final class ChatMarkdownTextView: UITextView {
             prefix += 1
         }
 
-        // Common suffix length — must not overlap the common prefix.
         var suffix = 0
         let maxSuffix = min(oldLength - prefix, newLength - prefix)
         while suffix < maxSuffix,
@@ -94,156 +85,40 @@ final class ChatMarkdownTextView: UITextView {
         let replacedRange = NSRange(location: prefix, length: oldLength - prefix - suffix)
         let insertedRange = NSRange(location: prefix, length: newLength - prefix - suffix)
 
-        if replacedRange.length == 0, insertedRange.length == 0 {
-            // Pure attribute change at most — fall back to wholesale swap so
-            // any restyling (e.g. emphasis applied to existing chars) lands.
-            if !newText.isEqual(to: markdownTextStorage) {
-                clearActiveInsertAnimations()
-                markdownTextStorage.setAttributedString(newText)
-                accessibilityLabel = newText.string
-                targetAttributedText = newText
-                invalidateIntrinsicContentSize()
-                setNeedsDisplay()
-            }
-            return
-        }
-
-        let insertedSlice = newText.attributedSubstring(from: insertedRange)
-        let mutableInsert = NSMutableAttributedString(attributedString: insertedSlice)
-
-        // The text effect is intentionally disabled for now; this condition
-        // preserves the old behavior behind a single switch.
-        let shouldAnimate = TextEffectConfiguration.isInsertBlurEffectEnabled
-            && insertedRange.length > 0
-            && replacedRange.length == 0
-        if shouldAnimate {
-            applyBlur(to: mutableInsert, in: NSRange(location: 0, length: mutableInsert.length), progress: 0.0)
-        } else {
-            clearActiveInsertAnimations()
-        }
-
         markdownTextStorage.beginEditing()
-        markdownTextStorage.replaceCharacters(in: replacedRange, with: mutableInsert)
+        if replacedRange.length > 0 || insertedRange.length > 0 {
+            markdownTextStorage.replaceCharacters(
+                in: replacedRange,
+                with: newText.attributedSubstring(from: insertedRange)
+            )
+        }
+        synchronizeAttributesNoEditing(with: newText)
         markdownTextStorage.endEditing()
 
         accessibilityLabel = newString as String
-        targetAttributedText = newText
+        currentAttributedText = newText
         invalidateIntrinsicContentSize()
         setNeedsDisplay()
-
-        if shouldAnimate {
-            animatingRanges[insertedRange] = CACurrentMediaTime()
-            startDisplayLink()
-        }
     }
 
     /// Legacy entry-point kept for callers that have not migrated yet.
     func updateMarkdownAttributedTextWithBlur(_ newText: NSAttributedString) {
         replaceTailAttributedText(newText)
     }
-    
-    private func applyBlur(to mutableText: NSMutableAttributedString, in range: NSRange, progress: CGFloat) {
-        let alpha = min(1.0, max(0.0, progress))
-        let blurRadius = 6.0 * (1.0 - alpha)
-        
-        mutableText.enumerateAttribute(.foregroundColor, in: range, options: []) { colorValue, colorRange, _ in
-            guard let color = colorValue as? UIColor else { return }
-            
-            let newColor = color.withAlphaComponent(color.cgColor.alpha * alpha)
-            mutableText.addAttribute(.foregroundColor, value: newColor, range: colorRange)
-            
-            if progress < 1.0 {
-                let shadow = NSShadow()
-                shadow.shadowBlurRadius = blurRadius
-                shadow.shadowColor = color.withAlphaComponent(color.cgColor.alpha * (1.0 - alpha))
-                shadow.shadowOffset = .zero
-                mutableText.addAttribute(.shadow, value: shadow, range: colorRange)
-            } else {
-                mutableText.removeAttribute(.shadow, range: colorRange)
-            }
-        }
-    }
-    
-    private func startDisplayLink() {
-        if displayLink == nil {
-            let link = CADisplayLink(target: self, selector: #selector(handleDisplayLink(_:)))
-            link.add(to: .main, forMode: .common)
-            displayLink = link
-        }
-    }
-    
-    private func stopDisplayLink() {
-        displayLink?.invalidate()
-        displayLink = nil
-    }
 
-    private func clearActiveInsertAnimations() {
-        guard !animatingRanges.isEmpty else {
-            return
-        }
-        animatingRanges.removeAll()
-        stopDisplayLink()
-    }
-    
-    @objc private func handleDisplayLink(_ link: CADisplayLink) {
-        guard let target = targetAttributedText else {
-            stopDisplayLink()
+    private func synchronizeAttributesNoEditing(with newText: NSAttributedString) {
+        guard markdownTextStorage.length == newText.length, newText.length > 0 else {
             return
         }
 
-        let currentTime = CACurrentMediaTime()
-        let duration: CFTimeInterval = 0.4
-
-        var hasActiveAnimations = false
-        var completedRanges: [NSRange] = []
-
-        markdownTextStorage.beginEditing()
-        for (range, startTime) in animatingRanges {
-            guard range.upperBound <= markdownTextStorage.length,
-                  range.upperBound <= target.length else {
-                completedRanges.append(range)
-                continue
-            }
-
-            let elapsed = currentTime - startTime
-            let progress = CGFloat(min(1.0, max(0.0, elapsed / duration)))
-            applyBlurToStorage(in: range, progress: progress, target: target)
-
-            if progress >= 1.0 {
-                completedRanges.append(range)
-            } else {
-                hasActiveAnimations = true
-            }
-        }
-        markdownTextStorage.endEditing()
-
-        for r in completedRanges {
-            animatingRanges.removeValue(forKey: r)
-        }
-
-        if !hasActiveAnimations {
-            stopDisplayLink()
-        }
-    }
-
-    private func applyBlurToStorage(in range: NSRange, progress: CGFloat, target: NSAttributedString) {
-        let alpha = min(1.0, max(0.0, progress))
-        let blurRadius = 6.0 * (1.0 - alpha)
-
-        target.enumerateAttribute(.foregroundColor, in: range, options: []) { colorValue, colorRange, _ in
-            guard let color = colorValue as? UIColor else { return }
-            let baseAlpha = color.cgColor.alpha
-            let blendedColor = color.withAlphaComponent(baseAlpha * alpha)
-            markdownTextStorage.addAttribute(.foregroundColor, value: blendedColor, range: colorRange)
-
-            if progress < 1.0 {
-                let shadow = NSShadow()
-                shadow.shadowBlurRadius = blurRadius
-                shadow.shadowColor = color.withAlphaComponent(baseAlpha * (1.0 - alpha))
-                shadow.shadowOffset = .zero
-                markdownTextStorage.addAttribute(.shadow, value: shadow, range: colorRange)
-            } else {
-                markdownTextStorage.removeAttribute(.shadow, range: colorRange)
+        let fullRange = NSRange(location: 0, length: newText.length)
+        newText.enumerateAttributes(in: fullRange) { attributes, range, _ in
+            let currentAttributes = markdownTextStorage.attributes(
+                at: range.location,
+                effectiveRange: nil
+            )
+            if !NSDictionary(dictionary: currentAttributes).isEqual(NSDictionary(dictionary: attributes)) {
+                markdownTextStorage.setAttributes(attributes, range: range)
             }
         }
     }
@@ -253,7 +128,12 @@ final class ChatMarkdownTextView: UITextView {
         isOpaque = false
         isEditable = false
         isScrollEnabled = false
-        dataDetectorTypes = [.link]
+        dataDetectorTypes = []
+        linkTextAttributes = [
+            .foregroundColor: UIColor.systemBlue,
+            .underlineStyle: NSUnderlineStyle.single.rawValue
+        ]
+        tintColor = .systemBlue
         textContainerInset = .zero
         markdownTextContainer.lineFragmentPadding = 0.0
         markdownLayoutManager.usesFontLeading = true

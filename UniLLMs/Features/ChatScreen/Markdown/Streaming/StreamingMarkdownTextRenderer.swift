@@ -23,6 +23,8 @@ final class StreamingMarkdownTextRenderer {
 
     func render(rawMarkdown: String, isOpen: Bool) -> NSMutableAttributedString {
         let lines = Self.displayLines(in: rawMarkdown)
+        let parsedLines = lines.map(Self.renderLine)
+        let listColumnWidths = listMarkerColumnWidths(in: parsedLines)
         let result = NSMutableAttributedString()
         var paragraphLines: [String] = []
 
@@ -36,31 +38,46 @@ final class StreamingMarkdownTextRenderer {
             paragraphLines.removeAll()
         }
 
-        for line in lines {
-            if line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        var index = parsedLines.startIndex
+        while index < parsedLines.endIndex {
+            let line = parsedLines[index]
+            switch line {
+            case .blank:
                 flushParagraph()
-                continue
-            }
 
-            if let heading = Self.heading(in: line) {
+            case let .heading(heading):
                 flushParagraph()
                 result.append(renderHeading(heading, allowPrediction: isOpen))
-                continue
-            }
 
-            if let quote = Self.blockQuote(in: line) {
+            case let .blockQuote(quote):
                 flushParagraph()
-                result.append(renderBlockQuote(quote, allowPrediction: isOpen))
+                var quoteLines = [quote]
+                var nextIndex = parsedLines.index(after: index)
+                while nextIndex < parsedLines.endIndex,
+                      case let .blockQuote(nextQuote) = parsedLines[nextIndex] {
+                    quoteLines.append(nextQuote)
+                    nextIndex = parsedLines.index(after: nextIndex)
+                }
+                result.append(renderBlockQuote(quoteLines, allowPrediction: isOpen))
+                index = nextIndex
                 continue
-            }
 
-            if let listItem = Self.listItem(in: line) {
+            case let .listItem(item):
                 flushParagraph()
-                result.append(renderListItem(listItem, allowPrediction: isOpen))
-                continue
+                let columnWidth = listColumnWidths[item.columnKey] ?? ListLayout.markerMinWidth
+                result.append(
+                    renderListItem(
+                        item,
+                        markerColumnWidth: columnWidth,
+                        allowPrediction: isOpen
+                    )
+                )
+
+            case let .paragraph(text):
+                paragraphLines.append(text)
             }
 
-            paragraphLines.append(line)
+            index = parsedLines.index(after: index)
         }
 
         flushParagraph()
@@ -97,58 +114,106 @@ final class StreamingMarkdownTextRenderer {
     }
 
     private func renderBlockQuote(
-        _ quote: BlockQuoteLine,
+        _ quotes: [BlockQuoteLine],
         allowPrediction: Bool
     ) -> NSMutableAttributedString {
-        let attributed = inlineRenderer.render(quote.text, allowPrediction: allowPrediction)
-        context.appendNewlineIfNeeded(to: attributed)
+        guard let minimumDepth = quotes.map(\.depth).min() else {
+            return NSMutableAttributedString()
+        }
 
-        let paragraphStyle = NSMutableParagraphStyle()
-        let indent = CGFloat(quote.depth) * ChatMarkdownBlockQuoteStyle.indentPerLevel
-        paragraphStyle.lineSpacing = context.style.bodyLineSpacing(compatibleWith: context.traitCollection)
-        paragraphStyle.firstLineHeadIndent = indent
-        paragraphStyle.headIndent = indent
-        paragraphStyle.paragraphSpacing = context.style.blockQuoteParagraphSpacing(
-            compatibleWith: context.traitCollection
+        let innerMarkdown = normalizedBlockQuoteInnerMarkdown(
+            quotes,
+            removingDepth: minimumDepth
         )
-        let positions = (0..<quote.depth).map { index in
+        let attributed = StreamingMarkdownTextRenderer(context: context).render(
+            rawMarkdown: innerMarkdown,
+            isOpen: allowPrediction
+        )
+        context.trimTrailingNewlines(in: attributed)
+        if attributed.length == 0 {
+            context.appendNewlineIfNeeded(to: attributed)
+        }
+        context.offsetParagraphIndent(
+            in: attributed,
+            by: CGFloat(minimumDepth) * ChatMarkdownBlockQuoteStyle.indentPerLevel,
+            minimumParagraphSpacing: context.style.blockQuoteParagraphSpacing(
+                compatibleWith: context.traitCollection
+            )
+        )
+        addBlockQuoteBars(to: attributed, depth: minimumDepth)
+        context.appendNewlineIfNeeded(to: attributed)
+        return attributed
+    }
+
+    private func normalizedBlockQuoteInnerMarkdown(
+        _ quotes: [BlockQuoteLine],
+        removingDepth minimumDepth: Int
+    ) -> String {
+        quotes
+            .map { quote in
+                let remainingDepth = max(0, quote.depth - minimumDepth)
+                guard remainingDepth > 0 else {
+                    return quote.text
+                }
+
+                let prefix = String(repeating: "> ", count: remainingDepth)
+                return prefix + quote.text
+            }
+            .joined(separator: "\n")
+    }
+
+    private func addBlockQuoteBars(to attributed: NSMutableAttributedString, depth: Int) {
+        guard attributed.length > 0, depth > 0 else {
+            return
+        }
+
+        let positions = (0..<depth).map { index in
             ChatMarkdownBlockQuoteStyle.barLeading
                 + CGFloat(index) * ChatMarkdownBlockQuoteStyle.indentPerLevel
         }
-        context.apply(
-            [
-                .paragraphStyle: paragraphStyle,
-                .chatBlockQuoteBarPositions: positions
-            ],
-            to: attributed
-        )
-        return attributed
+        let fullRange = NSRange(location: 0, length: attributed.length)
+        var updates: [(positions: [CGFloat], range: NSRange)] = []
+        attributed.enumerateAttribute(.chatBlockQuoteBarPositions, in: fullRange) { value, range, _ in
+            let existingPositions = (value as? [CGFloat]) ?? []
+            updates.append((mergedBlockQuoteBarPositions(existingPositions, positions), range))
+        }
+
+        for update in updates {
+            attributed.addAttribute(
+                .chatBlockQuoteBarPositions,
+                value: update.positions,
+                range: update.range
+            )
+        }
+    }
+
+    private func mergedBlockQuoteBarPositions(_ lhs: [CGFloat], _ rhs: [CGFloat]) -> [CGFloat] {
+        var result = lhs
+        for position in rhs where !result.contains(position) {
+            result.append(position)
+        }
+        return result.sorted()
     }
 
     private func renderListItem(
         _ item: ListItemLine,
+        markerColumnWidth: CGFloat,
         allowPrediction: Bool
     ) -> NSMutableAttributedString {
-        let markerAttributes: [NSAttributedString.Key: Any] = [
-            .font: ChatMarkdownFontTraits.adding(
-                item.isOrdered ? .traitBold : UIFontDescriptor.SymbolicTraits(),
-                to: context.currentBodyFont()
-            ),
-            .foregroundColor: context.currentTextColor
-        ]
-        let attributed = NSMutableAttributedString(
-            string: item.marker + "\t",
-            attributes: markerAttributes
-        )
+        let attributed = markerAttributedString(item.marker, isOrdered: item.isOrdered)
         attributed.append(inlineRenderer.render(item.text, allowPrediction: allowPrediction))
         context.appendNewlineIfNeeded(to: attributed)
 
-        let baseIndent = CGFloat(item.indentLevel) * 18.0
-        let markerColumnWidth: CGFloat = item.isOrdered ? 28.0 : 20.0
-        let contentIndent = baseIndent + markerColumnWidth + 6.0
+        let baseIndent = CGFloat(item.indentLevel) * ListLayout.indent
+        let markerWidth = markerWidth(item.marker, isOrdered: item.isOrdered)
+        let contentIndent = baseIndent + markerColumnWidth + ListLayout.markerSpacing
+        let markerIndent = max(
+            baseIndent,
+            contentIndent - ListLayout.markerSpacing - markerWidth
+        )
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = context.style.bodyLineSpacing(compatibleWith: context.traitCollection)
-        paragraphStyle.firstLineHeadIndent = baseIndent
+        paragraphStyle.firstLineHeadIndent = markerIndent
         paragraphStyle.headIndent = contentIndent
         paragraphStyle.tabStops = [
             NSTextTab(textAlignment: .left, location: contentIndent)
@@ -157,9 +222,98 @@ final class StreamingMarkdownTextRenderer {
         context.apply([.paragraphStyle: paragraphStyle], to: attributed)
         return attributed
     }
+
+    private func listMarkerColumnWidths(in lines: [RenderLine]) -> [ListColumnKey: CGFloat] {
+        var widths: [ListColumnKey: CGFloat] = [:]
+        for line in lines {
+            guard case let .listItem(item) = line else { continue }
+            let width = max(
+                ListLayout.markerMinWidth,
+                markerWidth(item.marker, isOrdered: item.isOrdered)
+            )
+            widths[item.columnKey] = max(widths[item.columnKey] ?? 0.0, width)
+        }
+        return widths
+    }
+
+    private func markerAttributedString(
+        _ marker: ListMarker,
+        isOrdered: Bool
+    ) -> NSMutableAttributedString {
+        let result = NSMutableAttributedString()
+        switch marker {
+        case let .text(text):
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: listMarkerFont(isOrdered: isOrdered),
+                .foregroundColor: context.currentTextColor
+            ]
+            result.append(NSAttributedString(string: text, attributes: attributes))
+        case let .symbol(name):
+            if let image = symbolImage(named: name) {
+                let symbol = NSMutableAttributedString(attachment: NSTextAttachment(image: image))
+                symbol.addAttributes(context.bodyAttributes(), range: NSRange(location: 0, length: symbol.length))
+                result.append(symbol)
+            }
+        }
+        result.append(NSAttributedString(string: "\t", attributes: context.bodyAttributes()))
+        return result
+    }
+
+    private func markerWidth(_ marker: ListMarker, isOrdered: Bool) -> CGFloat {
+        switch marker {
+        case let .text(text):
+            return ceil((text as NSString).size(withAttributes: [.font: listMarkerFont(isOrdered: isOrdered)]).width)
+        case let .symbol(name):
+            return symbolImage(named: name)?.size.width ?? 0.0
+        }
+    }
+
+    private func listMarkerFont(isOrdered: Bool) -> UIFont {
+        guard isOrdered else {
+            return context.currentBodyFont()
+        }
+
+        return .monospacedDigitSystemFont(
+            ofSize: context.currentBodyFont().pointSize,
+            weight: .regular
+        )
+    }
+
+    private func symbolImage(named name: String) -> UIImage? {
+        let configuration = UIImage.SymbolConfiguration(font: context.currentBodyFont(), scale: .medium)
+        return UIImage(systemName: name, withConfiguration: configuration)?
+            .withTintColor(
+                context.currentTextColor.resolvedColor(with: context.traitCollection),
+                renderingMode: .alwaysOriginal
+            )
+    }
 }
 
 private extension StreamingMarkdownTextRenderer {
+    private enum ListLayout {
+        static let indent: CGFloat = 24.0
+        static let markerMinWidth: CGFloat = 20.0
+        static let markerSpacing: CGFloat = 6.0
+    }
+
+    enum RenderLine {
+        case blank
+        case heading(HeadingLine)
+        case blockQuote(BlockQuoteLine)
+        case listItem(ListItemLine)
+        case paragraph(String)
+    }
+
+    enum ListMarker: Hashable {
+        case text(String)
+        case symbol(name: String)
+    }
+
+    struct ListColumnKey: Hashable {
+        let indentLevel: Int
+        let isOrdered: Bool
+    }
+
     struct HeadingLine {
         let level: Int
         let text: String
@@ -171,10 +325,14 @@ private extension StreamingMarkdownTextRenderer {
     }
 
     struct ListItemLine {
-        let marker: String
+        let marker: ListMarker
         let text: String
         let isOrdered: Bool
         let indentLevel: Int
+
+        var columnKey: ListColumnKey {
+            ListColumnKey(indentLevel: indentLevel, isOrdered: isOrdered)
+        }
     }
 
     static func displayLines(in markdown: String) -> [String] {
@@ -192,6 +350,26 @@ private extension StreamingMarkdownTextRenderer {
             lines.removeLast()
         }
         return lines
+    }
+
+    static func renderLine(_ line: String) -> RenderLine {
+        if line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .blank
+        }
+
+        if let heading = heading(in: line) {
+            return .heading(heading)
+        }
+
+        if let quote = blockQuote(in: line) {
+            return .blockQuote(quote)
+        }
+
+        if let listItem = listItem(in: line) {
+            return .listItem(listItem)
+        }
+
+        return .paragraph(line)
     }
 
     static func heading(in line: String) -> HeadingLine? {
@@ -261,9 +439,11 @@ private extension StreamingMarkdownTextRenderer {
         }
 
         var text = String(line.dropFirst()).trimmingCharacters(in: .whitespaces)
-        var displayMarker = String(marker)
+        var displayMarker = ListMarker.text("-")
         if let checkbox = checkboxMarker(in: text) {
-            displayMarker = checkbox.isChecked ? "☑" : "☐"
+            displayMarker = checkbox.isChecked
+                ? .symbol(name: "checkmark.square")
+                : .symbol(name: "square")
             text = checkbox.remainingText
         }
         return ListItemLine(
@@ -296,7 +476,7 @@ private extension StreamingMarkdownTextRenderer {
         let marker = String(line[line.startIndex...digitEnd])
         let text = String(line[afterMarker...]).trimmingCharacters(in: .whitespaces)
         return ListItemLine(
-            marker: marker,
+            marker: .text(marker),
             text: text,
             isOrdered: true,
             indentLevel: indentLevel
@@ -305,13 +485,29 @@ private extension StreamingMarkdownTextRenderer {
 
     private static func checkboxMarker(in text: String) -> (isChecked: Bool, remainingText: String)? {
         let lower = text.lowercased()
-        if lower.hasPrefix("[ ] ") {
-            return (false, String(text.dropFirst(4)))
+        if lower.hasPrefix("[ ]"), isCheckboxBoundary(in: text, markerLength: 3) {
+            return (false, checkboxRemainingText(text, markerLength: 3))
         }
-        if lower.hasPrefix("[x] ") {
-            return (true, String(text.dropFirst(4)))
+        if lower.hasPrefix("[x]"), isCheckboxBoundary(in: text, markerLength: 3) {
+            return (true, checkboxRemainingText(text, markerLength: 3))
         }
         return nil
+    }
+
+    private static func isCheckboxBoundary(in text: String, markerLength: Int) -> Bool {
+        guard let boundary = text.index(text.startIndex, offsetBy: markerLength, limitedBy: text.endIndex),
+              boundary < text.endIndex else {
+            return true
+        }
+        return text[boundary].isWhitespace
+    }
+
+    private static func checkboxRemainingText(_ text: String, markerLength: Int) -> String {
+        var remaining = String(text.dropFirst(markerLength))
+        if remaining.first?.isWhitespace == true {
+            remaining.removeFirst()
+        }
+        return remaining
     }
 }
 
@@ -559,13 +755,13 @@ private final class StreamingMarkdownInlineScanner {
         let openerEnd = source.index(index, offsetBy: run)
         if let close = findToken(String(repeating: "`", count: run), from: openerEnd) {
             let code = String(source[openerEnd..<close])
-            result.append(
-                NSAttributedString(
-                    string: code,
-                    attributes: mode.coded().attributes(context: context)
-                )
+            let codeEnd = source.index(close, offsetBy: run)
+            appendInlineCode(
+                code,
+                to: result,
+                nextCharacter: codeEnd < source.endIndex ? source[codeEnd] : nil
             )
-            index = source.index(close, offsetBy: run)
+            index = codeEnd
             return true
         }
 
@@ -575,12 +771,7 @@ private final class StreamingMarkdownInlineScanner {
             return true
         }
 
-        result.append(
-            NSAttributedString(
-                string: String(source[openerEnd..<source.endIndex]),
-                attributes: mode.coded().attributes(context: context)
-            )
-        )
+        appendInlineCode(String(source[openerEnd..<source.endIndex]), to: result, nextCharacter: nil)
         index = source.endIndex
         return true
     }
@@ -793,10 +984,7 @@ private final class StreamingMarkdownInlineScanner {
                 return NSAttributedString()
             }
             let isChecked = tag.attributes.keys.contains("checked")
-            return NSAttributedString(
-                string: isChecked ? "☑" : "☐",
-                attributes: mode.attributes(context: context)
-            )
+            return checkboxAttachment(isChecked: isChecked)
         case "q":
             let quote = NSAttributedString(string: "\"", attributes: mode.attributes(context: context))
             if !tag.isSelfClosing {
@@ -888,6 +1076,61 @@ private final class StreamingMarkdownInlineScanner {
                 attributes: mode.mathPreview(context: context).attributes(context: context)
             )
         )
+    }
+
+    private func appendInlineCode(
+        _ code: String,
+        to result: NSMutableAttributedString,
+        nextCharacter: Character?
+    ) {
+        let regularAttributes = mode.attributes(context: context)
+        if let previous = result.string.last, !isMarginBoundary(previous) {
+            result.append(
+                NSAttributedString(
+                    string: ChatMarkdownInlineCodeStyle.outerMargin,
+                    attributes: regularAttributes
+                )
+            )
+        }
+
+        result.append(
+            NSAttributedString(
+                string: code,
+                attributes: mode.coded().attributes(context: context)
+            )
+        )
+
+        if let nextCharacter, !isMarginBoundary(nextCharacter) {
+            result.append(
+                NSAttributedString(
+                    string: ChatMarkdownInlineCodeStyle.outerMargin,
+                    attributes: regularAttributes
+                )
+            )
+        }
+    }
+
+    private func checkboxAttachment(isChecked: Bool) -> NSAttributedString {
+        let name = isChecked ? "checkmark.square" : "square"
+        let configuration = UIImage.SymbolConfiguration(font: mode.font, scale: .medium)
+        guard let image = UIImage(systemName: name, withConfiguration: configuration)?
+            .withTintColor(
+                mode.foregroundColor.resolvedColor(with: context.traitCollection),
+                renderingMode: .alwaysOriginal
+            ) else {
+            return NSAttributedString(
+                string: isChecked ? "☑" : "☐",
+                attributes: mode.attributes(context: context)
+            )
+        }
+
+        let symbol = NSMutableAttributedString(attachment: NSTextAttachment(image: image))
+        symbol.addAttributes(mode.attributes(context: context), range: NSRange(location: 0, length: symbol.length))
+        return symbol
+    }
+
+    private func isMarginBoundary(_ character: Character) -> Bool {
+        character.unicodeScalars.allSatisfy { CharacterSet.whitespacesAndNewlines.contains($0) }
     }
 
     private func append(_ text: String, to result: NSMutableAttributedString) {

@@ -1293,6 +1293,58 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "After")
     }
 
+    func testIncrementalMarkdownLineParserKeepsStableIDWhilePartialLineGrows() throws {
+        var parser = IncrementalMarkdownLineParser()
+
+        let firstBlocks = parser.append("Hel")
+        let firstBlock = try XCTUnwrap(firstBlocks.first)
+
+        let secondBlocks = parser.append("lo")
+        let secondBlock = try XCTUnwrap(secondBlocks.first)
+
+        XCTAssertEqual(secondBlock.id, firstBlock.id)
+        XCTAssertEqual(secondBlock.rawMarkdown, "Hello")
+        XCTAssertFalse(secondBlock.isClosed)
+    }
+
+    func testIncrementalMarkdownLineParserDoesNotCommitSingleLineBlocksBeforeNewline() throws {
+        var parser = IncrementalMarkdownLineParser()
+
+        let draftBlocks = parser.append("---")
+        let draftBlock = try XCTUnwrap(draftBlocks.first)
+        XCTAssertEqual(draftBlock.kind, .textual)
+        XCTAssertFalse(draftBlock.isClosed)
+
+        let completedBlocks = parser.append("\n")
+        let completedBlock = try XCTUnwrap(completedBlocks.first)
+        XCTAssertEqual(completedBlock.id, draftBlock.id)
+        XCTAssertEqual(completedBlock.kind, .thematicBreak)
+        XCTAssertTrue(completedBlock.isClosed)
+    }
+
+    func testStreamingMarkdownTaskListUsesSymbolAttachmentBeforeLineCompletes() throws {
+        let context = ChatMarkdownRenderingContext(style: .assistant, traitCollection: markdownRendererTraits)
+        let rendered = StreamingMarkdownTextRenderer(context: context).render(rawMarkdown: "- [ ]", isOpen: true)
+
+        let attachment = rendered.attribute(.attachment, at: 0, effectiveRange: nil) as? NSTextAttachment
+        XCTAssertNotNil(attachment)
+        XCTAssertFalse(rendered.string.contains("☐"))
+    }
+
+    func testStreamingMarkdownBlockQuoteKeepsContiguousLinesInOneParagraph() {
+        let context = ChatMarkdownRenderingContext(style: .assistant, traitCollection: markdownRendererTraits)
+        let rendered = StreamingMarkdownTextRenderer(context: context).render(
+            rawMarkdown: """
+            > first quoted line
+            > second quoted line
+            """,
+            isOpen: true
+        )
+
+        XCTAssertEqual(rendered.string, "first quoted line second quoted line\n")
+        XCTAssertNotNil(rendered.attribute(.chatBlockQuoteBarPositions, at: 0, effectiveRange: nil))
+    }
+
     func testMarkdownTableInlineCodeUsesRoundedPillAttributesAndCleanAccessibilityText() throws {
         var renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let blocks = renderer.render(

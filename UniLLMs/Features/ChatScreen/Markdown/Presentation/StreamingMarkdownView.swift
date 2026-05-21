@@ -16,6 +16,10 @@
 import UIKit
 
 final class StreamingMarkdownView: UIView {
+    private enum Scheduling {
+        static let maxCharactersPerFlush = 4096
+    }
+
     // MARK: - Per-block render record
 
     private struct RenderedRecord {
@@ -97,7 +101,7 @@ final class StreamingMarkdownView: UIView {
     func finishStreamingContent() {
         isStreaming = false
         stopDisplayLink()
-        flushPendingMarkdown()
+        flushAllPendingMarkdown()
         let finalBlocks = parser.finish()
         reconcileBlocks(finalBlocks)
         invalidateIntrinsicContentSize()
@@ -193,8 +197,7 @@ final class StreamingMarkdownView: UIView {
 
     private func flushPendingMarkdown() {
         guard !pendingMarkdown.isEmpty else { return }
-        let chunk = pendingMarkdown
-        pendingMarkdown = ""
+        let chunk = nextPendingChunk()
 
         let start = CACurrentMediaTime()
         let blocks = parser.append(chunk)
@@ -212,6 +215,29 @@ final class StreamingMarkdownView: UIView {
 
         invalidateIntrinsicContentSize()
         onNeedsHeightUpdate?()
+    }
+
+    private func flushAllPendingMarkdown() {
+        while !pendingMarkdown.isEmpty {
+            flushPendingMarkdown()
+        }
+    }
+
+    private func nextPendingChunk() -> String {
+        guard pendingMarkdown.count > Scheduling.maxCharactersPerFlush,
+              let end = pendingMarkdown.index(
+                pendingMarkdown.startIndex,
+                offsetBy: Scheduling.maxCharactersPerFlush,
+                limitedBy: pendingMarkdown.endIndex
+              ) else {
+            let chunk = pendingMarkdown
+            pendingMarkdown = ""
+            return chunk
+        }
+
+        let chunk = String(pendingMarkdown[..<end])
+        pendingMarkdown.removeSubrange(..<end)
+        return chunk
     }
 
     // MARK: - Reconciliation
@@ -297,7 +323,11 @@ final class StreamingMarkdownView: UIView {
                   let tableData = renderTable(block: block) else { return false }
             tableView.update(tableData: tableData)
 
-        case .image, .closedMath, .closedDetails, .openDetailsPlaceholder, .thematicBreak:
+        case .openDetailsPlaceholder:
+            guard let textView = record.view as? ChatMarkdownTextView else { return false }
+            textView.replaceTailAttributedText(renderTextual(block: block, monospaced: true))
+
+        case .image, .closedMath, .closedDetails, .thematicBreak:
             // These either render once at close or are cheap enough to rebuild
             // wholesale; signal a form mismatch to force replacement.
             return false
@@ -409,13 +439,8 @@ final class StreamingMarkdownView: UIView {
     }
 
     private func fallbackTextRecord(for raw: String, revision: UInt64) -> RenderedRecord? {
-        let attributed = NSAttributedString(
-            string: raw,
-            attributes: [
-                .font: UIFont.preferredFont(forTextStyle: .body),
-                .foregroundColor: UIColor.label
-            ]
-        )
+        let context = makeRenderingContext()
+        let attributed = context.blockString(raw, attributes: context.bodyAttributes())
         guard attributed.length > 0 else { return nil }
         let view = ChatMarkdownTextView(attributedText: attributed)
         return RenderedRecord(view: view, revision: revision, formKey: .text)
@@ -448,20 +473,20 @@ final class StreamingMarkdownView: UIView {
     }
 
     private func renderTextual(block: IncrementalMarkdownBlock, monospaced: Bool = false) -> NSAttributedString {
+        let context = makeRenderingContext()
         if monospaced {
-            let font = UIFont.monospacedSystemFont(
-                ofSize: UIFont.preferredFont(forTextStyle: .body).pointSize,
-                weight: .regular
-            )
-            return NSAttributedString(
-                string: block.rawMarkdown,
-                attributes: [.font: font, .foregroundColor: UIColor.label]
+            return context.blockString(
+                block.rawMarkdown,
+                attributes: [
+                    .font: context.style.codeFont(compatibleWith: traitCollection),
+                    .foregroundColor: context.style.secondaryTextColor
+                ]
             )
         }
 
         guard block.isClosed else {
             return StreamingMarkdownTextRenderer(
-                context: makeRenderingContext()
+                context: context
             ).render(rawMarkdown: block.rawMarkdown, isOpen: true)
         }
 
@@ -470,7 +495,9 @@ final class StreamingMarkdownView: UIView {
         let combined = NSMutableAttributedString()
         for piece in rendered {
             if case let .text(attr) = piece {
-                if combined.length > 0 { combined.append(NSAttributedString(string: "\n")) }
+                if combined.length > 0 {
+                    combined.append(context.blockString("\n", attributes: context.bodyAttributes(), paragraphSpacing: 0.0))
+                }
                 combined.append(attr)
             }
         }
@@ -527,13 +554,13 @@ final class StreamingMarkdownView: UIView {
     }
 
     private func makeMathPlaceholderText(_ raw: String) -> NSAttributedString {
-        let font = UIFont.monospacedSystemFont(
-            ofSize: UIFont.preferredFont(forTextStyle: .body).pointSize,
-            weight: .regular
-        )
-        return NSAttributedString(
-            string: raw,
-            attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel]
+        let context = makeRenderingContext()
+        return context.blockString(
+            raw,
+            attributes: [
+                .font: context.style.codeFont(compatibleWith: traitCollection),
+                .foregroundColor: context.style.secondaryTextColor
+            ]
         )
     }
 

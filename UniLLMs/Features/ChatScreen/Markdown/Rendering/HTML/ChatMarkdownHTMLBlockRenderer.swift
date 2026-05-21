@@ -326,7 +326,24 @@ private struct HTMLBlockRenderingState {
         }
 
         let isChecked = tag.attributes.keys.contains("checked")
-        appendRawText(isChecked ? "☑" : "☐", attributes: mode.attributes(context: context))
+        result.append(checkboxAttachment(isChecked: isChecked))
+    }
+
+    private func checkboxAttachment(isChecked: Bool) -> NSAttributedString {
+        let name = isChecked ? "checkmark.square" : "square"
+        let attributes = mode.attributes(context: context)
+        let configuration = UIImage.SymbolConfiguration(font: mode.font, scale: .medium)
+        guard let image = UIImage(systemName: name, withConfiguration: configuration)?
+            .withTintColor(
+                mode.foregroundColor.resolvedColor(with: context.traitCollection),
+                renderingMode: .alwaysOriginal
+            ) else {
+            return NSAttributedString(string: isChecked ? "☑" : "☐", attributes: attributes)
+        }
+
+        let symbol = NSMutableAttributedString(attachment: NSTextAttachment(image: image))
+        symbol.addAttributes(attributes, range: NSRange(location: 0, length: symbol.length))
+        return symbol
     }
 
     private mutating func appendHorizontalRule() {

@@ -25,6 +25,7 @@ struct IncrementalMarkdownLineParser {
     /// partial state back before re-ingesting the extended line.
     private var pendingPartialLine: String = ""
     private var pendingPartialOwner: IncrementalMarkdownBlockID?
+    private var reusableRolledBackBlockID: IncrementalMarkdownBlockID?
     private var nextBlockSequence: UInt64 = 0
     private var nextRevision: UInt64 = 0
 
@@ -73,7 +74,9 @@ struct IncrementalMarkdownLineParser {
         // no further action needed beyond closing open blocks.
         pendingPartialLine = ""
         pendingPartialOwner = nil
+        reusableRolledBackBlockID = nil
         for index in blocks.indices where !blocks[index].isClosed {
+            finalizeOpenBlock(at: index)
             blocks[index].isClosed = true
             blocks[index].revision = bumpRevision()
         }
@@ -84,6 +87,7 @@ struct IncrementalMarkdownLineParser {
         blocks.removeAll()
         pendingPartialLine = ""
         pendingPartialOwner = nil
+        reusableRolledBackBlockID = nil
         nextBlockSequence = 0
         nextRevision = 0
     }
@@ -107,10 +111,11 @@ struct IncrementalMarkdownLineParser {
         blocks[index].rawMarkdown = String(raw.dropLast(pendingPartialLine.count))
         blocks[index].revision = bumpRevision()
 
-        // If the rollback emptied the block AND we created it just to hold the
-        // partial line, remove it entirely so re-classification can pick a
-        // different kind once a complete line arrives.
+        // If rollback emptied the draft block, remove the model row but keep
+        // its ID reserved so the presentation layer can update in place after
+        // re-classification.
         if blocks[index].rawMarkdown.isEmpty, !blocks[index].isClosed {
+            reusableRolledBackBlockID = blocks[index].id
             blocks.remove(at: index)
         }
     }
@@ -215,11 +220,13 @@ struct IncrementalMarkdownLineParser {
     private mutating func startNewBlock(with line: Line) {
         if line.isComplete, Self.isBlankLine(line.text) {
             // Discard inter-block blank lines.
+            reusableRolledBackBlockID = nil
             return
         }
 
-        let kind = Self.classifyOpening(line: line.text)
-        let id = nextBlockID()
+        let kind = Self.classifyOpening(line: line.text, isComplete: line.isComplete)
+        let id = reusableRolledBackBlockID ?? nextBlockID()
+        reusableRolledBackBlockID = nil
         let raw: String
         if line.isComplete {
             raw = line.text + "\n"
@@ -239,8 +246,10 @@ struct IncrementalMarkdownLineParser {
 
         switch kind {
         case .thematicBreak, .image:
-            blocks[blocks.count - 1].isClosed = true
-            clearPendingPartialIfOwned(by: id)
+            if line.isComplete {
+                blocks[blocks.count - 1].isClosed = true
+                clearPendingPartialIfOwned(by: id)
+            }
         case let .displayMath(opener):
             if Self.isDisplayMathClose(raw, opener: opener) {
                 blocks[blocks.count - 1].isClosed = true
@@ -280,6 +289,19 @@ struct IncrementalMarkdownLineParser {
         pendingPartialOwner = nil
     }
 
+    private mutating func finalizeOpenBlock(at index: Int) {
+        if case .textual = blocks[index].kind,
+           !blocks[index].rawMarkdown.contains("\n") {
+            blocks[index].kind = Self.classifyOpening(
+                line: blocks[index].rawMarkdown,
+                isComplete: true
+            )
+        }
+        if case .textual = blocks[index].kind {
+            promoteToTableIfPossible(at: index)
+        }
+    }
+
     private mutating func nextBlockID() -> IncrementalMarkdownBlockID {
         defer { nextBlockSequence += 1 }
         return IncrementalMarkdownBlockID(value: nextBlockSequence)
@@ -292,7 +314,7 @@ struct IncrementalMarkdownLineParser {
 
     // MARK: - Classification helpers
 
-    private static func classifyOpening(line: String) -> IncrementalMarkdownBlockKind {
+    private static func classifyOpening(line: String, isComplete: Bool = true) -> IncrementalMarkdownBlockKind {
         if let fence = fenceMarker(in: line) {
             let language = fenceLanguage(in: line, fence: fence)
             return .fencedCode(fence: fence, language: language)
@@ -306,10 +328,10 @@ struct IncrementalMarkdownLineParser {
         if startsHTMLBlock(line) {
             return .htmlOther
         }
-        if isStandaloneImageLine(line) {
+        if isComplete, isStandaloneImageLine(line) {
             return .image
         }
-        if isThematicBreak(line) {
+        if isComplete, isThematicBreak(line) {
             return .thematicBreak
         }
         return .textual

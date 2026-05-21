@@ -565,7 +565,7 @@ private struct ChatMarkdownInlineHTMLState {
                 return NSAttributedString()
             }
             let isChecked = tag.attributes.keys.contains("checked")
-            return NSAttributedString(string: isChecked ? "☑" : "☐", attributes: mode.attributes())
+            return checkboxAttachment(isChecked: isChecked)
         case "q":
             let quote = NSAttributedString(string: "\"", attributes: mode.attributes())
             guard !tag.isSelfClosing else {
@@ -602,6 +602,22 @@ private struct ChatMarkdownInlineHTMLState {
             }
             return NSAttributedString(string: tag.rawHTML, attributes: context.secondaryAttributes())
         }
+    }
+
+    private func checkboxAttachment(isChecked: Bool) -> NSAttributedString {
+        let name = isChecked ? "checkmark.square" : "square"
+        let configuration = UIImage.SymbolConfiguration(font: mode.font, scale: .medium)
+        guard let image = UIImage(systemName: name, withConfiguration: configuration)?
+            .withTintColor(
+                mode.foregroundColor.resolvedColor(with: context.traitCollection),
+                renderingMode: .alwaysOriginal
+            ) else {
+            return NSAttributedString(string: isChecked ? "☑" : "☐", attributes: mode.attributes())
+        }
+
+        let symbol = NSMutableAttributedString(attachment: NSTextAttachment(image: image))
+        symbol.addAttributes(mode.attributes(), range: NSRange(location: 0, length: symbol.length))
+        return symbol
     }
 
     private mutating func restoreMode(closing tagName: String) {
