@@ -372,19 +372,6 @@ final class AssistantResponseTextView: UIView {
         }
     }
 
-    private func configureTextView(_ textView: UITextView) {
-        textView.backgroundColor = .clear
-        textView.isOpaque = false
-        textView.isEditable = false
-        textView.isScrollEnabled = false
-        textView.dataDetectorTypes = [.link]
-        textView.textContainerInset = .zero
-        textView.textContainer.lineFragmentPadding = 0.0
-        textView.setContentCompressionResistancePriority(.required, for: .vertical)
-        textView.setContentHuggingPriority(.required, for: .vertical)
-        textView.translatesAutoresizingMaskIntoConstraints = false
-    }
-
     private func makeContentMarkdownView() -> StreamingMarkdownView {
         let contentMarkdownView = StreamingMarkdownView()
         contentMarkdownView.backgroundColor = .clear
@@ -576,13 +563,12 @@ final class AssistantResponseTextView: UIView {
         )
     }
 
-    private final class CopyMarkdownButton: UIControl {
+    private final class CopyMarkdownButton: UIButton {
         private enum SymbolName {
             static let copy = "doc.on.doc"
             static let copied = "checkmark"
         }
 
-        private let imageView = UIImageView()
         private let symbolConfiguration: UIImage.SymbolConfiguration
         private var isShowingFeedback = false
 
@@ -599,12 +585,6 @@ final class AssistantResponseTextView: UIView {
             )
             super.init(coder: coder)
             configure()
-        }
-
-        override var isHighlighted: Bool {
-            didSet {
-                imageView.alpha = isHighlighted ? 0.45 : 1.0
-            }
         }
 
         func showCopiedFeedback() {
@@ -635,7 +615,7 @@ final class AssistantResponseTextView: UIView {
                 return
             }
 
-            imageView.addSymbolEffect(
+            imageView?.addSymbolEffect(
                 .appear.up.wholeSymbol,
                 options: .nonRepeating,
                 animated: true
@@ -645,23 +625,8 @@ final class AssistantResponseTextView: UIView {
         private func configure() {
             backgroundColor = .clear
             isOpaque = false
-            isAccessibilityElement = true
             accessibilityLabel = "Copy Markdown"
-            accessibilityTraits = .button
             tintColor = .tertiaryLabel
-
-            imageView.tintColor = tintColor
-            imageView.contentMode = .center
-            imageView.isUserInteractionEnabled = false
-            imageView.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(imageView)
-
-            NSLayoutConstraint.activate([
-                imageView.topAnchor.constraint(equalTo: topAnchor),
-                imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
-                imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
-                imageView.bottomAnchor.constraint(equalTo: bottomAnchor)
-            ])
 
             setSymbol(named: SymbolName.copy, animated: false)
         }
@@ -678,8 +643,9 @@ final class AssistantResponseTextView: UIView {
 
             guard animated,
                   window != nil,
+                  let imageView,
                   !UIAccessibility.isReduceMotionEnabled else {
-                imageView.image = image
+                setButtonImage(image)
                 completion?()
                 return
             }
@@ -692,11 +658,17 @@ final class AssistantResponseTextView: UIView {
                     return
                 }
 
-                if !context.isFinished {
-                    self.imageView.image = image
-                }
+                self.setButtonImage(image)
                 completion?()
             }
+        }
+
+        private func setButtonImage(_ image: UIImage) {
+            var buttonConfiguration = configuration ?? .plain()
+            buttonConfiguration.image = image
+            buttonConfiguration.baseForegroundColor = .tertiaryLabel
+            buttonConfiguration.contentInsets = .zero
+            configuration = buttonConfiguration
         }
     }
 }

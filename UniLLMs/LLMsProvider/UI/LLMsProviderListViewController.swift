@@ -9,6 +9,10 @@
 import UIKit
 
 final class LLMsProviderViewController: UITableViewController {
+    private enum ReuseIdentifier {
+        static let providerCell = "LLMsProviderCell"
+    }
+
     private let dependencies: AppDependencyContainer
     private var providers: [LLMsProviderRecord] = []
 
@@ -130,7 +134,8 @@ final class LLMsProviderViewController: UITableViewController {
         _ tableView: UITableView,
         cellForRowAt indexPath: IndexPath
     ) -> UITableViewCell {
-        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+        let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.providerCell)
+            ?? UITableViewCell(style: .default, reuseIdentifier: ReuseIdentifier.providerCell)
         let provider = providers[indexPath.row]
 
         var contentConfiguration = cell.defaultContentConfiguration()

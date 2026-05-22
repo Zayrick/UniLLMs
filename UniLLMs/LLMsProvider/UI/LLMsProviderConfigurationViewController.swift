@@ -20,6 +20,10 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
         static let modelIDPlaceholder = "gpt-4.1-mini"
     }
 
+    private enum ReuseIdentifier {
+        static let readOnlyModelCell = "ReadOnlyModelCell"
+    }
+
     private let dependencies: AppDependencyContainer
     private var saveButtonItem: UIBarButtonItem?
     private var provider: LLMsProviderRecord
@@ -331,7 +335,6 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
             contentConfiguration.secondaryText = manualModelsDetailText
             contentConfiguration.image = UIImage(systemName: "plus.circle")
             cell.contentConfiguration = contentConfiguration
-            cell.selectionStyle = .default
             return cell
         }
 
@@ -369,7 +372,8 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
     }
 
     private func readOnlyModelCell(for model: LLMsProviderModel) -> UITableViewCell {
-        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.readOnlyModelCell)
+            ?? UITableViewCell(style: .subtitle, reuseIdentifier: ReuseIdentifier.readOnlyModelCell)
         var contentConfiguration = cell.defaultContentConfiguration()
         contentConfiguration.text = modelTitle(for: model)
         contentConfiguration.secondaryText = modelSubtitle(for: model)

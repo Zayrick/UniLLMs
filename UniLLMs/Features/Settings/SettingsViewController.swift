@@ -75,10 +75,6 @@ final class SettingsViewController: UITableViewController {
         dismiss(animated: true)
     }
 
-    override func numberOfSections(in tableView: UITableView) -> Int {
-        1
-    }
-
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         Row.allCases.count
     }

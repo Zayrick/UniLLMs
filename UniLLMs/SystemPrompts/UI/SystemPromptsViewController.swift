@@ -23,6 +23,10 @@ final class SystemPromptsViewController: UITableViewController {
     private var prompts: [SystemPromptRecord] = []
     private var storeObservation: NSObjectProtocol?
 
+    private enum ReuseIdentifier {
+        static let promptCell = "SystemPromptCell"
+    }
+
     init(
         dependencies: AppDependencyContainer = AppEnvironment.shared.dependencies,
         mode: Mode = .manage
@@ -138,10 +142,6 @@ final class SystemPromptsViewController: UITableViewController {
         dismiss(animated: true)
     }
 
-    override func numberOfSections(in tableView: UITableView) -> Int {
-        prompts.isEmpty ? 0 : 1
-    }
-
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         prompts.count
     }
@@ -236,7 +236,8 @@ final class SystemPromptsViewController: UITableViewController {
     }
 
     private func promptCell(for indexPath: IndexPath) -> UITableViewCell {
-        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.promptCell)
+            ?? UITableViewCell(style: .subtitle, reuseIdentifier: ReuseIdentifier.promptCell)
         let prompt = prompts[indexPath.row]
         var contentConfiguration = cell.defaultContentConfiguration()
         contentConfiguration.text = prompt.displayTitle

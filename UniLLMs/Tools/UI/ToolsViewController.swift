@@ -15,6 +15,11 @@ final class ToolsViewController: UITableViewController {
         case mcpServers
     }
 
+    private enum ReuseIdentifier {
+        static let builtInToolCell = "BuiltInToolCell"
+        static let serverCell = "MCPServerCell"
+    }
+
     private let dependencies: AppDependencyContainer
     private var builtInTools: [ToolDefinition] = []
     private var servers: [MCPServerRecord] = []
@@ -125,9 +130,9 @@ final class ToolsViewController: UITableViewController {
         case .masterSwitch:
             return 1
         case .builtInTools:
-            return max(builtInTools.count, 1)
+            return builtInTools.count
         case .mcpServers:
-            return max(servers.count, 1)
+            return servers.count
         }
     }
 
@@ -173,14 +178,8 @@ final class ToolsViewController: UITableViewController {
         case .masterSwitch:
             return masterSwitchCell()
         case .builtInTools:
-            guard !builtInTools.isEmpty else {
-                return emptyBuiltInToolCell()
-            }
             return builtInToolCell(for: indexPath)
         case .mcpServers:
-            guard !servers.isEmpty else {
-                return emptyServerCell()
-            }
             return serverCell(for: indexPath)
         }
     }
@@ -271,20 +270,9 @@ final class ToolsViewController: UITableViewController {
         return cell
     }
 
-    private func emptyBuiltInToolCell() -> UITableViewCell {
-        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
-        var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = "No Built-In Tools"
-        contentConfiguration.secondaryText = "Registered tools will appear here"
-        contentConfiguration.image = UIImage(systemName: "wrench.and.screwdriver")
-        contentConfiguration.imageProperties.tintColor = .secondaryLabel
-        cell.contentConfiguration = contentConfiguration
-        cell.selectionStyle = .none
-        return cell
-    }
-
     private func builtInToolCell(for indexPath: IndexPath) -> UITableViewCell {
-        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.builtInToolCell)
+            ?? UITableViewCell(style: .subtitle, reuseIdentifier: ReuseIdentifier.builtInToolCell)
         let tool = builtInTools[indexPath.row]
         let isEnabled = dependencies.toolSettingsManager.isBuiltInToolEnabled(id: tool.id)
         configureBuiltInToolCellContent(
@@ -315,20 +303,9 @@ final class ToolsViewController: UITableViewController {
         cell.contentConfiguration = contentConfiguration
     }
 
-    private func emptyServerCell() -> UITableViewCell {
-        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
-        var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = "No MCP Servers"
-        contentConfiguration.secondaryText = "Tap + to add one"
-        contentConfiguration.image = UIImage(systemName: "server.rack")
-        contentConfiguration.imageProperties.tintColor = .secondaryLabel
-        cell.contentConfiguration = contentConfiguration
-        cell.selectionStyle = .none
-        return cell
-    }
-
     private func serverCell(for indexPath: IndexPath) -> UITableViewCell {
-        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.serverCell)
+            ?? UITableViewCell(style: .subtitle, reuseIdentifier: ReuseIdentifier.serverCell)
         let server = servers[indexPath.row]
         var contentConfiguration = cell.defaultContentConfiguration()
         contentConfiguration.text = server.displayName

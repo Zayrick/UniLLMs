@@ -16,6 +16,10 @@ final class ModelSelectionViewController: UITableViewController, UISearchResults
     private let onSelect: (ChatModelSelection) -> Void
     private let searchController = UISearchController(searchResultsController: nil)
 
+    private enum ReuseIdentifier {
+        static let modelCell = "ModelSelectionModelCell"
+    }
+
     init(
         dependencies: AppDependencyContainer = AppEnvironment.shared.dependencies,
         selectedModelSelection: ChatModelSelection?,
@@ -82,7 +86,7 @@ final class ModelSelectionViewController: UITableViewController, UISearchResults
         let query = searchController.searchBar.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !query.isEmpty else {
             providers = allProviders
-            tableView.reloadData()
+            reloadTableContent()
             return
         }
 
@@ -103,7 +107,12 @@ final class ModelSelectionViewController: UITableViewController, UISearchResults
             filteredProvider.models = providerMatches ? provider.models : matchingModels
             return filteredProvider
         }
+        reloadTableContent()
+    }
+
+    private func reloadTableContent() {
         tableView.reloadData()
+        setNeedsUpdateContentUnavailableConfiguration()
     }
 
     private var isFilteringModels: Bool {
@@ -111,61 +120,30 @@ final class ModelSelectionViewController: UITableViewController, UISearchResults
     }
 
     override func numberOfSections(in tableView: UITableView) -> Int {
-        providers.isEmpty ? 1 : providers.count
+        providers.count
     }
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        guard !providers.isEmpty else {
-            return 1
-        }
-
-        return max(providers[section].models.count, 1)
+        providers[section].models.count
     }
 
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        guard !providers.isEmpty else {
-            if isFilteringModels && !allProviders.isEmpty {
-                return "Search"
-            }
-
-            return "Providers"
-        }
-
-        return providerDisplayName(providers[section])
+        providerDisplayName(providers[section])
     }
 
     override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        nil
+        let provider = providers[section]
+        return provider.models.isEmpty ? noModelsDetail(for: provider) : nil
     }
 
     override func tableView(
         _ tableView: UITableView,
         cellForRowAt indexPath: IndexPath
     ) -> UITableViewCell {
-        guard !providers.isEmpty else {
-            if isFilteringModels && !allProviders.isEmpty {
-                return unavailableCell(
-                    title: "No Matches",
-                    detail: "Try another model name, model ID, or provider."
-                )
-            }
-
-            return unavailableCell(
-                title: "No LLM Providers",
-                detail: "Add a provider in Settings before selecting a model."
-            )
-        }
-
         let provider = providers[indexPath.section]
-        guard !provider.models.isEmpty else {
-            return unavailableCell(
-                title: "No Models",
-                detail: noModelsDetail(for: provider)
-            )
-        }
-
         let model = provider.models[indexPath.row]
-        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.modelCell)
+            ?? UITableViewCell(style: .subtitle, reuseIdentifier: ReuseIdentifier.modelCell)
         var contentConfiguration = cell.defaultContentConfiguration()
         contentConfiguration.text = modelTitle(for: model)
         contentConfiguration.secondaryText = modelSubtitle(for: model)
@@ -179,15 +157,7 @@ final class ModelSelectionViewController: UITableViewController, UISearchResults
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
 
-        guard !providers.isEmpty else {
-            return
-        }
-
         let provider = providers[indexPath.section]
-        guard !provider.models.isEmpty else {
-            return
-        }
-
         let model = provider.models[indexPath.row]
         let selection = LLMModelSelection(
             providerID: provider.id,
@@ -200,16 +170,27 @@ final class ModelSelectionViewController: UITableViewController, UISearchResults
         dismiss(animated: true)
     }
 
-    private func unavailableCell(title: String, detail: String) -> UITableViewCell {
-        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
-        var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = title
-        contentConfiguration.secondaryText = detail
-        contentConfiguration.image = UIImage(systemName: "exclamationmark.circle")
-        contentConfiguration.imageProperties.tintColor = .secondaryLabel
-        cell.contentConfiguration = contentConfiguration
-        cell.selectionStyle = .none
-        return cell
+    override func updateContentUnavailableConfiguration(
+        using state: UIContentUnavailableConfigurationState
+    ) {
+        guard providers.isEmpty else {
+            contentUnavailableConfiguration = nil
+            return
+        }
+
+        if isFilteringModels && !allProviders.isEmpty {
+            var configuration = UIContentUnavailableConfiguration.search()
+            configuration.text = "No Matches"
+            configuration.secondaryText = "Try another model name, model ID, or provider."
+            contentUnavailableConfiguration = configuration
+            return
+        }
+
+        var configuration = UIContentUnavailableConfiguration.empty()
+        configuration.image = UIImage(systemName: "cpu")
+        configuration.text = "No LLM Providers"
+        configuration.secondaryText = "Add a provider in Settings before selecting a model."
+        contentUnavailableConfiguration = configuration
     }
 
     private func isSelected(model: LLMsProviderModel, provider: LLMsProviderRecord) -> Bool {

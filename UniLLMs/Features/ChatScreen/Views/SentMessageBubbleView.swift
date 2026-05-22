@@ -32,7 +32,6 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
     private let backgroundView = UIView()
     private let label = UILabel()
     private var attachmentRowStackView: UIStackView?
-    private var traitChangeRegistration: (any UITraitChangeRegistration)?
 
     var onPreviewAttachment: ((ChatAttachment) -> Void)?
 
@@ -49,7 +48,6 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
         self.attachments = attachments
         super.init(frame: .zero)
         configure()
-        configureTraitObservation()
     }
 
     required init?(coder: NSCoder) {
@@ -57,7 +55,6 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
         attachments = []
         super.init(coder: coder)
         configure()
-        configureTraitObservation()
     }
 
     override func layoutSubviews() {
@@ -79,9 +76,10 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
         backgroundView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(backgroundView)
 
-        label.font = .preferredFont(forTextStyle: .body, compatibleWith: traitCollection)
+        label.font = .preferredFont(forTextStyle: .body)
         label.adjustsFontForContentSizeCategory = true
         label.textColor = .white
+        label.text = messageText
         label.numberOfLines = 0
         label.lineBreakMode = .byWordWrapping
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -141,7 +139,6 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
             ])
         }
 
-        applyMessageText()
         addInteraction(UIContextMenuInteraction(delegate: self))
     }
 
@@ -292,34 +289,6 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
         onPreviewAttachment?(chip.attachment)
     }
 
-    private func configureTraitObservation() {
-        traitChangeRegistration = registerForTraitChanges(
-            [UITraitPreferredContentSizeCategory.self]
-        ) { (view: SentMessageBubbleView, _) in
-            view.applyMessageText()
-            view.invalidateIntrinsicContentSize()
-            view.setNeedsLayout()
-        }
-    }
-
-    private func applyMessageText() {
-        let font = UIFont.preferredFont(forTextStyle: .body, compatibleWith: traitCollection)
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineBreakMode = .byWordWrapping
-        paragraphStyle.lineSpacing = Self.systemLineSpacing(for: font)
-        paragraphStyle.paragraphSpacing = Self.systemParagraphSpacing(for: font)
-
-        label.font = font
-        label.attributedText = NSAttributedString(
-            string: messageText,
-            attributes: [
-                .font: font,
-                .foregroundColor: UIColor.white,
-                .paragraphStyle: paragraphStyle
-            ]
-        )
-    }
-
     private func updateCornerConfiguration() {
         backgroundView.layer.cornerRadius = currentCornerRadius
     }
@@ -383,14 +352,6 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
         dismissalPreviewForItemWithIdentifier identifier: any NSCopying
     ) -> UITargetedPreview? {
         makeTargetedPreview()
-    }
-
-    private static func systemParagraphSpacing(for font: UIFont) -> CGFloat {
-        ceil(max(font.leading, font.lineHeight - font.pointSize))
-    }
-
-    private static func systemLineSpacing(for font: UIFont) -> CGFloat {
-        ceil(max(font.leading, font.lineHeight - font.pointSize))
     }
 
     private final class AttachmentChipView: UIView {

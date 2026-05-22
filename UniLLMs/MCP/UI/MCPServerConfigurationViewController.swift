@@ -146,7 +146,7 @@ final class MCPServerConfigurationViewController: UITableViewController {
     }
 
     private func enabledCell() -> UITableViewCell {
-        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
         var contentConfiguration = cell.defaultContentConfiguration()
         contentConfiguration.text = "Enable Server"
         contentConfiguration.image = UIImage(systemName: "power")
