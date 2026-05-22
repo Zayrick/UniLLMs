@@ -8,7 +8,7 @@ import XCTest
 @testable import UniLLMs
 
 final class OpenAIChatPromptRendererTests: XCTestCase {
-    func testRendererCombinesSystemPromptAndMemoriesIntoSingleSystemMessage() {
+    func testRendererCombinesSystemPromptAndMemoriesIntoSingleSystemMessage() throws {
         let prompt = SystemPromptRecord(
             title: "Translator",
             content: "Always answer in Chinese.",
@@ -27,13 +27,13 @@ final class OpenAIChatPromptRendererTests: XCTestCase {
             )
         ]
 
-        let messages = OpenAIChatPromptRenderer.messages(
+        let messages = try OpenAIChatPromptRenderer.messages(
             for: ChatRequest(
                 modelID: "test-model",
                 messages: [ChatMessage(role: .user, content: "Hello")],
                 context: ChatContext(systemPrompt: prompt, memories: memories)
             ),
-            supportsFileAttachments: false
+            instructionRole: .system
         )
 
         XCTAssertEqual(messages.map(\.role), [.system, .user])
@@ -44,7 +44,7 @@ final class OpenAIChatPromptRendererTests: XCTestCase {
         XCTAssertEqual(messages.dropFirst().first?.content, .text("Hello"))
     }
 
-    func testRendererDoesNotDuplicateInstructionsAcrossToolLoopMessages() {
+    func testRendererDoesNotDuplicateInstructionsAcrossToolLoopMessages() throws {
         let prompt = SystemPromptRecord(
             title: "Tools",
             content: "Use tools when needed."
@@ -55,7 +55,7 @@ final class OpenAIChatPromptRendererTests: XCTestCase {
             arguments: "{}"
         )
 
-        let messages = OpenAIChatPromptRenderer.messages(
+        let messages = try OpenAIChatPromptRenderer.messages(
             for: ChatRequest(
                 modelID: "test-model",
                 messages: [
@@ -65,7 +65,7 @@ final class OpenAIChatPromptRendererTests: XCTestCase {
                 ],
                 context: ChatContext(systemPrompt: prompt)
             ),
-            supportsFileAttachments: false
+            instructionRole: .system
         )
 
         XCTAssertEqual(messages.map(\.role), [.system, .user, .assistant, .tool])
@@ -75,7 +75,7 @@ final class OpenAIChatPromptRendererTests: XCTestCase {
         XCTAssertEqual(messages[3].toolCallID, "call_1")
     }
 
-    func testRendererOmitsBlankSystemPromptAndBlankMemories() {
+    func testRendererOmitsBlankSystemPromptAndBlankMemories() throws {
         let prompt = SystemPromptRecord(
             title: "Blank",
             content: " \n "
@@ -85,16 +85,49 @@ final class OpenAIChatPromptRendererTests: XCTestCase {
             text: " \n "
         )
 
-        let messages = OpenAIChatPromptRenderer.messages(
+        let messages = try OpenAIChatPromptRenderer.messages(
             for: ChatRequest(
                 modelID: "test-model",
                 messages: [ChatMessage(role: .user, content: "Hello")],
                 context: ChatContext(systemPrompt: prompt, memories: [memory])
-            ),
-            supportsFileAttachments: false
+            )
         )
 
         XCTAssertEqual(messages.map(\.role), [.user])
         XCTAssertEqual(messages.first?.content, .text("Hello"))
+    }
+
+    func testRendererKeepsReasoningOnlyAssistantMessageValid() throws {
+        let messages = try OpenAIChatPromptRenderer.messages(
+            for: ChatRequest(
+                modelID: "test-model",
+                messages: [
+                    ChatMessage(role: .assistant, content: "", reasoning: "Hidden reasoning")
+                ],
+                context: ChatContext()
+            )
+        )
+
+        let data = try JSONEncoder().encode(messages[0])
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(payload["role"] as? String, "assistant")
+        XCTAssertEqual(payload["content"] as? String, "")
+    }
+
+    func testOpenAICompatibleRendererKeepsReasoningOnlyAssistantMessageValid() throws {
+        let messages = try OpenAICompatibleChatPromptRenderer.messages(
+            for: ChatRequest(
+                modelID: "test-model",
+                messages: [
+                    ChatMessage(role: .assistant, content: "", reasoning: "Hidden reasoning")
+                ],
+                context: ChatContext()
+            )
+        )
+
+        let data = try JSONEncoder().encode(messages[0])
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(payload["role"] as? String, "assistant")
+        XCTAssertEqual(payload["content"] as? String, "")
     }
 }

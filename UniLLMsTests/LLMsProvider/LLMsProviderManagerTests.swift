@@ -11,6 +11,7 @@ import XCTest
 final class LLMsProviderManagerTests: LLMsProviderStoreTestCase {
     func testProviderManagerCreatesOpenRouterDraftFromRegisteredAdapter() throws {
         let manager = makeProviderManager(adapters: [OpenRouterProvider()])
+        let openRouterDefaultAPIBase = OpenRouterProvider().defaultConfiguration[OpenRouterProvider.ConfigurationKey.apiBase]
 
         let draft = try manager.makeProviderDraft(kind: .openRouter)
 
@@ -78,14 +79,34 @@ final class LLMsProviderManagerTests: LLMsProviderStoreTestCase {
         }
     }
 
-    func testDefaultProviderCatalogRegistersFakeProvider() {
+    func testDefaultProviderCatalogRegistersNativeAndFallbackProviders() {
         let registry = LLMsProviderCatalog.makeRegistry()
 
+        XCTAssertNotNil(registry.adapter(for: .openAI))
+        XCTAssertNotNil(registry.adapter(for: .anthropic))
+        XCTAssertNotNil(registry.adapter(for: .gemini))
+        XCTAssertNotNil(registry.adapter(for: .openRouter))
+        XCTAssertNotNil(registry.adapter(for: .openAICompatible))
         XCTAssertNotNil(registry.adapter(for: .fake))
     }
 
+    func testDefaultProviderDraftUsesCatalogOrder() throws {
+        let registry = LLMsProviderCatalog.makeRegistry()
+        let manager = LLMsProviderManager(registry: registry, store: store)
+
+        let draft = try manager.makeDefaultProviderDraft()
+
+        XCTAssertEqual(draft.kind, .openRouter)
+    }
+
     func testProviderManagerReportsToolCapabilityFromAdapter() throws {
-        let manager = makeProviderManager()
+        let manager = makeProviderManager(
+            adapters: [
+                OpenRouterProvider(),
+                OpenAICompatibleProvider(),
+                FakeLLMsProvider()
+            ]
+        )
         let openRouterProvider = try manager.makeProviderDraft(kind: .openRouter)
         var openAICompatibleProvider = try manager.makeProviderDraft(kind: .openAICompatible)
         let fakeProvider = try manager.makeProviderDraft(kind: .fake)
@@ -130,6 +151,7 @@ final class LLMsProviderManagerTests: LLMsProviderStoreTestCase {
     }
 
     func testProviderManagerChecksOnlyRequiredConfigurationFields() throws {
+        let openRouterDefaultAPIBase = OpenRouterProvider().defaultConfiguration[OpenRouterProvider.ConfigurationKey.apiBase]
         let manager = makeProviderManager(
             adapters: [
                 OpenRouterProvider(),
@@ -172,7 +194,7 @@ final class LLMsProviderManagerTests: LLMsProviderStoreTestCase {
 
     func testProviderManagerResolvesSelectedProviderDisplayNameFromRegisteredAdapter() throws {
         let manager = makeProviderManager()
-        var provider = try addOpenRouterProvider()
+        var provider = try addTestProvider()
         provider.name = ""
         provider.models = [
             LLMProviderModel(id: "openai/gpt-4.1", name: "GPT-4.1", contextLength: 1_000_000)
@@ -188,7 +210,7 @@ final class LLMsProviderManagerTests: LLMsProviderStoreTestCase {
         )
 
         let selection = try XCTUnwrap(manager.fetchSelectedModelSelection())
-        XCTAssertEqual(selection.providerName, "OpenRouter")
+        XCTAssertEqual(selection.providerName, "Test Remote")
         XCTAssertEqual(selection.modelName, "GPT-4.1")
     }
 }

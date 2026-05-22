@@ -23,13 +23,10 @@ struct OpenAICompatibleProvider: LLMsProviderAdapter {
         static let toolsEnabled = "toolsEnabled"
     }
 
-    let apiClient: OpenRouterAPIClient
+    let apiClient: OpenAICompatibleAPIClient
 
     init(
-        apiClient: OpenRouterAPIClient = OpenRouterAPIClient(
-            serviceName: Metadata.displayName,
-            defaultAPIBase: ""
-        )
+        apiClient: OpenAICompatibleAPIClient = OpenAICompatibleAPIClient()
     ) {
         self.apiClient = apiClient
     }
@@ -128,12 +125,16 @@ struct OpenAICompatibleProvider: LLMsProviderAdapter {
             }
         }
 
-        let messages = OpenAIChatPromptRenderer.messages(
-            for: request,
-            supportsFileAttachments: false
-        )
+        let messages: [OpenAICompatibleChatMessage]
+        do {
+            messages = try OpenAICompatibleChatPromptRenderer.messages(for: request)
+        } catch {
+            return AsyncThrowingStream { continuation in
+                continuation.finish(throwing: error)
+            }
+        }
         let tools = Self.isToolsEnabled(configuration)
-            ? request.context.availableTools.map(OpenRouterChatTool.init(definition:))
+            ? request.context.availableTools.map(OpenAICompatibleChatTool.init(definition:))
             : []
         let stream = apiClient.streamChatCompletion(
             apiBase: configuration[ConfigurationKey.apiBase],
@@ -186,6 +187,7 @@ struct OpenAICompatibleProvider: LLMsProviderAdapter {
 enum OpenAICompatibleProviderError: LocalizedError, Equatable {
     case missingAPIBase(String)
     case unsupportedFileAttachments(String)
+    case missingAttachmentData(String)
 
     var errorDescription: String? {
         switch self {
@@ -193,6 +195,8 @@ enum OpenAICompatibleProviderError: LocalizedError, Equatable {
             return "Add an API base for \(displayName) in Settings first."
         case let .unsupportedFileAttachments(displayName):
             return "File attachments are not supported by \(displayName)."
+        case let .missingAttachmentData(filename):
+            return "Unable to load attachment data for \(filename)."
         }
     }
 }

@@ -145,7 +145,8 @@ final class ChatTurnRunner {
                 id: toolCall.id,
                 toolID: toolCall.toolID,
                 arguments: toolCall.arguments,
-                displayName: toolDisplayName
+                displayName: toolDisplayName,
+                providerMetadata: toolCall.providerMetadata
             )
 
             do {
@@ -168,8 +169,9 @@ final class ChatTurnRunner {
                     ChatMessage(
                         role: .tool,
                         content: event.providerMessageContent,
-                        toolCallID: result.callID,
-                        toolDisplayName: toolDisplayName
+                        toolCallID: toolCall.id,
+                        toolDisplayName: toolDisplayName,
+                        toolStatus: result.status
                     )
                 )
             } catch {
@@ -187,7 +189,8 @@ final class ChatTurnRunner {
                         role: .tool,
                         content: failedEvent.providerMessageContent,
                         toolCallID: toolCall.id,
-                        toolDisplayName: toolDisplayName
+                        toolDisplayName: toolDisplayName,
+                        toolStatus: .error
                     )
                 )
             }
@@ -196,14 +199,8 @@ final class ChatTurnRunner {
         return messages
     }
 
-    private static func parseArguments(_ arguments: String) throws -> [String: JSONValue] {
-        let trimmedArguments = arguments.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedArguments.isEmpty else {
-            return [:]
-        }
-
-        guard let data = trimmedArguments.data(using: .utf8),
-              let arguments = try? JSONDecoder().decode([String: JSONValue].self, from: data) else {
+    private static func parseArguments(_ arguments: JSONValue) throws -> [String: JSONValue] {
+        guard let arguments = arguments.objectValue else {
             throw ToolExecutionLoopError.invalidArguments
         }
 
@@ -231,7 +228,8 @@ final class ChatTurnRunner {
             id: toolCall.id,
             toolID: toolCall.toolID,
             arguments: toolCall.arguments,
-            displayName: toolDisplayName(for: toolCall.toolID, context: context)
+            displayName: toolDisplayName(for: toolCall.toolID, context: context),
+            providerMetadata: toolCall.providerMetadata
         )
     }
 

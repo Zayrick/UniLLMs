@@ -121,12 +121,43 @@ final class OpenRouterAPIClientTests: XCTestCase {
         XCTAssertEqual(userMessage["content"] as? String, "Hello")
     }
 
+    func testOpenRouterProviderRequiresToolCapableRoutingWhenSendingTools() async throws {
+        let capture = RequestCapture { request in
+            try Self.doneStreamResponse(for: request)
+        }
+        let session = makeCapturingSession(capture: capture)
+        let provider = OpenRouterProvider(apiClient: OpenRouterAPIClient(session: session))
+        let tool = ToolDefinition(
+            name: "get_weather",
+            summary: "Get the current weather.",
+            parameters: .emptyObjectSchema
+        )
+        defer {
+            capture.invalidate()
+        }
+
+        for try await _ in provider.streamChat(
+            request: ChatRequest(
+                modelID: "openai/gpt-4o-mini",
+                messages: [ChatMessage(role: .user, content: "Weather?")],
+                context: ChatContext(availableTools: [tool])
+            ),
+            configuration: provider.defaultConfiguration
+        ) {}
+
+        let request = try XCTUnwrap(capture.requests.first)
+        let payload = try Self.chatRequestPayload(from: request)
+        let providerPreferences = try XCTUnwrap(payload["provider"] as? [String: Any])
+        XCTAssertEqual(providerPreferences["require_parameters"] as? Bool, true)
+        XCTAssertNotNil(payload["tools"])
+    }
+
     func testOpenAICompatibleProviderRendersContextInstructionsAsSystemMessage() async throws {
         let capture = RequestCapture { request in
             try Self.doneStreamResponse(for: request)
         }
         let session = makeCapturingSession(capture: capture)
-        let provider = OpenAICompatibleProvider(apiClient: OpenRouterAPIClient(session: session))
+        let provider = OpenAICompatibleProvider(apiClient: OpenAICompatibleAPIClient(session: session))
         let prompt = makePrompt()
         var configuration = provider.defaultConfiguration
         configuration[OpenAICompatibleProvider.ConfigurationKey.apiBase] = "https://api.example.com/v1"
@@ -158,13 +189,39 @@ final class OpenRouterAPIClientTests: XCTestCase {
         XCTAssertEqual(userMessage["content"] as? String, "Hello")
     }
 
+    func testOpenAIProviderRendersContextInstructionsAsDeveloperMessage() async throws {
+        let capture = RequestCapture { request in
+            try Self.doneStreamResponse(for: request)
+        }
+        let session = makeCapturingSession(capture: capture)
+        let provider = OpenAIProvider(apiClient: OpenAIAPIClient(session: session))
+        let prompt = makePrompt()
+        defer {
+            capture.invalidate()
+        }
+
+        for try await _ in provider.streamChat(
+            request: ChatRequest(
+                modelID: "gpt-5.4",
+                messages: [ChatMessage(role: .user, content: "Hello")],
+                context: ChatContext(systemPrompt: prompt)
+            ),
+            configuration: provider.defaultConfiguration
+        ) {}
+
+        let request = try XCTUnwrap(capture.requests.first)
+        let requestMessages = try Self.chatRequestMessages(from: request)
+        XCTAssertEqual(requestMessages.map { $0["role"] as? String }, ["developer", "user"])
+        XCTAssertEqual(requestMessages.first?["content"] as? String, "Always answer in Chinese.")
+    }
+
     func testOpenAICompatibleProviderRejectsFileAttachmentsBeforeSendingRequest() async throws {
         let capture = RequestCapture { request in
             XCTFail("File attachments should be rejected before a request is sent.")
             return try Self.doneStreamResponse(for: request)
         }
         let session = makeCapturingSession(capture: capture)
-        let provider = OpenAICompatibleProvider(apiClient: OpenRouterAPIClient(session: session))
+        let provider = OpenAICompatibleProvider(apiClient: OpenAICompatibleAPIClient(session: session))
         var configuration = provider.defaultConfiguration
         configuration[OpenAICompatibleProvider.ConfigurationKey.apiBase] = "https://api.example.com/v1"
         let attachment = ChatAttachment(
@@ -204,7 +261,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
     }
 
     func testOpenRouterChatMessageEncodesAssistantToolCallsWithNullContent() throws {
-        let message = OpenRouterChatMessage(
+        let message = try OpenRouterChatMessage(
             message: ChatMessage(
                 role: .assistant,
                 content: "",
@@ -250,10 +307,10 @@ final class OpenRouterAPIClientTests: XCTestCase {
         }
     }
 
-    func testOpenRouterClientFetchModelsUsesAuthenticatedUserModelsEndpoint() async throws {
+    func testOpenRouterClientFetchModelsUsesOfficialModelsEndpoint() async throws {
         let capture = RequestCapture { request in
             let url = try XCTUnwrap(request.url)
-            XCTAssertEqual(url.absoluteString, "https://openrouter.ai/api/v1/models/user")
+            XCTAssertEqual(url.absoluteString, "https://openrouter.ai/api/v1/models")
             XCTAssertEqual(request.httpMethod, "GET")
             XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "application/json")
             XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer sk-or-test")
@@ -294,6 +351,42 @@ final class OpenRouterAPIClientTests: XCTestCase {
                 )
             ]
         )
+    }
+
+    func testOpenAIClientFetchModelsUsesStandardModelsEndpoint() async throws {
+        let capture = RequestCapture { request in
+            let url = try XCTUnwrap(request.url)
+            XCTAssertEqual(url.absoluteString, "https://api.openai.com/v1/models")
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer sk-test")
+
+            let response = try XCTUnwrap(
+                HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )
+            )
+            let data = try XCTUnwrap(
+                #"{"object":"list","data":[{"id":"gpt-5.4","object":"model","owned_by":"openai"}]}"#
+                    .data(using: .utf8)
+            )
+            return (response, data)
+        }
+        let session = makeCapturingSession(capture: capture)
+        let client = OpenAIAPIClient(session: session)
+        defer {
+            capture.invalidate()
+        }
+
+        let models = try await client.fetchModels(
+            apiBase: "https://api.openai.com/v1",
+            apiKey: "sk-test"
+        )
+
+        XCTAssertEqual(capture.requests.count, 1)
+        XCTAssertEqual(models, [LLMsProviderModel(id: "gpt-5.4")])
     }
 
     func testOpenRouterClientFetchModelsOmitsAuthorizationWhenAPIKeyIsBlank() async throws {
@@ -471,11 +564,15 @@ final class OpenRouterAPIClientTests: XCTestCase {
     }
 
     private static func chatRequestMessages(from request: URLRequest) throws -> [[String: Any]] {
+        let payload = try chatRequestPayload(from: request)
+        return try XCTUnwrap(payload["messages"] as? [[String: Any]])
+    }
+
+    private static func chatRequestPayload(from request: URLRequest) throws -> [String: Any] {
         let body = try XCTUnwrap(request.httpBody)
-        let payload = try XCTUnwrap(
+        return try XCTUnwrap(
             JSONSerialization.jsonObject(with: body) as? [String: Any]
         )
-        return try XCTUnwrap(payload["messages"] as? [[String: Any]])
     }
 
     private static func doneStreamResponse(

@@ -9,24 +9,24 @@ import XCTest
 @testable import UniLLMs
 
 final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
-    func testAddingOpenRouterProvidersAssignsUUIDsAndUniqueNames() throws {
-        let first = try makeOpenRouterProviderDraft()
+    func testAddingProvidersAssignsUUIDsAndUniqueNames() throws {
+        let first = try makeTestProviderDraft()
         store.saveProvider(first)
-        let second = try makeOpenRouterProviderDraft()
+        let second = try makeTestProviderDraft()
         store.saveProvider(second)
-        let third = try makeOpenRouterProviderDraft()
+        let third = try makeTestProviderDraft()
         store.saveProvider(third)
 
         XCTAssertNotEqual(first.id, second.id)
         XCTAssertNotEqual(second.id, third.id)
-        XCTAssertEqual(first.name, "OpenRouter")
-        XCTAssertEqual(second.name, "OpenRouter 1")
-        XCTAssertEqual(third.name, "OpenRouter 2")
-        XCTAssertEqual(first.configuration[OpenRouterProvider.ConfigurationKey.apiBase], openRouterDefaultAPIBase)
+        XCTAssertEqual(first.name, "Test Remote")
+        XCTAssertEqual(second.name, "Test Remote 1")
+        XCTAssertEqual(third.name, "Test Remote 2")
+        XCTAssertEqual(first.configuration[TestRemoteProvider.ConfigurationKey.apiBase], testProviderDefaultAPIBase)
     }
 
-    func testOpenRouterDraftDoesNotPersistUntilSaved() throws {
-        let draft = try makeOpenRouterProviderDraft()
+    func testProviderDraftDoesNotPersistUntilSaved() throws {
+        let draft = try makeTestProviderDraft()
 
         XCTAssertTrue(store.fetchProviders().isEmpty)
 
@@ -34,14 +34,14 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
 
         let reloaded = try XCTUnwrap(store.fetchProviders().first)
         XCTAssertEqual(reloaded.id, draft.id)
-        XCTAssertEqual(reloaded.name, "OpenRouter")
+        XCTAssertEqual(reloaded.name, "Test Remote")
     }
 
     func testProviderConfigurationUpdatesPersistByUUID() throws {
-        var provider = try addOpenRouterProvider()
-        provider.name = "Work Router"
-        provider.configuration[OpenRouterProvider.ConfigurationKey.apiKey] = "sk-or-test"
-        provider.configuration[OpenRouterProvider.ConfigurationKey.apiBase] = "https://example.com/v1"
+        var provider = try addTestProvider()
+        provider.name = "Work Provider"
+        provider.configuration[TestRemoteProvider.ConfigurationKey.apiKey] = "sk-test"
+        provider.configuration[TestRemoteProvider.ConfigurationKey.apiBase] = "https://example.com/v1"
         provider.models = [
             LLMProviderModel(id: "openai/gpt-4", name: "GPT-4", contextLength: 8192)
         ]
@@ -49,9 +49,9 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
 
         let reloaded = try XCTUnwrap(store.fetchProviders().first)
         XCTAssertEqual(reloaded.id, provider.id)
-        XCTAssertEqual(reloaded.name, "Work Router")
-        XCTAssertEqual(reloaded.configuration[OpenRouterProvider.ConfigurationKey.apiKey], "sk-or-test")
-        XCTAssertEqual(reloaded.configuration[OpenRouterProvider.ConfigurationKey.apiBase], "https://example.com/v1")
+        XCTAssertEqual(reloaded.name, "Work Provider")
+        XCTAssertEqual(reloaded.configuration[TestRemoteProvider.ConfigurationKey.apiKey], "sk-test")
+        XCTAssertEqual(reloaded.configuration[TestRemoteProvider.ConfigurationKey.apiBase], "https://example.com/v1")
         XCTAssertEqual(reloaded.models, provider.models)
     }
 
@@ -59,8 +59,8 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
         let json = """
         [{
             "id": "00000000-0000-0000-0000-000000000001",
-            "kind": "openRouter",
-            "name": "Legacy Router",
+            "kind": "testRemoteProvider",
+            "name": "Legacy Provider",
             "apiKey": "legacy-key",
             "apiBase": "https://legacy.example/v1",
             "models": [],
@@ -71,12 +71,12 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
 
         let provider = try XCTUnwrap(store.fetchProviders().first)
 
-        XCTAssertEqual(provider.configuration[OpenRouterProvider.ConfigurationKey.apiKey], "legacy-key")
-        XCTAssertEqual(provider.configuration[OpenRouterProvider.ConfigurationKey.apiBase], "https://legacy.example/v1")
+        XCTAssertEqual(provider.configuration[TestRemoteProvider.ConfigurationKey.apiKey], "legacy-key")
+        XCTAssertEqual(provider.configuration[TestRemoteProvider.ConfigurationKey.apiBase], "https://legacy.example/v1")
     }
 
     func testModelUpdatesDoNotOverwriteUnsavedConfiguration() throws {
-        let provider = try addOpenRouterProvider()
+        let provider = try addTestProvider()
         let models = [
             LLMProviderModel(id: "openai/gpt-4", name: "GPT-4", contextLength: 8192)
         ]
@@ -89,15 +89,15 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
         )
 
         let reloaded = try XCTUnwrap(store.fetchProviders().first)
-        XCTAssertEqual(reloaded.name, "OpenRouter")
-        XCTAssertEqual(reloaded.configuration[OpenRouterProvider.ConfigurationKey.apiKey], "")
-        XCTAssertEqual(reloaded.configuration[OpenRouterProvider.ConfigurationKey.apiBase], openRouterDefaultAPIBase)
+        XCTAssertEqual(reloaded.name, "Test Remote")
+        XCTAssertEqual(reloaded.configuration[TestRemoteProvider.ConfigurationKey.apiKey], "")
+        XCTAssertEqual(reloaded.configuration[TestRemoteProvider.ConfigurationKey.apiBase], testProviderDefaultAPIBase)
         XCTAssertEqual(reloaded.models, models)
         XCTAssertEqual(reloaded.modelsUpdatedAt, updatedAt)
     }
 
     func testModelUpdatesForDraftDoNotPersist() throws {
-        let draft = try makeOpenRouterProviderDraft()
+        let draft = try makeTestProviderDraft()
 
         store.updateProviderModels(
             id: draft.id,
@@ -111,8 +111,8 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
     }
 
     func testDeletingProviderRemovesMatchingUUIDOnly() throws {
-        let first = try addOpenRouterProvider()
-        let second = try addOpenRouterProvider()
+        let first = try addTestProvider()
+        let second = try addTestProvider()
 
         store.deleteProvider(id: first.id)
 
@@ -121,9 +121,9 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
     }
 
     func testMovingProviderPersistsProviderOrder() throws {
-        let first = try addOpenRouterProvider()
-        let second = try addOpenRouterProvider()
-        let third = try addOpenRouterProvider()
+        let first = try addTestProvider()
+        let second = try addTestProvider()
+        let third = try addTestProvider()
 
         store.moveProvider(from: 0, to: 2)
 
@@ -135,8 +135,8 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
     }
 
     func testFetchingProviderByIDReturnsMatchingProvider() throws {
-        _ = try addOpenRouterProvider()
-        let second = try addOpenRouterProvider()
+        _ = try addTestProvider()
+        let second = try addTestProvider()
 
         let fetched = try XCTUnwrap(store.fetchProvider(id: second.id))
         let missingID = try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-000000000000"))
@@ -147,8 +147,8 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
     }
 
     func testSelectedModelSelectionPersistsByProviderUUIDAndModelID() throws {
-        var provider = try addOpenRouterProvider()
-        provider.name = "Work Router"
+        var provider = try addTestProvider()
+        provider.name = "Work Provider"
         provider.models = [
             LLMProviderModel(id: "anthropic/claude-sonnet-4", name: "Claude Sonnet 4", contextLength: 200_000)
         ]
@@ -165,13 +165,13 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
 
         let selection = try XCTUnwrap(store.fetchSelectedModelSelection())
         XCTAssertEqual(selection.providerID, provider.id)
-        XCTAssertEqual(selection.providerName, "Work Router")
+        XCTAssertEqual(selection.providerName, "Work Provider")
         XCTAssertEqual(selection.modelID, "anthropic/claude-sonnet-4")
         XCTAssertEqual(selection.modelName, "Claude Sonnet 4")
     }
 
     func testDeletingSelectedProviderClearsSelectedModelSelection() throws {
-        var provider = try addOpenRouterProvider()
+        var provider = try addTestProvider()
         provider.models = [
             LLMProviderModel(id: "openai/gpt-4.1", name: "GPT-4.1", contextLength: 1_000_000)
         ]
@@ -191,7 +191,7 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
     }
 
     func testRemovingSelectedModelClearsSelectedModelSelection() throws {
-        var provider = try addOpenRouterProvider()
+        var provider = try addTestProvider()
         provider.models = [
             LLMProviderModel(id: "openai/gpt-4.1", name: "GPT-4.1", contextLength: 1_000_000)
         ]
@@ -217,7 +217,7 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
     }
 
     func testRefreshingSelectedModelUpdatesRecoveredDisplayName() throws {
-        var provider = try addOpenRouterProvider()
+        var provider = try addTestProvider()
         provider.models = [
             LLMProviderModel(id: "openai/gpt-4.1", name: "GPT-4.1", contextLength: 1_000_000)
         ]
@@ -259,7 +259,7 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
         defer {
             observer.invalidate()
         }
-        let provider = try addOpenRouterProvider()
+        let provider = try addTestProvider()
 
         store.saveSelectedModelSelection(
             LLMModelSelection(
@@ -285,12 +285,12 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
     }
 
     func testUpdatingUnrelatedProviderDoesNotPostSelectedModelNotification() throws {
-        var selectedProvider = try addOpenRouterProvider()
+        var selectedProvider = try addTestProvider()
         selectedProvider.models = [
             LLMProviderModel(id: "openai/gpt-4.1", name: "GPT-4.1")
         ]
         store.updateProvider(selectedProvider)
-        let unrelatedProvider = try addOpenRouterProvider()
+        let unrelatedProvider = try addTestProvider()
         store.saveSelectedModelSelection(
             LLMModelSelection(
                 providerID: selectedProvider.id,

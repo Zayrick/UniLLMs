@@ -156,6 +156,7 @@ nonisolated extension ChatTimelineEvent {
                             content: toolEvent.providerMessageContent,
                             toolCallID: toolCall.id,
                             toolDisplayName: toolCall.presentationName,
+                            toolStatus: toolEvent.toolStatus,
                             createdAt: event.timestamp
                         )
                     )
@@ -165,6 +166,18 @@ nonisolated extension ChatTimelineEvent {
 
         flushAssistantDraft()
         return messages
+    }
+}
+
+nonisolated private extension ChatToolEvent {
+    var toolStatus: ToolExecutionStatus {
+        switch self {
+        case .started,
+             .completed:
+            return .success
+        case .failed:
+            return .error
+        }
     }
 }
 

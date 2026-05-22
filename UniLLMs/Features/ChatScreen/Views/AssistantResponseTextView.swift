@@ -246,7 +246,7 @@ final class AssistantResponseTextView: UIView {
                 displayName: toolCall.presentationName,
                 state: .running
             )
-            invocation.setDetail(toolCall.arguments)
+            invocation.setDetail(toolCall.serializedArguments)
         case let .completed(toolCall, result):
             let section = toolSectionsByCallID[toolCall.id] ?? ensureActiveThinkingSection()
             toolSectionsByCallID[toolCall.id] = section

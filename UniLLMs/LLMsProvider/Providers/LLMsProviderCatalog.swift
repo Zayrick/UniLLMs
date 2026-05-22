@@ -13,6 +13,9 @@ enum LLMsProviderCatalog {
         LLMsProviderRegistry(
             adapters: [
                 OpenRouterProvider(),
+                OpenAIProvider(),
+                AnthropicProvider(),
+                GeminiProvider(),
                 OpenAICompatibleProvider(),
                 FakeLLMsProvider()
             ]

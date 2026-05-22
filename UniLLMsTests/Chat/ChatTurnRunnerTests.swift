@@ -120,6 +120,41 @@ final class ChatTurnRunnerTests: LLMsProviderStoreTestCase {
                 && !request.messages.contains(where: { $0.role == .system })
         })
     }
+
+    func testChatTurnRunnerUsesOriginalToolCallIDForProviderToolMessage() async throws {
+        let adapter = CapturingToolLoopProvider()
+        let providerManager = makeProviderManager(adapters: [adapter])
+        let runner = ChatTurnRunner(
+            responseStreamer: ChatResponseStreamer(providerManager: providerManager),
+            toolManager: ToolManager(
+                catalog: ToolCatalog(
+                    registry: ToolRegistry(tools: [MismatchedCallIDTool()]),
+                    isEnabled: { true }
+                )
+            )
+        )
+        let provider = LLMsProviderRecord(
+            kind: CapturingToolLoopProvider.providerKind,
+            name: "Tool Loop Capture",
+            configuration: LLMsProviderConfiguration()
+        )
+        let tool = MismatchedCallIDTool()
+        let context = ChatContext(
+            messages: [
+                ChatMessage(role: .user, content: "Use the tool.")
+            ],
+            availableTools: [tool.definition]
+        )
+
+        for try await _ in runner.streamResponse(
+            provider: provider,
+            modelID: "test-model",
+            context: context
+        ) {}
+
+        XCTAssertEqual(adapter.requests.count, 2)
+        XCTAssertEqual(adapter.requests.last?.messages.last?.toolCallID, "call_1")
+    }
 }
 
 private struct ToolLoopTestProvider: LLMsProviderAdapter {
@@ -243,6 +278,21 @@ private struct ErrorStatusTool: Tool {
             callID: call.id,
             content: "Invalid tool input.",
             status: .error
+        )
+    }
+}
+
+private struct MismatchedCallIDTool: Tool {
+    let definition = ToolDefinition(
+        name: ErrorStatusTool.toolID,
+        displayName: "Mismatched Tool",
+        summary: "Returns a mismatched call ID."
+    )
+
+    func execute(call: ToolCall, context: ToolExecutionContext) async throws -> ToolResult {
+        ToolResult(
+            callID: "wrong_call_id",
+            content: "OK"
         )
     }
 }

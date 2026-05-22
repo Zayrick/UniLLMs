@@ -108,22 +108,29 @@ struct OpenRouterProvider: LLMsProviderAdapter {
         request: ChatRequest,
         configuration: LLMsProviderConfiguration
     ) -> AsyncThrowingStream<ChatResponseDelta, Error> {
-        let messages = OpenAIChatPromptRenderer.messages(
-            for: request,
-            supportsFileAttachments: true
-        )
-        let tools = request.context.availableTools.map(OpenRouterChatTool.init(definition:))
-        let stream = apiClient.streamChatCompletion(
-            apiBase: configuration[ConfigurationKey.apiBase],
-            apiKey: configuration[ConfigurationKey.apiKey],
-            model: request.modelID,
-            messages: messages,
-            tools: tools
-        )
+        let messages: [OpenRouterChatMessage]
+        do {
+            messages = try OpenRouterChatPromptRenderer.messages(
+                for: request,
+                supportsFileAttachments: true
+            )
+        } catch {
+            return AsyncThrowingStream { continuation in
+                continuation.finish(throwing: error)
+            }
+        }
 
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
+                    let tools = request.context.availableTools.map(OpenRouterChatTool.init(definition:))
+                    let stream = apiClient.streamChatCompletion(
+                        apiBase: configuration[ConfigurationKey.apiBase],
+                        apiKey: configuration[ConfigurationKey.apiKey],
+                        model: request.modelID,
+                        messages: messages,
+                        tools: tools
+                    )
                     for try await delta in stream {
                         continuation.yield(
                             ChatResponseDelta(
@@ -150,12 +157,49 @@ struct OpenRouterProvider: LLMsProviderAdapter {
 
 enum OpenRouterProviderError: LocalizedError, Equatable {
     case missingAPIKey(String)
+    case unsupportedFileAttachments(String)
+    case missingAttachmentData(String)
 
     var errorDescription: String? {
         switch self {
         case let .missingAPIKey(displayName):
             return "Add an API key for \(displayName) in Settings first."
+        case let .unsupportedFileAttachments(displayName):
+            return "File attachments are not supported by \(displayName)."
+        case let .missingAttachmentData(filename):
+            return "Unable to load attachment data for \(filename)."
         }
+    }
+}
+
+nonisolated enum OpenRouterChatPromptRenderer {
+    static func messages(
+        for request: ChatRequest,
+        supportsFileAttachments: Bool
+    ) throws -> [OpenRouterChatMessage] {
+        let prompt = ChatPromptAssembler().assemblePrompt(from: request)
+        guard let instructionText = prompt.instructionText else {
+            return try prompt.messages.map {
+                try OpenRouterChatMessage(
+                    message: $0,
+                    supportsFileAttachments: supportsFileAttachments
+                )
+            }
+        }
+
+        let instructionMessage = OpenRouterChatMessage(
+            role: .system,
+            content: .text(instructionText),
+            toolCalls: nil,
+            toolCallID: nil
+        )
+        let renderedMessages = try prompt.messages.map {
+            try OpenRouterChatMessage(
+                message: $0,
+                supportsFileAttachments: supportsFileAttachments
+            )
+        }
+        return [instructionMessage] + renderedMessages
     }
 }
 
@@ -163,8 +207,8 @@ nonisolated extension OpenRouterChatMessage {
     init(
         message: ChatMessage,
         supportsFileAttachments: Bool = false
-    ) {
-        let content: OpenRouterMessageContent? = Self.encodeContent(
+    ) throws {
+        let content: OpenRouterMessageContent? = try Self.encodeContent(
             for: message,
             supportsFileAttachments: supportsFileAttachments
         )
@@ -172,13 +216,13 @@ nonisolated extension OpenRouterChatMessage {
         self.init(
             role: Self.role(for: message.role),
             content: content,
-            toolCalls: message.toolCalls?.map {
+            toolCalls: try message.toolCalls?.map {
                 ToolCall(
                     id: $0.id,
                     type: "function",
                     function: ToolCall.Function(
                         name: $0.toolID,
-                        arguments: $0.arguments
+                        arguments: try $0.validatedSerializedArguments()
                     )
                 )
             },
@@ -202,16 +246,18 @@ nonisolated extension OpenRouterChatMessage {
     private static func encodeContent(
         for message: ChatMessage,
         supportsFileAttachments: Bool
-    ) -> OpenRouterMessageContent? {
-        let attachmentParts = message.attachments.compactMap {
-            Self.contentPart(
+    ) throws -> OpenRouterMessageContent? {
+        let attachmentParts = try message.attachments.map {
+            try Self.contentPart(
                 for: $0,
                 supportsFileAttachments: supportsFileAttachments
             )
         }
 
         if attachmentParts.isEmpty {
-            if message.role == .assistant && message.content.isEmpty {
+            if message.role == .assistant,
+               message.content.isEmpty,
+               message.toolCalls?.isEmpty == false {
                 return nil
             }
             return .text(message.content)
@@ -228,10 +274,15 @@ nonisolated extension OpenRouterChatMessage {
     private static func contentPart(
         for attachment: ChatAttachment,
         supportsFileAttachments: Bool
-    ) -> OpenRouterContentPart? {
+    ) throws -> OpenRouterContentPart {
+        if attachment.kind == .file,
+           !supportsFileAttachments {
+            throw OpenRouterProviderError.unsupportedFileAttachments("OpenRouter")
+        }
+
         guard let data = try? ChatAttachmentStore.shared.loadData(for: attachment),
               !data.isEmpty else {
-            return nil
+            throw OpenRouterProviderError.missingAttachmentData(attachment.filename)
         }
 
         let base64 = data.base64EncodedString()
@@ -244,9 +295,6 @@ nonisolated extension OpenRouterChatMessage {
         case .image:
             return .imageURL(url: dataURL)
         case .file:
-            guard supportsFileAttachments else {
-                return nil
-            }
             return .file(filename: attachment.filename, fileData: dataURL)
         }
     }

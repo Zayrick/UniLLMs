@@ -1,16 +1,34 @@
 //
-//  OpenRouterAPIClient.swift
+//  OpenAICompatibleChatSupport.swift
 //  UniLLMs
 //
-//  Created by ZayrickRouter HTTP and SSE API details, including requests, response parsing, and error conversion.
-//  Created by Zayrick on 2026/5/11.
+//  OpenAI-compatible provider-owned Chat Completions API surface.
+//  Created by Codex on 2026/5/22.
 //
 
 import Foundation
 
-nonisolated enum OpenRouterMessageContent: Codable, Equatable {
+nonisolated enum OpenAICompatibleChatPromptRenderer {
+    static func messages(for request: ChatRequest) throws -> [OpenAICompatibleChatMessage] {
+        let prompt = ChatPromptAssembler().assemblePrompt(from: request)
+        guard let instructionText = prompt.instructionText else {
+            return try prompt.messages.map(OpenAICompatibleChatMessage.init(message:))
+        }
+
+        let instructionMessage = OpenAICompatibleChatMessage(
+            role: .system,
+            content: .text(instructionText),
+            toolCalls: nil,
+            toolCallID: nil
+        )
+        let renderedMessages = try prompt.messages.map(OpenAICompatibleChatMessage.init(message:))
+        return [instructionMessage] + renderedMessages
+    }
+}
+
+nonisolated enum OpenAICompatibleMessageContent: Codable, Equatable {
     case text(String)
-    case parts([OpenRouterContentPart])
+    case parts([OpenAICompatibleContentPart])
 
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -18,7 +36,7 @@ nonisolated enum OpenRouterMessageContent: Codable, Equatable {
             self = .text(string)
             return
         }
-        if let parts = try? container.decode([OpenRouterContentPart].self) {
+        if let parts = try? container.decode([OpenAICompatibleContentPart].self) {
             self = .parts(parts)
             return
         }
@@ -39,30 +57,18 @@ nonisolated enum OpenRouterMessageContent: Codable, Equatable {
     }
 }
 
-nonisolated enum OpenRouterContentPart: Codable, Equatable {
+nonisolated enum OpenAICompatibleContentPart: Codable, Equatable {
     case text(String)
     case imageURL(url: String)
-    case file(filename: String, fileData: String)
 
     nonisolated private enum CodingKeys: String, CodingKey {
         case type
         case text
         case imageURL = "image_url"
-        case file
     }
 
     nonisolated private struct ImageURLPayload: Codable, Equatable {
         var url: String
-    }
-
-    nonisolated private struct FilePayload: Codable, Equatable {
-        var filename: String
-        var fileData: String
-
-        nonisolated private enum CodingKeys: String, CodingKey {
-            case filename
-            case fileData = "file_data"
-        }
     }
 
     init(from decoder: Decoder) throws {
@@ -74,9 +80,6 @@ nonisolated enum OpenRouterContentPart: Codable, Equatable {
         case "image_url":
             let payload = try container.decode(ImageURLPayload.self, forKey: .imageURL)
             self = .imageURL(url: payload.url)
-        case "file":
-            let payload = try container.decode(FilePayload.self, forKey: .file)
-            self = .file(filename: payload.filename, fileData: payload.fileData)
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .type,
@@ -95,22 +98,15 @@ nonisolated enum OpenRouterContentPart: Codable, Equatable {
         case let .imageURL(url):
             try container.encode("image_url", forKey: .type)
             try container.encode(ImageURLPayload(url: url), forKey: .imageURL)
-        case let .file(filename, fileData):
-            try container.encode("file", forKey: .type)
-            try container.encode(
-                FilePayload(filename: filename, fileData: fileData),
-                forKey: .file
-            )
         }
     }
 }
 
-nonisolated struct OpenRouterChatMessage: Codable, Equatable {
+nonisolated struct OpenAICompatibleChatMessage: Codable, Equatable {
     nonisolated enum Role: String, Codable {
         case user
         case assistant
         case system
-        case developer
         case tool
     }
 
@@ -126,7 +122,7 @@ nonisolated struct OpenRouterChatMessage: Codable, Equatable {
     }
 
     var role: Role
-    var content: OpenRouterMessageContent?
+    var content: OpenAICompatibleMessageContent?
     var toolCalls: [ToolCall]?
     var toolCallID: String?
 
@@ -135,6 +131,36 @@ nonisolated struct OpenRouterChatMessage: Codable, Equatable {
         case content
         case toolCalls = "tool_calls"
         case toolCallID = "tool_call_id"
+    }
+
+    init(
+        role: Role,
+        content: OpenAICompatibleMessageContent?,
+        toolCalls: [ToolCall]?,
+        toolCallID: String?
+    ) {
+        self.role = role
+        self.content = content
+        self.toolCalls = toolCalls
+        self.toolCallID = toolCallID
+    }
+
+    init(message: ChatMessage) throws {
+        self.init(
+            role: Self.role(for: message.role),
+            content: try Self.encodeContent(for: message),
+            toolCalls: try message.toolCalls?.map {
+                ToolCall(
+                    id: $0.id,
+                    type: "function",
+                    function: ToolCall.Function(
+                        name: $0.toolID,
+                        arguments: try $0.validatedSerializedArguments()
+                    )
+                )
+            },
+            toolCallID: message.toolCallID
+        )
     }
 
     func encode(to encoder: Encoder) throws {
@@ -149,9 +175,57 @@ nonisolated struct OpenRouterChatMessage: Codable, Equatable {
         try container.encodeIfPresent(toolCalls, forKey: .toolCalls)
         try container.encodeIfPresent(toolCallID, forKey: .toolCallID)
     }
+
+    private static func role(for role: ChatRole) -> Role {
+        switch role {
+        case .user:
+            return .user
+        case .assistant:
+            return .assistant
+        case .system:
+            return .system
+        case .tool:
+            return .tool
+        }
+    }
+
+    private static func encodeContent(for message: ChatMessage) throws -> OpenAICompatibleMessageContent? {
+        let attachmentParts = try message.attachments.map(Self.contentPart)
+        if attachmentParts.isEmpty {
+            if message.role == .assistant,
+               message.content.isEmpty,
+               message.toolCalls?.isEmpty == false {
+                return nil
+            }
+            return .text(message.content)
+        }
+
+        var parts: [OpenAICompatibleContentPart] = []
+        if !message.content.isEmpty {
+            parts.append(.text(message.content))
+        }
+        parts.append(contentsOf: attachmentParts)
+        return .parts(parts)
+    }
+
+    private static func contentPart(for attachment: ChatAttachment) throws -> OpenAICompatibleContentPart {
+        guard attachment.kind == .image else {
+            throw OpenAICompatibleProviderError.unsupportedFileAttachments("OpenAI Compatible")
+        }
+        guard let data = try? ChatAttachmentStore.shared.loadData(for: attachment),
+              !data.isEmpty else {
+            throw OpenAICompatibleProviderError.missingAttachmentData(attachment.filename)
+        }
+
+        let mimeType = attachment.contentType.isEmpty
+            ? "application/octet-stream"
+            : attachment.contentType
+        let dataURL = "data:\(mimeType);base64,\(data.base64EncodedString())"
+        return .imageURL(url: dataURL)
+    }
 }
 
-nonisolated struct OpenRouterChatTool: Encodable, Equatable {
+nonisolated struct OpenAICompatibleChatTool: Encodable, Equatable {
     nonisolated struct Function: Encodable, Equatable {
         var name: String
         var description: String
@@ -170,17 +244,17 @@ nonisolated struct OpenRouterChatTool: Encodable, Equatable {
     }
 }
 
-nonisolated struct OpenRouterToolCallDelta: Equatable {
+nonisolated struct OpenAICompatibleToolCallDelta: Equatable {
     var index: Int
     var id: String?
     var name: String?
     var argumentsFragment: String
 }
 
-nonisolated struct OpenRouterChatStreamDelta: Equatable {
+nonisolated struct OpenAICompatibleChatStreamDelta: Equatable {
     var content: String = ""
     var reasoning: String = ""
-    var toolCallDeltas: [OpenRouterToolCallDelta] = []
+    var toolCallDeltas: [OpenAICompatibleToolCallDelta] = []
     var toolCalls: [ChatToolCall] = []
 
     var isEmpty: Bool {
@@ -188,7 +262,7 @@ nonisolated struct OpenRouterChatStreamDelta: Equatable {
     }
 }
 
-nonisolated struct OpenRouterAPIClient {
+nonisolated struct OpenAICompatibleAPIClient {
     nonisolated enum APIError: LocalizedError, Equatable {
         case invalidAPIBase(String)
         case invalidResponse(String)
@@ -214,18 +288,9 @@ nonisolated struct OpenRouterAPIClient {
 
     nonisolated private struct ChatCompletionsRequest: Encodable {
         var model: String
-        var messages: [OpenRouterChatMessage]
+        var messages: [OpenAICompatibleChatMessage]
         var stream: Bool
-        var tools: [OpenRouterChatTool]?
-        var provider: ProviderPreferences?
-    }
-
-    nonisolated private struct ProviderPreferences: Encodable {
-        var requireParameters: Bool
-
-        nonisolated private enum CodingKeys: String, CodingKey {
-            case requireParameters = "require_parameters"
-        }
+        var tools: [OpenAICompatibleChatTool]?
     }
 
     nonisolated private struct ChatCompletionChunk: Decodable {
@@ -234,40 +299,25 @@ nonisolated struct OpenRouterAPIClient {
 
         nonisolated struct Choice: Decodable {
             var delta: Delta?
-            var finishReason: String?
-
-            nonisolated private enum CodingKeys: String, CodingKey {
-                case delta
-                case finishReason = "finish_reason"
-            }
         }
 
         nonisolated struct Delta: Decodable {
             var content: String?
             var reasoning: String?
             var reasoningContent: String?
-            var reasoningDetails: [ReasoningDetail]?
             var toolCalls: [ToolCall]?
 
             nonisolated private enum CodingKeys: String, CodingKey {
                 case content
                 case reasoning
                 case reasoningContent = "reasoning_content"
-                case reasoningDetails = "reasoning_details"
                 case toolCalls = "tool_calls"
             }
-        }
-
-        nonisolated struct ReasoningDetail: Decodable {
-            var type: String?
-            var text: String?
-            var summary: String?
         }
 
         nonisolated struct ToolCall: Decodable {
             var index: Int?
             var id: String?
-            var type: String?
             var function: Function?
 
             nonisolated struct Function: Decodable {
@@ -281,58 +331,23 @@ nonisolated struct OpenRouterAPIClient {
         }
     }
 
-    nonisolated private struct ModelsResponse: Decodable {
-        var data: [Model]
-    }
-
-    nonisolated private struct Model: Decodable {
-        var id: String
-        var name: String?
-        var contextLength: Int?
-
-        nonisolated private enum CodingKeys: String, CodingKey {
-            case id
-            case name
-            case contextLength = "context_length"
-        }
-    }
-
-    nonisolated private static let defaultServiceName = "OpenRouter"
-    nonisolated private static let defaultAPIBaseValue = "https://openrouter.ai/api/v1"
-
     var session: URLSession = .shared
-    var serviceName: String = Self.defaultServiceName
-    var defaultAPIBase: String = Self.defaultAPIBaseValue
+    var serviceName: String = "OpenAI Compatible"
+    var defaultAPIBase: String = ""
 
     func streamChatCompletion(
         apiBase: String,
         apiKey: String,
         model: String,
-        messages: [OpenRouterChatMessage],
-        tools: [OpenRouterChatTool] = []
-    ) -> AsyncThrowingStream<OpenRouterChatStreamDelta, Error> {
-        streamChatCompletion(
-            apiBase: apiBase,
-            authorizationHeader: Self.bearerAuthorizationHeader(apiKey: apiKey),
-            model: model,
-            messages: messages,
-            tools: tools
-        )
-    }
-
-    private func streamChatCompletion(
-        apiBase: String,
-        authorizationHeader: String,
-        model: String,
-        messages: [OpenRouterChatMessage],
-        tools: [OpenRouterChatTool]
-    ) -> AsyncThrowingStream<OpenRouterChatStreamDelta, Error> {
+        messages: [OpenAICompatibleChatMessage],
+        tools: [OpenAICompatibleChatTool] = []
+    ) -> AsyncThrowingStream<OpenAICompatibleChatStreamDelta, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     let request = try chatCompletionsRequest(
                         apiBase: apiBase,
-                        authorizationHeader: authorizationHeader,
+                        apiKey: apiKey,
                         model: model,
                         messages: messages,
                         tools: tools
@@ -341,28 +356,24 @@ nonisolated struct OpenRouterAPIClient {
                     guard let httpResponse = response as? HTTPURLResponse else {
                         throw APIError.invalidResponse(serviceName)
                     }
-
                     guard (200..<300).contains(httpResponse.statusCode) else {
-                        let body = try await responseBodyString(from: bytes)
-                        throw APIError.serverStatus(serviceName, httpResponse.statusCode, body)
+                        throw APIError.serverStatus(serviceName, httpResponse.statusCode, try await responseBodyString(from: bytes))
                     }
 
-                    var toolCallAccumulator = ToolCallAccumulator()
+                    var toolCallAccumulator = OpenAICompatibleToolCallAccumulator()
                     for try await line in bytes.lines {
                         try Task.checkCancellation()
                         if Self.isDoneServerSentEventLine(line) {
                             break
                         }
-
                         guard let delta = try Self.streamDelta(
                             fromServerSentEventLine: line,
                             serviceName: serviceName
                         ) else {
                             continue
                         }
-
                         toolCallAccumulator.append(delta.toolCallDeltas)
-                        let responseDelta = OpenRouterChatStreamDelta(
+                        let responseDelta = OpenAICompatibleChatStreamDelta(
                             content: delta.content,
                             reasoning: delta.reasoning
                         )
@@ -373,7 +384,7 @@ nonisolated struct OpenRouterAPIClient {
 
                     let toolCalls = toolCallAccumulator.completedToolCalls()
                     if !toolCalls.isEmpty {
-                        continuation.yield(OpenRouterChatStreamDelta(toolCalls: toolCalls))
+                        continuation.yield(OpenAICompatibleChatStreamDelta(toolCalls: toolCalls))
                     }
                     continuation.finish()
                 } catch is CancellationError {
@@ -389,78 +400,74 @@ nonisolated struct OpenRouterAPIClient {
         }
     }
 
-    func fetchModels(
-        apiBase: String,
-        apiKey: String
-    ) async throws -> [LLMsProviderModel] {
-        var request = URLRequest(url: try modelsURL(apiBase: apiBase))
-        request.httpMethod = "GET"
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-
-        let trimmedAPIKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedAPIKey.isEmpty {
-            request.setValue("Bearer \(trimmedAPIKey)", forHTTPHeaderField: "Authorization")
+    nonisolated static func streamDelta(
+        fromServerSentEventLine line: String,
+        serviceName: String = "OpenAI Compatible"
+    ) throws -> OpenAICompatibleChatStreamDelta? {
+        let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedLine.isEmpty,
+              !trimmedLine.hasPrefix(":"),
+              trimmedLine.hasPrefix("data:") else {
+            return nil
         }
 
-        let (data, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
+        let dataPrefixEndIndex = trimmedLine.index(trimmedLine.startIndex, offsetBy: 5)
+        let payload = trimmedLine[dataPrefixEndIndex...]
+            .trimmingCharacters(in: .whitespaces)
+        guard payload != "[DONE]" else {
+            return nil
+        }
+        guard let data = payload.data(using: .utf8) else {
             throw APIError.invalidResponse(serviceName)
         }
 
-        guard (200..<300).contains(httpResponse.statusCode) else {
-            let body = String(data: data, encoding: .utf8)
-            throw APIError.serverStatus(serviceName, httpResponse.statusCode, body)
+        let chunk: ChatCompletionChunk
+        do {
+            chunk = try JSONDecoder().decode(ChatCompletionChunk.self, from: data)
+        } catch {
+            throw APIError.invalidResponse(serviceName)
         }
 
-        let decoded = try JSONDecoder().decode(ModelsResponse.self, from: data)
-        return decoded.data
-            .map {
-                LLMsProviderModel(
-                    id: $0.id,
-                    name: $0.name,
-                    contextLength: $0.contextLength
-                )
-            }
-    }
+        if let errorMessage = chunk.error?.message, !errorMessage.isEmpty {
+            throw APIError.streamError(errorMessage)
+        }
 
-    private func modelsURL(apiBase: String) throws -> URL {
-        try normalizedAPIBaseURL(apiBase: apiBase)
-            .appendingPathComponent("models")
+        let deltas = chunk.choices?
+            .compactMap(\.delta)
+            .map(Self.streamDelta)
+            ?? []
+        let delta = OpenAICompatibleChatStreamDelta(
+            content: deltas.map(\.content).joined(),
+            reasoning: deltas.map(\.reasoning).joined(),
+            toolCallDeltas: deltas.flatMap(\.toolCallDeltas)
+        )
+        return delta.isEmpty ? nil : delta
     }
 
     private func chatCompletionsRequest(
         apiBase: String,
-        authorizationHeader: String,
+        apiKey: String,
         model: String,
-        messages: [OpenRouterChatMessage],
-        tools: [OpenRouterChatTool]
+        messages: [OpenAICompatibleChatMessage],
+        tools: [OpenAICompatibleChatTool]
     ) throws -> URLRequest {
-        var request = URLRequest(url: try chatCompletionsURL(apiBase: apiBase))
+        var request = URLRequest(url: try normalizedAPIBaseURL(apiBase: apiBase).appendingPathComponent("chat").appendingPathComponent("completions"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-
-        let trimmedAuthorizationHeader = authorizationHeader.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedAuthorizationHeader.isEmpty {
-            request.setValue(trimmedAuthorizationHeader, forHTTPHeaderField: "Authorization")
+        let authorizationHeader = Self.bearerAuthorizationHeader(apiKey: apiKey)
+        if !authorizationHeader.isEmpty {
+            request.setValue(authorizationHeader, forHTTPHeaderField: "Authorization")
         }
-
         request.httpBody = try JSONEncoder().encode(
             ChatCompletionsRequest(
                 model: model,
                 messages: messages,
                 stream: true,
-                tools: tools.isEmpty ? nil : tools,
-                provider: tools.isEmpty ? nil : ProviderPreferences(requireParameters: true)
+                tools: tools.isEmpty ? nil : tools
             )
         )
         return request
-    }
-
-    private func chatCompletionsURL(apiBase: String) throws -> URL {
-        try normalizedAPIBaseURL(apiBase: apiBase)
-            .appendingPathComponent("chat")
-            .appendingPathComponent("completions")
     }
 
     private func responseBodyString(from bytes: URLSession.AsyncBytes) async throws -> String {
@@ -479,10 +486,7 @@ nonisolated struct OpenRouterAPIClient {
 
     private func normalizedAPIBaseURL(apiBase: String) throws -> URL {
         let trimmedAPIBase = apiBase.trimmingCharacters(in: .whitespacesAndNewlines)
-        let baseString = trimmedAPIBase.isEmpty
-            ? defaultAPIBase
-            : trimmedAPIBase
-
+        let baseString = trimmedAPIBase.isEmpty ? defaultAPIBase : trimmedAPIBase
         guard var components = URLComponents(string: baseString),
               let scheme = components.scheme?.lowercased(),
               ["http", "https"].contains(scheme),
@@ -497,62 +501,34 @@ nonisolated struct OpenRouterAPIClient {
         guard let baseURL = components.url else {
             throw APIError.invalidAPIBase(baseString)
         }
-
         return baseURL
     }
 
-    nonisolated static func streamDelta(
-        fromServerSentEventLine line: String,
-        serviceName: String = defaultServiceName
-    ) throws -> OpenRouterChatStreamDelta? {
-        let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedLine.isEmpty,
-              !trimmedLine.hasPrefix(":") else {
-            return nil
-        }
+    nonisolated private static func streamDelta(
+        from delta: ChatCompletionChunk.Delta
+    ) -> OpenAICompatibleChatStreamDelta {
+        let reasoning = [
+            delta.reasoning,
+            delta.reasoningContent
+        ]
+            .compactMap { $0 }
+            .joined()
 
-        guard trimmedLine.hasPrefix("data:") else {
-            return nil
-        }
-
-        let dataPrefixEndIndex = trimmedLine.index(trimmedLine.startIndex, offsetBy: 5)
-        let payload = trimmedLine[dataPrefixEndIndex...]
-            .trimmingCharacters(in: .whitespaces)
-
-        guard payload != "[DONE]" else {
-            return nil
-        }
-
-        guard let data = payload.data(using: .utf8) else {
-            throw APIError.invalidResponse(serviceName)
-        }
-
-        let chunk: ChatCompletionChunk
-        do {
-            chunk = try JSONDecoder().decode(ChatCompletionChunk.self, from: data)
-        } catch {
-            throw APIError.invalidResponse(serviceName)
-        }
-
-        if let errorMessage = chunk.error?.message,
-           !errorMessage.isEmpty {
-            throw APIError.streamError(errorMessage)
-        }
-
-        let deltas = chunk.choices?
-            .compactMap(\.delta)
-            .map(Self.streamDelta)
-            ?? []
-
-        let content = deltas.map(\.content).joined()
-        let reasoning = deltas.map(\.reasoning).joined()
-        let toolCallDeltas = deltas.flatMap(\.toolCallDeltas)
-        let delta = OpenRouterChatStreamDelta(
-            content: content,
+        return OpenAICompatibleChatStreamDelta(
+            content: delta.content ?? "",
             reasoning: reasoning,
-            toolCallDeltas: toolCallDeltas
+            toolCallDeltas: delta.toolCalls?.compactMap { toolCall in
+                guard let index = toolCall.index else {
+                    return nil
+                }
+                return OpenAICompatibleToolCallDelta(
+                    index: index,
+                    id: toolCall.id,
+                    name: toolCall.function?.name,
+                    argumentsFragment: toolCall.function?.arguments ?? ""
+                )
+            } ?? []
         )
-        return delta.isEmpty ? nil : delta
     }
 
     nonisolated private static func isDoneServerSentEventLine(_ line: String) -> Bool {
@@ -563,49 +539,9 @@ nonisolated struct OpenRouterAPIClient {
         let trimmedAPIKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmedAPIKey.isEmpty ? "" : "Bearer \(trimmedAPIKey)"
     }
-
-    nonisolated private static func streamDelta(
-        from delta: ChatCompletionChunk.Delta
-    ) -> OpenRouterChatStreamDelta {
-        let reasoningFromDetails = delta.reasoningDetails?
-            .compactMap { detail in
-                detail.text ?? detail.summary
-            }
-            .joined()
-            ?? ""
-        let reasoningFromStringFields = [
-            delta.reasoning,
-            delta.reasoningContent
-        ]
-            .compactMap { $0 }
-            .joined()
-
-        return OpenRouterChatStreamDelta(
-            content: delta.content ?? "",
-            reasoning: reasoningFromDetails.isEmpty ? reasoningFromStringFields : reasoningFromDetails,
-            toolCallDeltas: toolCallDeltas(from: delta)
-        )
-    }
-
-    nonisolated private static func toolCallDeltas(
-        from delta: ChatCompletionChunk.Delta
-    ) -> [OpenRouterToolCallDelta] {
-        delta.toolCalls?.compactMap { toolCall in
-            guard let index = toolCall.index else {
-                return nil
-            }
-
-            return OpenRouterToolCallDelta(
-                index: index,
-                id: toolCall.id,
-                name: toolCall.function?.name,
-                argumentsFragment: toolCall.function?.arguments ?? ""
-            )
-        } ?? []
-    }
 }
 
-nonisolated private struct ToolCallAccumulator {
+nonisolated private struct OpenAICompatibleToolCallAccumulator {
     nonisolated private struct PartialToolCall {
         var id: String?
         var name: String?
@@ -614,7 +550,7 @@ nonisolated private struct ToolCallAccumulator {
 
     private var partials: [Int: PartialToolCall] = [:]
 
-    mutating func append(_ deltas: [OpenRouterToolCallDelta]) {
+    mutating func append(_ deltas: [OpenAICompatibleToolCallDelta]) {
         for delta in deltas {
             var partial = partials[delta.index] ?? PartialToolCall()
             if let id = delta.id, !id.isEmpty {
@@ -634,9 +570,8 @@ nonisolated private struct ToolCallAccumulator {
                   let name = partial.name else {
                 return nil
             }
-
             return ChatToolCall(
-                id: partial.id ?? "tool_call_\(index)",
+                id: partial.id ?? "openai_compatible_tool_call_\(index)",
                 toolID: name,
                 serializedArguments: partial.arguments
             )

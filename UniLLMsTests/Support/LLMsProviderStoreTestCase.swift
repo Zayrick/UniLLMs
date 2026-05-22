@@ -21,7 +21,7 @@ class LLMsProviderStoreTestCase: UserDefaultsBackedTestCase {
     }
 
     func makeProviderManager(
-        adapters: [any LLMsProviderAdapter] = LLMsProviderCatalog.makeRegistry().adapters
+        adapters: [any LLMsProviderAdapter] = [TestRemoteProvider()]
     ) -> LLMsProviderManager {
         LLMsProviderManager(
             registry: LLMsProviderRegistry(adapters: adapters),
@@ -29,18 +29,65 @@ class LLMsProviderStoreTestCase: UserDefaultsBackedTestCase {
         )
     }
 
-    func makeOpenRouterProviderDraft() throws -> LLMsProviderRecord {
-        try makeProviderManager().makeProviderDraft(kind: .openRouter)
+    func makeTestProviderDraft() throws -> LLMsProviderRecord {
+        try makeProviderManager().makeProviderDraft(kind: TestRemoteProvider.providerKind)
     }
 
     @discardableResult
-    func addOpenRouterProvider() throws -> LLMsProviderRecord {
-        let provider = try makeOpenRouterProviderDraft()
+    func addTestProvider() throws -> LLMsProviderRecord {
+        let provider = try makeTestProviderDraft()
         store.saveProvider(provider)
         return provider
     }
 
-    var openRouterDefaultAPIBase: String {
-        OpenRouterProvider().defaultConfiguration[OpenRouterProvider.ConfigurationKey.apiBase]
+    var testProviderDefaultAPIBase: String {
+        TestRemoteProvider().defaultConfiguration[TestRemoteProvider.ConfigurationKey.apiBase]
+    }
+}
+
+struct TestRemoteProvider: LLMsProviderAdapter {
+    static let providerKind = LLMsProviderKind(rawValue: "testRemoteProvider")
+
+    enum ConfigurationKey {
+        static let apiKey = "apiKey"
+        static let apiBase = "apiBase"
+    }
+
+    var kind: LLMsProviderKind {
+        Self.providerKind
+    }
+
+    var displayName: String {
+        "Test Remote"
+    }
+
+    var capabilities: Set<LLMsProviderCapability> {
+        [.modelList, .streamingChat]
+    }
+
+    var defaultConfiguration: LLMsProviderConfiguration {
+        LLMsProviderConfiguration(
+            values: [
+                ConfigurationKey.apiKey: "",
+                ConfigurationKey.apiBase: "https://test.example/v1"
+            ]
+        )
+    }
+
+    var configurationFields: [LLMsProviderConfigurationField] {
+        []
+    }
+
+    var modelSource: LLMsProviderModelSource {
+        .remote
+    }
+
+    func streamChat(
+        request: ChatRequest,
+        configuration: LLMsProviderConfiguration
+    ) -> AsyncThrowingStream<ChatResponseDelta, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.finish()
+        }
     }
 }

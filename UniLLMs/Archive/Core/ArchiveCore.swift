@@ -87,7 +87,7 @@ nonisolated private extension ChatTimelineEvent {
             return markdown
         case let .assistantToolCalls(toolCalls):
             return toolCalls
-                .map { [$0.toolID, $0.presentationName, $0.arguments].joined(separator: " ") }
+                .map { [$0.toolID, $0.presentationName, $0.serializedArguments].joined(separator: " ") }
                 .joined(separator: " ")
         case let .toolEvent(event):
             return event.searchableText
@@ -99,7 +99,7 @@ nonisolated private extension ChatToolEvent {
     var searchableText: String {
         switch self {
         case let .started(toolCall):
-            return [toolCall.toolID, toolCall.presentationName, toolCall.arguments].joined(separator: " ")
+            return [toolCall.toolID, toolCall.presentationName, toolCall.serializedArguments].joined(separator: " ")
         case let .completed(toolCall, result):
             return [toolCall.toolID, toolCall.presentationName, result].joined(separator: " ")
         case let .failed(toolCall, message):

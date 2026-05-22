@@ -18,24 +18,83 @@ nonisolated enum ChatRole: String, Codable, Equatable {
 nonisolated struct ChatToolCall: Codable, Equatable, Identifiable {
     var id: String
     var toolID: String
-    var arguments: String
+    var arguments: JSONValue
     var displayName: String?
+    var providerMetadata: [String: JSONValue]
 
     var presentationName: String {
         let trimmedDisplayName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmedDisplayName.isEmpty ? toolID : trimmedDisplayName
     }
 
+    var argumentObject: [String: JSONValue]? {
+        arguments.objectValue
+    }
+
+    var serializedArguments: String {
+        (try? validatedSerializedArguments()) ?? "{}"
+    }
+
     init(
         id: String,
         toolID: String,
-        arguments: String,
-        displayName: String? = nil
+        arguments: JSONValue = .object([:]),
+        displayName: String? = nil,
+        providerMetadata: [String: JSONValue] = [:]
     ) {
         self.id = id
         self.toolID = toolID
         self.arguments = arguments
         self.displayName = displayName
+        self.providerMetadata = providerMetadata
+    }
+
+    init(
+        id: String,
+        toolID: String,
+        arguments: [String: JSONValue],
+        displayName: String? = nil,
+        providerMetadata: [String: JSONValue] = [:]
+    ) {
+        self.init(
+            id: id,
+            toolID: toolID,
+            arguments: .object(arguments),
+            displayName: displayName,
+            providerMetadata: providerMetadata
+        )
+    }
+
+    init(
+        id: String,
+        toolID: String,
+        serializedArguments: String,
+        displayName: String? = nil,
+        providerMetadata: [String: JSONValue] = [:]
+    ) {
+        self.init(
+            id: id,
+            toolID: toolID,
+            arguments: Self.decodeArguments(from: serializedArguments),
+            displayName: displayName,
+            providerMetadata: providerMetadata
+        )
+    }
+
+    init(
+        id: String,
+        toolID: String,
+        arguments: String,
+        displayName: String? = nil,
+        providerMetadata: [String: JSONValue] = [:]
+    ) {
+        self.init(
+            id: id,
+            toolID: toolID,
+            serializedArguments: arguments,
+            displayName: displayName,
+            providerMetadata: providerMetadata
+        )
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -43,14 +102,20 @@ nonisolated struct ChatToolCall: Codable, Equatable, Identifiable {
         case toolID
         case arguments
         case displayName
+        case providerMetadata
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         toolID = try container.decode(String.self, forKey: .toolID)
-        arguments = try container.decode(String.self, forKey: .arguments)
+        if let rawArguments = try? container.decode(String.self, forKey: .arguments) {
+            arguments = Self.decodeArguments(from: rawArguments)
+        } else {
+            arguments = try container.decode(JSONValue.self, forKey: .arguments)
+        }
         displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
+        providerMetadata = try container.decodeIfPresent([String: JSONValue].self, forKey: .providerMetadata) ?? [:]
     }
 
     func encode(to encoder: Encoder) throws {
@@ -59,6 +124,42 @@ nonisolated struct ChatToolCall: Codable, Equatable, Identifiable {
         try container.encode(toolID, forKey: .toolID)
         try container.encode(arguments, forKey: .arguments)
         try container.encodeIfPresent(displayName, forKey: .displayName)
+        if !providerMetadata.isEmpty {
+            try container.encode(providerMetadata, forKey: .providerMetadata)
+        }
+    }
+
+    func validatedSerializedArguments() throws -> String {
+        guard let text = arguments.serializedJSONString else {
+            throw ChatToolCallError.invalidArguments(toolID)
+        }
+
+        return text
+    }
+
+    private static func decodeArguments(from rawArguments: String) -> JSONValue {
+        let trimmedArguments = rawArguments.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedArguments.isEmpty else {
+            return .object([:])
+        }
+
+        guard let data = trimmedArguments.data(using: .utf8),
+              let decodedArguments = try? JSONDecoder().decode(JSONValue.self, from: data) else {
+            return .string(rawArguments)
+        }
+
+        return decodedArguments
+    }
+}
+
+nonisolated enum ChatToolCallError: LocalizedError, Equatable {
+    case invalidArguments(String)
+
+    var errorDescription: String? {
+        switch self {
+        case let .invalidArguments(toolID):
+            return "Unable to serialize tool arguments for \(toolID)."
+        }
     }
 }
 
@@ -70,6 +171,7 @@ nonisolated struct ChatMessage: Equatable, Identifiable {
     var toolCalls: [ChatToolCall]?
     var toolCallID: String?
     var toolDisplayName: String?
+    var toolStatus: ToolExecutionStatus?
     var attachments: [ChatAttachment]
     var createdAt: Date
 
@@ -81,6 +183,7 @@ nonisolated struct ChatMessage: Equatable, Identifiable {
         toolCalls: [ChatToolCall]? = nil,
         toolCallID: String? = nil,
         toolDisplayName: String? = nil,
+        toolStatus: ToolExecutionStatus? = nil,
         attachments: [ChatAttachment] = [],
         createdAt: Date = Date()
     ) {
@@ -91,6 +194,7 @@ nonisolated struct ChatMessage: Equatable, Identifiable {
         self.toolCalls = toolCalls
         self.toolCallID = toolCallID
         self.toolDisplayName = toolDisplayName
+        self.toolStatus = toolStatus
         self.attachments = attachments
         self.createdAt = createdAt
     }

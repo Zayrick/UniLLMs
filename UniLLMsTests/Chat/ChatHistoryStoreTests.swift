@@ -163,6 +163,26 @@ final class ChatHistoryStoreTests: XCTestCase {
         XCTAssertEqual(events, [toolCallsEvent, completedEvent])
     }
 
+    func testChatToolCallDecodesLegacyStringArguments() throws {
+        let data = try XCTUnwrap(
+            """
+            {
+              "id": "call_1",
+              "toolID": "search",
+              "arguments": "{\\"query\\":\\"weather\\"}",
+              "displayName": "Weather Search"
+            }
+            """
+            .data(using: .utf8)
+        )
+
+        let toolCall = try JSONDecoder().decode(ChatToolCall.self, from: data)
+
+        XCTAssertEqual(toolCall.argumentObject, ["query": .string("weather")])
+        XCTAssertEqual(toolCall.serializedArguments, #"{"query":"weather"}"#)
+        XCTAssertEqual(toolCall.presentationName, "Weather Search")
+    }
+
     func testTimelineAccumulatorMergesConsecutiveTextDeltas() {
         var accumulator = ChatTimelineAccumulator()
         let startedAt = Date(timeIntervalSince1970: 10)
@@ -230,7 +250,8 @@ final class ChatHistoryStoreTests: XCTestCase {
         XCTAssertEqual(messages.map(\.role), [.user, .assistant, .tool, .assistant])
         XCTAssertEqual(messages[0].content, "Weather?")
         XCTAssertEqual(messages[1].reasoning, "Need weather data.")
-        XCTAssertEqual(messages[1].toolCalls?.first?.arguments, #"{"query":"weather"}"#)
+        XCTAssertEqual(messages[1].toolCalls?.first?.argumentObject, ["query": .string("weather")])
+        XCTAssertEqual(messages[2].toolStatus, .success)
         XCTAssertEqual(messages[2].toolCallID, "call_1")
         XCTAssertEqual(messages[2].content, #"{"temperature":"20C"}"#)
         XCTAssertEqual(messages[3].content, "It is 20C.")
