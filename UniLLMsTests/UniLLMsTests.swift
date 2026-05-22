@@ -1004,6 +1004,7 @@ final class UniLLMsTests: XCTestCase {
 
         XCTAssertTrue(attributedText.string.contains("$5"))
         XCTAssertEqual(attributedText.textAttachmentCount, 1)
+        XCTAssertTrue(attributedText.chatAccessibilityString.contains("Formula: x+1"))
     }
 
     func testMarkdownDisplayLatexRendersAsDedicatedBlock() throws {
@@ -1201,11 +1202,7 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertEqual(
             update.completedSegments,
             [
-                """
-                $$
-                x^2 + y^2 = z^2
-                $$
-                """
+                "$$\nx^2 + y^2 = z^2\n$$\n"
             ]
         )
         XCTAssertEqual(update.currentSegment, "Next paragraph")
@@ -1226,14 +1223,87 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertEqual(
             update.completedSegments,
             [
-                """
-                > Outer
-                > still quoted
-
-                """
+                "> Outer\n> still quoted\n"
             ]
         )
         XCTAssertEqual(update.currentSegment, "Next")
+    }
+
+    func testMarkdownStreamSegmenterKeepsLazyBlockQuoteContinuationInQuoteSegment() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append(
+            """
+            > Outer
+            lazy continuation
+
+            Next
+            """
+        )
+
+        XCTAssertEqual(
+            update.completedSegments,
+            [
+                "> Outer\nlazy continuation\n"
+            ]
+        )
+        XCTAssertEqual(update.currentSegment, "Next")
+    }
+
+    func testMarkdownStreamSegmenterDoesNotLetHeadingBlockQuoteUseLazyContinuation() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append(
+            """
+            > # Title
+            outside
+
+            After
+            """
+        )
+
+        XCTAssertEqual(update.completedSegments, ["> # Title\n", "outside\n"])
+        XCTAssertEqual(update.currentSegment, "After")
+    }
+
+    func testMarkdownStreamSegmenterDoesNotLetEmptyBlockQuoteUseLazyContinuation() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append(
+            """
+            >
+            outside
+
+            After
+            """
+        )
+
+        XCTAssertEqual(update.completedSegments, [">\n", "outside\n"])
+        XCTAssertEqual(update.currentSegment, "After")
+    }
+
+    func testMarkdownStreamSegmenterSeparatesBlankLineBetweenBlockQuotes() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append(
+            """
+            > First
+
+            > Second
+            """
+        )
+
+        XCTAssertEqual(update.completedSegments, ["> First\n"])
+        XCTAssertEqual(update.currentSegment, "> Second")
+    }
+
+    func testMarkdownStreamSegmenterDoesNotTreatLazyLineAsBlockQuoteCodeFenceBody() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append("> ```\ncode\n\nAfter")
+
+        XCTAssertEqual(update.completedSegments, ["> ```\n", "code\n"])
+        XCTAssertEqual(update.currentSegment, "After")
     }
 
     func testMarkdownStreamSegmenterCompletesTableWhenNextSegmentStarts() {
@@ -1244,6 +1314,7 @@ final class UniLLMsTests: XCTestCase {
             | Feature | Count |
             | :-- | --: |
             | Tables | 2 |
+
             After
             """
         )
@@ -1251,13 +1322,199 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertEqual(
             update.completedSegments,
             [
-                """
-                | Feature | Count |
-                | :-- | --: |
-                | Tables | 2 |
-                """
+                "| Feature | Count |\n| :-- | --: |\n| Tables | 2 |\n"
             ]
         )
+        XCTAssertEqual(update.currentSegment, "After")
+    }
+
+    func testMarkdownStreamSegmenterCompletesSingleColumnTableWhenNextSegmentStarts() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append(
+            """
+            | A |
+            | --- |
+            | x |
+
+            After
+            """
+        )
+
+        XCTAssertEqual(
+            update.completedSegments,
+            [
+                "| A |\n| --- |\n| x |\n"
+            ]
+        )
+        XCTAssertEqual(update.currentSegment, "After")
+    }
+
+    func testMarkdownStreamSegmenterDoesNotTreatFourSpaceIndentedFenceAsTopLevelFence() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append(
+            """
+                ```
+
+            After
+            """
+        )
+
+        XCTAssertEqual(update.completedSegments, ["    ```\n"])
+        XCTAssertEqual(update.currentSegment, "After")
+    }
+
+    func testMarkdownStreamSegmenterDoesNotTreatFourSpaceIndentedDisplayMathAsTopLevelMath() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append(
+            """
+                $$
+
+            After
+            """
+        )
+
+        XCTAssertEqual(update.completedSegments, ["    $$\n"])
+        XCTAssertEqual(update.currentSegment, "After")
+    }
+
+    func testMarkdownStreamSegmenterDoesNotCloseDisplayMathWithIndentedDelimiter() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append("$$\nx\n    $$\ntail")
+
+        XCTAssertTrue(update.completedSegments.isEmpty)
+        XCTAssertEqual(update.currentSegment, "$$\nx\n    $$\ntail")
+    }
+
+    func testMarkdownStreamSegmenterKeepsNonPipeTableBodyRowsInTable() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append(
+            """
+            | A | B |
+            | --- | --- |
+            | x | y |
+            z
+
+            After
+            """
+        )
+
+        XCTAssertEqual(
+            update.completedSegments,
+            [
+                "| A | B |\n| --- | --- |\n| x | y |\nz\n"
+            ]
+        )
+        XCTAssertEqual(update.currentSegment, "After")
+    }
+
+    func testMarkdownStreamSegmenterDoesNotSplitMismatchedTableHeaderAndDelimiter() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append(
+            """
+            | A | B |
+            | --- |
+
+            After
+            """
+        )
+
+        XCTAssertEqual(
+            update.completedSegments,
+            [
+                "| A | B |\n| --- |\n"
+            ]
+        )
+        XCTAssertEqual(update.currentSegment, "After")
+    }
+
+    func testMarkdownStreamSegmenterIgnoresPipeInsideHeaderCodeSpan() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append(
+            """
+            | `A|B` |
+            | --- |
+            | value |
+
+            After
+            """
+        )
+
+        XCTAssertEqual(
+            update.completedSegments,
+            [
+                "| `A|B` |\n| --- |\n| value |\n"
+            ]
+        )
+        XCTAssertEqual(update.currentSegment, "After")
+    }
+
+    func testMarkdownStreamSegmenterDoesNotLetNonOneOrderedListInterruptParagraph() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append(
+            """
+            Intro
+            2. still paragraph
+
+            After
+            """
+        )
+
+        XCTAssertEqual(
+            update.completedSegments,
+            [
+                "Intro\n2. still paragraph\n"
+            ]
+        )
+        XCTAssertEqual(update.currentSegment, "After")
+    }
+
+    func testMarkdownStreamSegmenterDoesNotLetEmptyListItemInterruptParagraph() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append(
+            """
+            Intro
+            *
+
+            After
+            """
+        )
+
+        XCTAssertEqual(update.completedSegments, ["Intro\n*\n"])
+        XCTAssertEqual(update.currentSegment, "After")
+    }
+
+    func testMarkdownStreamSegmenterDoesNotTreatSingleHyphenAsSetextUnderline() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append(
+            """
+            Intro
+            -
+
+            After
+            """
+        )
+
+        XCTAssertEqual(update.completedSegments, ["Intro\n-\n"])
+        XCTAssertEqual(update.currentSegment, "After")
+    }
+
+    func testMarkdownStreamSegmenterNormalizesSplitCRLFOnce() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        _ = segmenter.append("Intro\r")
+        let update = segmenter.append("\n\nAfter")
+
+        XCTAssertEqual(update.completedSegments, ["Intro\n"])
         XCTAssertEqual(update.currentSegment, "After")
     }
 
@@ -1284,6 +1541,94 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, detailsMarkdown)
     }
 
+    func testMarkdownStreamSegmenterKeepsRawHTMLBlockUntilTerminatorAcrossBlankLines() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append(
+            """
+            <script>
+
+            alert(1)
+            </script>
+
+            After
+            """
+        )
+
+        XCTAssertEqual(
+            update.completedSegments,
+            [
+                "<script>\n\nalert(1)\n</script>\n"
+            ]
+        )
+        XCTAssertEqual(update.currentSegment, "After")
+    }
+
+    func testMarkdownStreamSegmenterEndsTableBeforeIndentedCodeBlock() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append(
+            """
+            | A |
+            | --- |
+                code
+
+            After
+            """
+        )
+
+        XCTAssertEqual(
+            update.completedSegments,
+            [
+                "| A |\n| --- |\n",
+                "    code\n"
+            ]
+        )
+        XCTAssertEqual(update.currentSegment, "After")
+    }
+
+    func testMarkdownStreamSegmenterRecognizesTypeSevenClosingHTMLBlock() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append("</script>\n\nAfter")
+
+        XCTAssertEqual(update.completedSegments, ["</script>\n"])
+        XCTAssertEqual(update.currentSegment, "After")
+    }
+
+    func testMarkdownStreamSegmenterRecognizesSourceHTMLBlockTag() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append("<source>\ntext\n\nAfter")
+
+        XCTAssertEqual(update.completedSegments, ["<source>\ntext\n"])
+        XCTAssertEqual(update.currentSegment, "After")
+    }
+
+    func testMarkdownStreamSegmenterEndsTableBeforeTypeSevenHTMLBlock() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append(
+            """
+            | A |
+            | --- |
+            <Warning>
+            text
+
+            After
+            """
+        )
+
+        XCTAssertEqual(
+            update.completedSegments,
+            [
+                "| A |\n| --- |\n",
+                "<Warning>\ntext\n"
+            ]
+        )
+        XCTAssertEqual(update.currentSegment, "After")
+    }
+
     func testMarkdownStreamSegmenterDoesNotTreatInlineDetailsTextAsHTMLBlock() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -1293,56 +1638,60 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "After")
     }
 
-    func testIncrementalMarkdownLineParserKeepsStableIDWhilePartialLineGrows() throws {
-        var parser = IncrementalMarkdownLineParser()
+    func testMarkdownMathSplitterKeepsMathInsideFenceWithInvalidClosingFence() {
+        let segments = ChatMarkdownMathBlockSplitter.segments(
+            in: """
+            ```
+            ``` not closed
+            $$
+            x
+            $$
+            """
+        )
 
-        let firstBlocks = parser.append("Hel")
-        let firstBlock = try XCTUnwrap(firstBlocks.first)
-
-        let secondBlocks = parser.append("lo")
-        let secondBlock = try XCTUnwrap(secondBlocks.first)
-
-        XCTAssertEqual(secondBlock.id, firstBlock.id)
-        XCTAssertEqual(secondBlock.rawMarkdown, "Hello")
-        XCTAssertFalse(secondBlock.isClosed)
+        XCTAssertEqual(segments.count, 1)
+        guard case .markdown = segments[0] else {
+            XCTFail("Expected invalid closing fence to keep display math inside fenced code")
+            return
+        }
     }
 
-    func testIncrementalMarkdownLineParserDoesNotCommitSingleLineBlocksBeforeNewline() throws {
-        var parser = IncrementalMarkdownLineParser()
-
-        let draftBlocks = parser.append("---")
-        let draftBlock = try XCTUnwrap(draftBlocks.first)
-        XCTAssertEqual(draftBlock.kind, .textual)
-        XCTAssertFalse(draftBlock.isClosed)
-
-        let completedBlocks = parser.append("\n")
-        let completedBlock = try XCTUnwrap(completedBlocks.first)
-        XCTAssertEqual(completedBlock.id, draftBlock.id)
-        XCTAssertEqual(completedBlock.kind, .thematicBreak)
-        XCTAssertTrue(completedBlock.isClosed)
-    }
-
-    func testStreamingMarkdownTaskListUsesSymbolAttachmentBeforeLineCompletes() throws {
-        let context = ChatMarkdownRenderingContext(style: .assistant, traitCollection: markdownRendererTraits)
-        let rendered = StreamingMarkdownTextRenderer(context: context).render(rawMarkdown: "- [ ]", isOpen: true)
+    func testMarkdownTaskListUsesSymbolAttachmentWithReadableAccessibilityText() throws {
+        let rendered = renderMarkdownText("- [ ] Todo")
 
         let attachment = rendered.attribute(.attachment, at: 0, effectiveRange: nil) as? NSTextAttachment
         XCTAssertNotNil(attachment)
-        XCTAssertFalse(rendered.string.contains("☐"))
+        XCTAssertTrue(rendered.chatAccessibilityString.contains("Unchecked"))
+        XCTAssertFalse(rendered.chatAccessibilityString.contains("\u{fffc}"))
     }
 
-    func testStreamingMarkdownBlockQuoteKeepsContiguousLinesInOneParagraph() {
-        let context = ChatMarkdownRenderingContext(style: .assistant, traitCollection: markdownRendererTraits)
-        let rendered = StreamingMarkdownTextRenderer(context: context).render(
-            rawMarkdown: """
-            > first quoted line
-            > second quoted line
-            """,
-            isOpen: true
+    func testMarkdownBareURLUsesRendererLinkAttribute() throws {
+        let rendered = renderMarkdownText("Visit https://example.com/docs now")
+        let linkRange = (rendered.string as NSString).range(of: "https://example.com/docs")
+
+        let url = rendered.attribute(.link, at: linkRange.location, effectiveRange: nil) as? URL
+
+        XCTAssertEqual(url?.absoluteString, "https://example.com/docs")
+    }
+
+    func testMarkdownRendererKeepsSingleColumnPipeTableAsTable() throws {
+        var renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
+        let blocks = renderer.render(
+            markdown: """
+            | A |
+            | --- |
+            | x |
+            """
         )
 
-        XCTAssertEqual(rendered.string, "first quoted line second quoted line\n")
-        XCTAssertNotNil(rendered.attribute(.chatBlockQuoteBarPositions, at: 0, effectiveRange: nil))
+        let firstBlock = try XCTUnwrap(blocks.first)
+        guard case let .table(tableData) = firstBlock else {
+            XCTFail("Expected first rendered block to be a Markdown table")
+            return
+        }
+
+        XCTAssertEqual(tableData.columnCount, 1)
+        XCTAssertEqual(tableData.rows.count, 2)
     }
 
     func testMarkdownTableInlineCodeUsesRoundedPillAttributesAndCleanAccessibilityText() throws {

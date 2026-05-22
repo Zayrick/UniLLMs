@@ -48,7 +48,7 @@ final class ChatMarkdownTextView: UITextView {
 
     private func setMarkdownAttributedText(_ attributedText: NSAttributedString) {
         markdownTextStorage.setAttributedString(attributedText)
-        accessibilityLabel = attributedText.string
+        accessibilityLabel = attributedText.chatAccessibilityString
         currentAttributedText = attributedText
         invalidateIntrinsicContentSize()
         setNeedsDisplay()
@@ -57,45 +57,22 @@ final class ChatMarkdownTextView: UITextView {
     /// Reconcile text storage without assigning `attributedText` wholesale.
     /// UIKit treats a whole attributedText assignment as new content; keeping
     /// TextKit storage alive avoids link-color churn and preserves layout state.
-    func replaceTailAttributedText(_ newText: NSAttributedString) {
+    func replaceMarkdownAttributedText(_ newText: NSAttributedString) {
         guard !currentAttributedText.isEqual(to: newText) else {
             return
         }
 
-        let oldString = markdownTextStorage.string as NSString
-        let newString = newText.string as NSString
-        let oldLength = oldString.length
-        let newLength = newString.length
-
-        var prefix = 0
-        let maxPrefix = min(oldLength, newLength)
-        while prefix < maxPrefix,
-              oldString.character(at: prefix) == newString.character(at: prefix) {
-            prefix += 1
-        }
-
-        var suffix = 0
-        let maxSuffix = min(oldLength - prefix, newLength - prefix)
-        while suffix < maxSuffix,
-              oldString.character(at: oldLength - 1 - suffix)
-              == newString.character(at: newLength - 1 - suffix) {
-            suffix += 1
-        }
-
-        let replacedRange = NSRange(location: prefix, length: oldLength - prefix - suffix)
-        let insertedRange = NSRange(location: prefix, length: newLength - prefix - suffix)
-
-        markdownTextStorage.beginEditing()
-        if replacedRange.length > 0 || insertedRange.length > 0 {
-            markdownTextStorage.replaceCharacters(
-                in: replacedRange,
-                with: newText.attributedSubstring(from: insertedRange)
+        if canAppendOnly(newText) {
+            let tailRange = NSRange(
+                location: currentAttributedText.length,
+                length: newText.length - currentAttributedText.length
             )
+            markdownTextStorage.append(newText.attributedSubstring(from: tailRange))
+        } else {
+            markdownTextStorage.setAttributedString(newText)
         }
-        synchronizeAttributesNoEditing(with: newText)
-        markdownTextStorage.endEditing()
 
-        accessibilityLabel = newString as String
+        accessibilityLabel = newText.chatAccessibilityString
         currentAttributedText = newText
         invalidateIntrinsicContentSize()
         setNeedsDisplay()
@@ -103,24 +80,18 @@ final class ChatMarkdownTextView: UITextView {
 
     /// Legacy entry-point kept for callers that have not migrated yet.
     func updateMarkdownAttributedTextWithBlur(_ newText: NSAttributedString) {
-        replaceTailAttributedText(newText)
+        replaceMarkdownAttributedText(newText)
     }
 
-    private func synchronizeAttributesNoEditing(with newText: NSAttributedString) {
-        guard markdownTextStorage.length == newText.length, newText.length > 0 else {
-            return
+    private func canAppendOnly(_ newText: NSAttributedString) -> Bool {
+        let oldLength = currentAttributedText.length
+        guard newText.length > oldLength else {
+            return false
         }
-
-        let fullRange = NSRange(location: 0, length: newText.length)
-        newText.enumerateAttributes(in: fullRange) { attributes, range, _ in
-            let currentAttributes = markdownTextStorage.attributes(
-                at: range.location,
-                effectiveRange: nil
-            )
-            if !NSDictionary(dictionary: currentAttributes).isEqual(NSDictionary(dictionary: attributes)) {
-                markdownTextStorage.setAttributes(attributes, range: range)
-            }
-        }
+        return currentAttributedText.chatMarkdownSemanticallyMatchesPrefix(
+            of: newText,
+            length: oldLength
+        )
     }
 
     private func configure() {
@@ -128,12 +99,6 @@ final class ChatMarkdownTextView: UITextView {
         isOpaque = false
         isEditable = false
         isScrollEnabled = false
-        dataDetectorTypes = []
-        linkTextAttributes = [
-            .foregroundColor: UIColor.systemBlue,
-            .underlineStyle: NSUnderlineStyle.single.rawValue
-        ]
-        tintColor = .systemBlue
         textContainerInset = .zero
         markdownTextContainer.lineFragmentPadding = 0.0
         markdownLayoutManager.usesFontLeading = true

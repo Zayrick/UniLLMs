@@ -23,6 +23,6 @@ struct ChatMarkdownTableCell {
     var isHeader: Bool
 
     var accessibilityText: String {
-        attributedText.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        attributedText.chatAccessibilityString.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

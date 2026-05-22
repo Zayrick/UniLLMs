@@ -8,6 +8,164 @@
 
 import UIKit
 
+extension NSAttributedString.Key {
+    static let chatAccessibilityText = NSAttributedString.Key(
+        "UniLLMs.ChatMarkdown.accessibilityText"
+    )
+}
+
+enum ChatMarkdownCheckboxRenderer {
+    static func attributedString(
+        isChecked: Bool,
+        font: UIFont,
+        attributes: [NSAttributedString.Key: Any]
+    ) -> NSAttributedString {
+        let accessibilityText = isChecked ? "Checked" : "Unchecked"
+        var resolvedAttributes = attributes
+        resolvedAttributes[.chatAccessibilityText] = accessibilityText
+
+        let name = isChecked ? "checkmark.square" : "square"
+        let configuration = UIImage.SymbolConfiguration(font: font, scale: .medium)
+        guard let image = UIImage(systemName: name, withConfiguration: configuration) else {
+            let fallback = isChecked ? "☑" : "☐"
+            return NSAttributedString(string: fallback, attributes: resolvedAttributes)
+        }
+
+        let attachment = NSTextAttachment()
+        attachment.image = image.withRenderingMode(.alwaysTemplate)
+
+        let symbol = NSMutableAttributedString(attachment: attachment)
+        symbol.addAttributes(
+            resolvedAttributes,
+            range: NSRange(location: 0, length: symbol.length)
+        )
+        return symbol
+    }
+}
+
+extension NSAttributedString {
+    var chatAccessibilityString: String {
+        guard length > 0 else {
+            return ""
+        }
+
+        let backingString = string as NSString
+        var result = ""
+        enumerateAttributes(in: NSRange(location: 0, length: length)) { attributes, range, _ in
+            if let accessibilityText = attributes[.chatAccessibilityText] as? String {
+                result += accessibilityText
+                return
+            }
+
+            let substring = backingString.substring(with: range)
+            result += substring.replacingOccurrences(of: "\u{fffc}", with: "")
+        }
+        return result
+    }
+
+    func chatMarkdownSemanticallyMatchesPrefix(
+        of other: NSAttributedString,
+        length prefixLength: Int
+    ) -> Bool {
+        guard prefixLength <= length,
+              prefixLength <= other.length,
+              attributedSubstring(from: NSRange(location: 0, length: prefixLength)).string ==
+              other.attributedSubstring(from: NSRange(location: 0, length: prefixLength)).string else {
+            return false
+        }
+
+        var index = 0
+        while index < prefixLength {
+            var lhsRange = NSRange()
+            var rhsRange = NSRange()
+            let lhsAttributes = attributes(at: index, effectiveRange: &lhsRange)
+            let rhsAttributes = other.attributes(at: index, effectiveRange: &rhsRange)
+
+            guard Self.chatMarkdownAttributes(
+                lhsAttributes,
+                semanticallyEqualTo: rhsAttributes
+            ) else {
+                return false
+            }
+
+            let nextIndex = min(NSMaxRange(lhsRange), NSMaxRange(rhsRange), prefixLength)
+            guard nextIndex > index else {
+                return false
+            }
+            index = nextIndex
+        }
+
+        return true
+    }
+
+    private static func chatMarkdownAttributes(
+        _ lhs: [NSAttributedString.Key: Any],
+        semanticallyEqualTo rhs: [NSAttributedString.Key: Any]
+    ) -> Bool {
+        let keys = Set(lhs.keys).union(rhs.keys)
+        for key in keys {
+            if key == .attachment {
+                guard chatMarkdownAttachments(
+                    lhs[.attachment],
+                    rhs[.attachment],
+                    lhsAccessibilityText: lhs[.chatAccessibilityText] as? String,
+                    rhsAccessibilityText: rhs[.chatAccessibilityText] as? String
+                ) else {
+                    return false
+                }
+                continue
+            }
+
+            guard chatMarkdownAttributeValue(
+                lhs[key],
+                equals: rhs[key]
+            ) else {
+                return false
+            }
+        }
+        return true
+    }
+
+    private static func chatMarkdownAttachments(
+        _ lhs: Any?,
+        _ rhs: Any?,
+        lhsAccessibilityText: String?,
+        rhsAccessibilityText: String?
+    ) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil):
+            return true
+        case (_ as NSTextAttachment, _ as NSTextAttachment):
+            guard let lhsAccessibilityText,
+                  let rhsAccessibilityText else {
+                return false
+            }
+            return lhsAccessibilityText == rhsAccessibilityText
+        default:
+            return false
+        }
+    }
+
+    private static func chatMarkdownAttributeValue(_ lhs: Any?, equals rhs: Any?) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil):
+            return true
+        case let (lhs as String, rhs as String):
+            return lhs == rhs
+        case let (lhs as [CGFloat], rhs as [CGFloat]):
+            return lhs == rhs
+        case let (lhs as CGFloat, rhs as CGFloat):
+            return lhs == rhs
+        case let (lhs as NSNumber, rhs as NSNumber):
+            return lhs == rhs
+        case let (lhs as NSObject, rhs as NSObject):
+            return lhs.isEqual(rhs)
+        default:
+            return false
+        }
+    }
+}
+
 extension ChatMarkdownRenderingContext {
     func blockString(
         _ string: String,

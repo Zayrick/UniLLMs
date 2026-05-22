@@ -19,7 +19,7 @@ final class ChatMarkdownDetailsView: UIView {
         static let contentBottomInset: CGFloat = 6.0
     }
 
-    private let detailsBlock: ChatMarkdownDetailsBlock
+    private var detailsBlock: ChatMarkdownDetailsBlock
     private let style: ChatMarkdownRenderStyle
     private let renderingTraitCollection: UITraitCollection
     private let stackView = UIStackView()
@@ -27,7 +27,22 @@ final class ChatMarkdownDetailsView: UIView {
     private let contentRow = UIStackView()
     private let contentStackView = UIStackView()
     private let ruleView = UIView()
+    private var childRecords: [ChildRecord] = []
     private var isExpanded: Bool
+
+    fileprivate struct ChildRecord {
+        let view: UIView
+        let kind: ChildKind
+    }
+
+    fileprivate enum ChildKind: Equatable {
+        case text
+        case codeBlock
+        case mathBlock
+        case table
+        case image
+        case details
+    }
 
     var onNeedsHeightUpdate: (() -> Void)?
 
@@ -64,6 +79,28 @@ final class ChatMarkdownDetailsView: UIView {
         verticalFittingPriority: UILayoutPriority
     ) -> CGSize {
         sizeThatFits(targetSize)
+    }
+
+    var restoredExpansionState: Bool {
+        isExpanded
+    }
+
+    func update(detailsBlock: ChatMarkdownDetailsBlock) {
+        self.detailsBlock = detailsBlock
+        summaryButton.accessibilityLabel = detailsBlock.summary
+        reconcileChildren()
+        updateSummaryButton()
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
+        onNeedsHeightUpdate?()
+    }
+
+    func restoreExpansionState(_ isExpanded: Bool) {
+        guard self.isExpanded != isExpanded else {
+            return
+        }
+        self.isExpanded = isExpanded
+        updateExpandedState(animated: false)
     }
 
     private func configure() {
@@ -126,37 +163,137 @@ final class ChatMarkdownDetailsView: UIView {
 
     private func renderChildren() {
         for block in detailsBlock.children {
-            guard let view = makeView(for: block) else {
+            guard let record = makeRecord(for: block) else {
                 continue
             }
-            contentStackView.addArrangedSubview(view)
+            childRecords.append(record)
+            contentStackView.addArrangedSubview(record.view)
         }
     }
 
-    private func makeView(for block: ChatMarkdownRenderedBlock) -> UIView? {
+    private func reconcileChildren() {
+        let blocks = detailsBlock.children
+        var nextRecords: [ChildRecord] = []
+
+        for (index, block) in blocks.enumerated() {
+            let existing = childRecords.indices.contains(index) ? childRecords[index] : nil
+            if let existing,
+               let updated = update(existing, with: block) {
+                ensureChildView(updated.view, at: index)
+                nextRecords.append(updated)
+                continue
+            }
+
+            if let existing {
+                removeChildView(existing.view)
+            }
+
+            guard let record = makeRecord(for: block) else {
+                continue
+            }
+            contentStackView.insertArrangedSubview(
+                record.view,
+                at: min(index, contentStackView.arrangedSubviews.count)
+            )
+            nextRecords.append(record)
+        }
+
+        let retainedViews = Set(nextRecords.map { ObjectIdentifier($0.view) })
+        for record in childRecords where !retainedViews.contains(ObjectIdentifier(record.view)) {
+            removeChildView(record.view)
+        }
+        childRecords = nextRecords
+    }
+
+    private func update(_ record: ChildRecord, with block: ChatMarkdownRenderedBlock) -> ChildRecord? {
+        guard record.kind == block.detailsChildKind else {
+            return nil
+        }
+
+        switch block {
+        case let .text(attributedText):
+            guard let textView = record.view as? ChatMarkdownTextView else {
+                return nil
+            }
+            textView.replaceMarkdownAttributedText(attributedText)
+            return record
+
+        case let .codeBlock(codeBlock):
+            guard let codeBlockView = record.view as? ChatMarkdownCodeBlockView else {
+                return nil
+            }
+            codeBlockView.update(codeBlock: codeBlock)
+            return record
+
+        case let .table(tableData):
+            guard let tableView = record.view as? ChatMarkdownTableView else {
+                return nil
+            }
+            tableView.update(tableData: tableData)
+            return record
+
+        case let .details(detailsBlock):
+            guard let detailsView = record.view as? ChatMarkdownDetailsView else {
+                return nil
+            }
+            detailsView.update(detailsBlock: detailsBlock)
+            return record
+
+        case .mathBlock, .image:
+            return nil
+        }
+    }
+
+    private func removeChildView(_ view: UIView) {
+        contentStackView.removeArrangedSubview(view)
+        view.removeFromSuperview()
+    }
+
+    private func ensureChildView(_ view: UIView, at index: Int) {
+        guard let currentIndex = contentStackView.arrangedSubviews.firstIndex(of: view),
+              currentIndex != index else {
+            return
+        }
+        contentStackView.removeArrangedSubview(view)
+        contentStackView.insertArrangedSubview(view, at: min(index, contentStackView.arrangedSubviews.count))
+    }
+
+    private func makeRecord(for block: ChatMarkdownRenderedBlock) -> ChildRecord? {
         switch block {
         case let .text(attributedText):
             guard attributedText.length > 0 else {
                 return nil
             }
-            return ChatMarkdownTextView(attributedText: attributedText)
+            return ChildRecord(
+                view: ChatMarkdownTextView(attributedText: attributedText),
+                kind: .text
+            )
         case let .codeBlock(codeBlock):
-            return ChatMarkdownCodeBlockView(
-                codeBlock: codeBlock,
-                style: style,
-                traitCollection: renderingTraitCollection
+            return ChildRecord(
+                view: ChatMarkdownCodeBlockView(
+                    codeBlock: codeBlock,
+                    style: style,
+                    traitCollection: renderingTraitCollection
+                ),
+                kind: .codeBlock
             )
         case let .mathBlock(mathBlock):
-            return ChatMarkdownMathBlockView(
-                mathBlock: mathBlock,
-                style: style,
-                traitCollection: renderingTraitCollection
+            return ChildRecord(
+                view: ChatMarkdownMathBlockView(
+                    mathBlock: mathBlock,
+                    style: style,
+                    traitCollection: renderingTraitCollection
+                ),
+                kind: .mathBlock
             )
         case let .table(tableData):
-            return ChatMarkdownTableView(
-                tableData: tableData,
-                style: style,
-                traitCollection: renderingTraitCollection
+            return ChildRecord(
+                view: ChatMarkdownTableView(
+                    tableData: tableData,
+                    style: style,
+                    traitCollection: renderingTraitCollection
+                ),
+                kind: .table
             )
         case let .image(imageBlock):
             let imageView = ChatMarkdownImageView(
@@ -167,7 +304,7 @@ final class ChatMarkdownDetailsView: UIView {
             imageView.onImageSizeDidChange = { [weak self] in
                 self?.onNeedsHeightUpdate?()
             }
-            return imageView
+            return ChildRecord(view: imageView, kind: .image)
         case let .details(detailsBlock):
             let detailsView = ChatMarkdownDetailsView(
                 detailsBlock: detailsBlock,
@@ -177,7 +314,7 @@ final class ChatMarkdownDetailsView: UIView {
             detailsView.onNeedsHeightUpdate = { [weak self] in
                 self?.onNeedsHeightUpdate?()
             }
-            return detailsView
+            return ChildRecord(view: detailsView, kind: .details)
         }
     }
 
@@ -254,5 +391,24 @@ final class ChatMarkdownDetailsView: UIView {
             + contentRow.directionalLayoutMargins.bottom
 
         return ceil(summaryHeight + rowHeight)
+    }
+}
+
+private extension ChatMarkdownRenderedBlock {
+    var detailsChildKind: ChatMarkdownDetailsView.ChildKind {
+        switch self {
+        case .text:
+            return .text
+        case .codeBlock:
+            return .codeBlock
+        case .mathBlock:
+            return .mathBlock
+        case .table:
+            return .table
+        case .image:
+            return .image
+        case .details:
+            return .details
+        }
     }
 }

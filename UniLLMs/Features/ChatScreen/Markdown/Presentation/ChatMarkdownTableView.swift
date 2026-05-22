@@ -44,6 +44,9 @@ final class ChatMarkdownTableView: UIView {
         let newLayout = ChatMarkdownTableLayout.makeLayout(for: tableData)
         layout = newLayout
         tableView.update(tableData: tableData, layout: newLayout)
+        if bounds.width > 0.0, bounds.height > 0.0 {
+            updateLayout()
+        }
         invalidateIntrinsicContentSize()
         setNeedsLayout()
     }
@@ -134,6 +137,7 @@ private final class ChatMarkdownTableContentView: UIView {
         self.layout = layout
         frame.size = layout.contentSize
         reconcileCellTextViews()
+        layoutCellTextViews()
         invalidateIntrinsicContentSize()
         setNeedsLayout()
         setNeedsDisplay()
@@ -182,7 +186,7 @@ private final class ChatMarkdownTableContentView: UIView {
             let textView: ChatMarkdownTextView
             if cellTextViews.indices.contains(index) {
                 textView = cellTextViews[index]
-                textView.replaceTailAttributedText(cell.attributedText)
+                textView.replaceMarkdownAttributedText(cell.attributedText)
             } else {
                 textView = ChatMarkdownTextView(attributedText: cell.attributedText)
                 textView.setMarkdownLineBreakMode(.byCharWrapping)

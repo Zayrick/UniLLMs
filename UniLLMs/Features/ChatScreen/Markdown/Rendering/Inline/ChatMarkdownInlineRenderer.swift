@@ -6,6 +6,7 @@
 //  Created by Zayrick on 2026/5/12.
 //
 
+import Foundation
 import Markdown
 import UIKit
 
@@ -124,6 +125,10 @@ private struct ChatMarkdownInlineRenderingMode {
 }
 
 final class ChatMarkdownInlineRenderer {
+    private static let linkDetector = try? NSDataDetector(
+        types: NSTextCheckingResult.CheckingType.link.rawValue
+    )
+
     private let context: ChatMarkdownRenderingContext
     private let inlineCodeRenderer: ChatMarkdownInlineCodeRenderer
     private let visibleTextExtractor: ChatMarkdownVisibleTextExtractor
@@ -240,7 +245,7 @@ final class ChatMarkdownInlineRenderer {
     ) -> NSMutableAttributedString {
         let spans = ChatMarkdownMathDelimiterScanner.inlineSpans(in: text)
         guard !spans.isEmpty else {
-            return NSMutableAttributedString(string: text, attributes: mode.attributes())
+            return renderPlainText(text, mode: mode)
         }
 
         let result = NSMutableAttributedString()
@@ -248,12 +253,7 @@ final class ChatMarkdownInlineRenderer {
 
         for span in spans {
             if cursor < span.range.lowerBound {
-                result.append(
-                    NSAttributedString(
-                        string: String(text[cursor..<span.range.lowerBound]),
-                        attributes: mode.attributes()
-                    )
-                )
+                result.append(renderPlainText(String(text[cursor..<span.range.lowerBound]), mode: mode))
             }
 
             if let renderedImage = ChatMarkdownMathImageRenderer.renderInline(
@@ -262,11 +262,16 @@ final class ChatMarkdownInlineRenderer {
                 textColor: mode.foregroundColor,
                 traitCollection: context.traitCollection
             ) {
-                result.append(
-                    NSAttributedString(
-                        attachment: ChatMarkdownMathTextAttachment(renderedImage: renderedImage)
-                    )
+                let attachment = NSMutableAttributedString(
+                    attachment: ChatMarkdownMathTextAttachment(renderedImage: renderedImage)
                 )
+                var attributes = mode.attributes()
+                attributes[.chatAccessibilityText] = "Formula: \(span.latex)"
+                attachment.addAttributes(
+                    attributes,
+                    range: NSRange(location: 0, length: attachment.length)
+                )
+                result.append(attachment)
             } else {
                 result.append(
                     NSAttributedString(
@@ -277,6 +282,55 @@ final class ChatMarkdownInlineRenderer {
             }
 
             cursor = span.range.upperBound
+        }
+
+        if cursor < text.endIndex {
+            result.append(renderPlainText(String(text[cursor..<text.endIndex]), mode: mode))
+        }
+
+        return result
+    }
+
+    private func renderPlainText(
+        _ text: String,
+        mode: ChatMarkdownInlineRenderingMode
+    ) -> NSMutableAttributedString {
+        guard !text.isEmpty else {
+            return NSMutableAttributedString()
+        }
+        guard mode.linkURL == nil,
+              !mode.isCode,
+              let linkDetector = Self.linkDetector else {
+            return NSMutableAttributedString(string: text, attributes: mode.attributes())
+        }
+
+        let result = NSMutableAttributedString()
+        let fullRange = NSRange(location: 0, length: (text as NSString).length)
+        var cursor = text.startIndex
+
+        for match in linkDetector.matches(in: text, options: [], range: fullRange) {
+            guard match.resultType == .link,
+                  let url = match.url,
+                  let matchRange = Range(match.range, in: text) else {
+                continue
+            }
+
+            if cursor < matchRange.lowerBound {
+                result.append(
+                    NSAttributedString(
+                        string: String(text[cursor..<matchRange.lowerBound]),
+                        attributes: mode.attributes()
+                    )
+                )
+            }
+
+            result.append(
+                NSAttributedString(
+                    string: String(text[matchRange]),
+                    attributes: mode.linked(to: url, color: context.style.linkColor).attributes()
+                )
+            )
+            cursor = matchRange.upperBound
         }
 
         if cursor < text.endIndex {
@@ -605,19 +659,11 @@ private struct ChatMarkdownInlineHTMLState {
     }
 
     private func checkboxAttachment(isChecked: Bool) -> NSAttributedString {
-        let name = isChecked ? "checkmark.square" : "square"
-        let configuration = UIImage.SymbolConfiguration(font: mode.font, scale: .medium)
-        guard let image = UIImage(systemName: name, withConfiguration: configuration)?
-            .withTintColor(
-                mode.foregroundColor.resolvedColor(with: context.traitCollection),
-                renderingMode: .alwaysOriginal
-            ) else {
-            return NSAttributedString(string: isChecked ? "☑" : "☐", attributes: mode.attributes())
-        }
-
-        let symbol = NSMutableAttributedString(attachment: NSTextAttachment(image: image))
-        symbol.addAttributes(mode.attributes(), range: NSRange(location: 0, length: symbol.length))
-        return symbol
+        ChatMarkdownCheckboxRenderer.attributedString(
+            isChecked: isChecked,
+            font: mode.font,
+            attributes: mode.attributes()
+        )
     }
 
     private mutating func restoreMode(closing tagName: String) {

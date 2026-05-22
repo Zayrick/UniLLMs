@@ -131,6 +131,7 @@ enum ChatMarkdownHTMLSupport {
         "pre",
         "search",
         "section",
+        "source",
         "summary",
         "table",
         "tbody",

@@ -234,7 +234,7 @@ enum ChatMarkdownMathBlockSplitter {
 
             if let fence = openFence {
                 markdownBuffer += line.raw
-                if let closingFence = fenceInfo(in: lineText),
+                if let closingFence = closingFenceInfo(in: lineText),
                    closingFence.marker == fence.marker,
                    closingFence.count >= fence.count {
                     openFence = nil
@@ -243,7 +243,7 @@ enum ChatMarkdownMathBlockSplitter {
                 continue
             }
 
-            if let fence = fenceInfo(in: lineText) {
+            if let fence = openingFenceInfo(in: lineText) {
                 openFence = fence
                 markdownBuffer += line.raw
                 index += 1
@@ -285,10 +285,10 @@ enum ChatMarkdownMathBlockSplitter {
         var currentIndex = index + 1
         while currentIndex < lines.count {
             collected += lines[currentIndex].raw
-            let trimmedLine = lines[currentIndex]
-                .withoutTrailingNewline
-                .trimmingCharacters(in: .whitespaces)
-            if trimmedLine.hasSuffix(closingDelimiter),
+            if isDisplayMathClosingLine(
+                lines[currentIndex].withoutTrailingNewline,
+                delimiter: closingDelimiter
+            ),
                let block = ChatMarkdownMathDelimiterScanner.standaloneDisplayMath(in: collected) {
                 return (block, currentIndex + 1)
             }
@@ -299,7 +299,10 @@ enum ChatMarkdownMathBlockSplitter {
     }
 
     private static func isDisplayMathOpeningLine(_ line: String) -> Bool {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard let indentedLine = lineAfterOptionalBlockIndent(line) else {
+            return false
+        }
+        let trimmed = indentedLine.trimmingCharacters(in: .whitespaces)
         return trimmed == "$$" ||
             trimmed == "\\[" ||
             (trimmed.hasPrefix("$$") && trimmed.count > 2) ||
@@ -307,19 +310,72 @@ enum ChatMarkdownMathBlockSplitter {
     }
 
     private static func displayMathClosingDelimiter(forOpeningLine line: String) -> String {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        let trimmed = (lineAfterOptionalBlockIndent(line) ?? line).trimmingCharacters(in: .whitespaces)
         return trimmed.hasPrefix("\\[") ? "\\]" : "$$"
     }
 
-    private static func fenceInfo(in line: String) -> (marker: Character, count: Int)? {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        guard let marker = trimmed.first,
+    private static func isDisplayMathClosingLine(_ line: String, delimiter: String) -> Bool {
+        guard let indentedLine = lineAfterOptionalBlockIndent(line) else {
+            return false
+        }
+        return indentedLine.trimmingCharacters(in: .whitespaces).hasSuffix(delimiter)
+    }
+
+    private static func lineAfterOptionalBlockIndent(_ line: String) -> String? {
+        var column = 0
+        var index = line.startIndex
+        while index < line.endIndex {
+            let character = line[index]
+            if character == " " {
+                column += 1
+            } else if character == "\t" {
+                column += 4 - (column % 4)
+            } else {
+                break
+            }
+
+            guard column < 4 else {
+                return nil
+            }
+            index = line.index(after: index)
+        }
+
+        return String(line[index...])
+    }
+
+    private static func openingFenceInfo(in line: String) -> (marker: Character, count: Int)? {
+        fenceInfo(in: line, allowsInfoString: true)
+    }
+
+    private static func closingFenceInfo(in line: String) -> (marker: Character, count: Int)? {
+        fenceInfo(in: line, allowsInfoString: false)
+    }
+
+    private static func fenceInfo(
+        in line: String,
+        allowsInfoString: Bool
+    ) -> (marker: Character, count: Int)? {
+        guard let indentedLine = lineAfterOptionalBlockIndent(line),
+              let marker = indentedLine.first,
               marker == "`" || marker == "~" else {
             return nil
         }
 
-        let count = trimmed.prefix { $0 == marker }.count
-        return count >= 3 ? (marker, count) : nil
+        let count = indentedLine.prefix { $0 == marker }.count
+        guard count >= 3 else {
+            return nil
+        }
+
+        let rest = indentedLine.dropFirst(count)
+        if allowsInfoString {
+            if marker == "`", rest.contains("`") {
+                return nil
+            }
+        } else if !rest.allSatisfy(\.isWhitespace) {
+            return nil
+        }
+
+        return (marker, count)
     }
 
     private static func markdownLineSlices(in markdown: String) -> [MarkdownLineSlice] {

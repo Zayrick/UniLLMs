@@ -330,20 +330,11 @@ private struct HTMLBlockRenderingState {
     }
 
     private func checkboxAttachment(isChecked: Bool) -> NSAttributedString {
-        let name = isChecked ? "checkmark.square" : "square"
-        let attributes = mode.attributes(context: context)
-        let configuration = UIImage.SymbolConfiguration(font: mode.font, scale: .medium)
-        guard let image = UIImage(systemName: name, withConfiguration: configuration)?
-            .withTintColor(
-                mode.foregroundColor.resolvedColor(with: context.traitCollection),
-                renderingMode: .alwaysOriginal
-            ) else {
-            return NSAttributedString(string: isChecked ? "☑" : "☐", attributes: attributes)
-        }
-
-        let symbol = NSMutableAttributedString(attachment: NSTextAttachment(image: image))
-        symbol.addAttributes(attributes, range: NSRange(location: 0, length: symbol.length))
-        return symbol
+        ChatMarkdownCheckboxRenderer.attributedString(
+            isChecked: isChecked,
+            font: mode.font,
+            attributes: mode.attributes(context: context)
+        )
     }
 
     private mutating func appendHorizontalRule() {

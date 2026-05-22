@@ -31,8 +31,8 @@ final class ChatMarkdownCodeBlockView: UIView {
 
     private let style: ChatMarkdownRenderStyle
     private var displayLanguage: String
-    private var isClosed: Bool
     private var codeText: String
+    private var isStreaming: Bool
     private var codeLines: [String]
     private var codeTextSize: CGSize
     private var lineNumberColumnWidth: CGFloat
@@ -42,6 +42,7 @@ final class ChatMarkdownCodeBlockView: UIView {
     private var codeLineSpacing: CGFloat
     private var codeTextColor: UIColor
     private var lineNumberTextColor: UIColor
+    private var traitChangeRegistration: (any UITraitChangeRegistration)?
 
     init(
         codeBlock: ChatMarkdownCodeBlock,
@@ -62,8 +63,8 @@ final class ChatMarkdownCodeBlockView: UIView {
 
         self.style = style
         displayLanguage = codeBlock.displayLanguage
-        isClosed = codeBlock.isClosed
         codeText = initialCodeText
+        isStreaming = codeBlock.isStreaming
         codeLines = initialCodeLines
         codeFont = initialCodeFont
         codeLineSpacing = initialCodeLineSpacing
@@ -83,6 +84,7 @@ final class ChatMarkdownCodeBlockView: UIView {
 
         super.init(frame: .zero)
         configure(headerFont: headerFont)
+        configureTraitObservation()
     }
 
     /// Replace the code body and (optionally) the language without recreating
@@ -96,8 +98,8 @@ final class ChatMarkdownCodeBlockView: UIView {
             updateCodeAccessibilityLabel()
         }
 
-        if codeBlock.isClosed != isClosed {
-            isClosed = codeBlock.isClosed
+        if codeBlock.isStreaming != isStreaming {
+            isStreaming = codeBlock.isStreaming
             updateCodeAccessibilityLabel()
         }
 
@@ -124,7 +126,7 @@ final class ChatMarkdownCodeBlockView: UIView {
             textColor: codeTextColor,
             lineSpacing: codeLineSpacing
         )
-        codeContentView.accessibilityLabel = codeText
+        codeContentView.accessibilityLabel = codeAccessibilityText
         lineNumberView.update(
             lineCount: codeLines.count,
             font: codeFont,
@@ -259,7 +261,14 @@ final class ChatMarkdownCodeBlockView: UIView {
             lineSpacing: codeLineSpacing
         )
         codeContentView.isAccessibilityElement = true
-        codeContentView.accessibilityLabel = codeText
+        codeContentView.accessibilityLabel = codeAccessibilityText
+        codeContentView.accessibilityCustomActions = [
+            UIAccessibilityCustomAction(
+                name: "Copy Code",
+                target: self,
+                selector: #selector(copyCodeFromAccessibilityAction(_:))
+            )
+        ]
         scrollView.addSubview(codeContentView)
 
         lineNumberView.update(
@@ -273,9 +282,71 @@ final class ChatMarkdownCodeBlockView: UIView {
     }
 
     private func updateCodeAccessibilityLabel() {
-        scrollView.accessibilityLabel = isClosed
-            ? "\(displayLanguage) code"
-            : "\(displayLanguage) code, streaming"
+        let label = isStreaming
+            ? "\(displayLanguage) code, streaming"
+            : "\(displayLanguage) code"
+        scrollView.accessibilityLabel = label
+        codeContentView.accessibilityHint = isStreaming ? "Streaming" : nil
+    }
+
+    @objc private func copyCodeFromAccessibilityAction(_ action: UIAccessibilityCustomAction) -> Bool {
+        UIPasteboard.general.string = codeText
+        return true
+    }
+
+    private func configureTraitObservation() {
+        traitChangeRegistration = registerForTraitChanges(
+            [
+                UITraitUserInterfaceStyle.self,
+                UITraitPreferredContentSizeCategory.self,
+                UITraitDisplayScale.self
+            ]
+        ) { (view: ChatMarkdownCodeBlockView, _) in
+            view.updateResolvedStyle(compatibleWith: view.traitCollection)
+        }
+    }
+
+    private func updateResolvedStyle(compatibleWith traitCollection: UITraitCollection) {
+        codeFont = style.codeFont(compatibleWith: traitCollection)
+        codeLineSpacing = style.codeLineSpacing(compatibleWith: traitCollection)
+        headerFont = ChatMarkdownFontTraits.adding(
+            .traitBold,
+            to: UIFont.preferredFont(
+                forTextStyle: .caption1,
+                compatibleWith: traitCollection
+            )
+        )
+        headerHeight = ceil(headerFont.lineHeight)
+        codeTextColor = style.codeTextColor
+        lineNumberTextColor = style.secondaryTextColor.withAlphaComponent(0.72)
+        codeTextSize = Self.codeTextSize(
+            for: codeLines,
+            font: codeFont,
+            lineSpacing: codeLineSpacing
+        )
+        lineNumberColumnWidth = Self.lineNumberColumnWidth(
+            lineCount: codeLines.count,
+            font: codeFont
+        )
+
+        containerView.backgroundColor = style.codeBlockBackgroundColor
+        languageLabel.font = headerFont
+        languageLabel.textColor = style.secondaryTextColor
+        codeContentView.update(
+            lines: codeLines,
+            font: codeFont,
+            textColor: codeTextColor,
+            lineSpacing: codeLineSpacing
+        )
+        lineNumberView.update(
+            lineCount: codeLines.count,
+            font: codeFont,
+            textColor: lineNumberTextColor,
+            lineSpacing: codeLineSpacing
+        )
+
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
     }
 
     private func clampHorizontalOffset() {
@@ -298,10 +369,13 @@ final class ChatMarkdownCodeBlockView: UIView {
     }
 
     private static func normalizedDisplayCode(_ code: String) -> String {
-        let normalizedCode = code
+        code
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
-        return normalizedCode.isEmpty ? " " : normalizedCode
+    }
+
+    private var codeAccessibilityText: String {
+        codeText.isEmpty ? "Empty code block" : codeText
     }
 
     private static func codeLines(in code: String) -> [String] {

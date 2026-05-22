@@ -17,7 +17,7 @@ private enum ListLayout {
 
 private enum ListMarker {
     case text(String)
-    case symbol(name: String)
+    case checkbox(isChecked: Bool)
 }
 
 final class ChatMarkdownListRenderer {
@@ -88,9 +88,7 @@ final class ChatMarkdownListRenderer {
             if isOrdered {
                 _ = advanceOrderedCounter()
             }
-            return checkbox == .checked
-                ? .symbol(name: "checkmark.square")
-                : .symbol(name: "square")
+            return .checkbox(isChecked: checkbox == .checked)
         }
 
         if isOrdered {
@@ -288,15 +286,14 @@ final class ChatMarkdownListRenderer {
                 value: listMarkerFont(isOrdered: isOrdered),
                 range: NSRange(location: 0, length: (text as NSString).length)
             )
-        case let .symbol(name):
-            if let image = symbolImage(named: name) {
-                let symbol = NSMutableAttributedString(attachment: NSTextAttachment(image: image))
-                symbol.addAttributes(
-                    context.bodyAttributes(),
-                    range: NSRange(location: 0, length: symbol.length)
+        case let .checkbox(isChecked):
+            result.append(
+                ChatMarkdownCheckboxRenderer.attributedString(
+                    isChecked: isChecked,
+                    font: context.currentBodyFont(),
+                    attributes: context.bodyAttributes()
                 )
-                result.append(symbol)
-            }
+            )
         }
         result.append(NSAttributedString(string: "\t", attributes: context.bodyAttributes()))
         return result
@@ -306,8 +303,8 @@ final class ChatMarkdownListRenderer {
         switch marker {
         case let .text(text):
             return textMarkerWidth(text, isOrdered: isOrdered)
-        case let .symbol(name):
-            return symbolImage(named: name)?.size.width ?? 0.0
+        case let .checkbox(isChecked):
+            return checkboxImage(isChecked: isChecked)?.size.width ?? 0.0
         }
     }
 
@@ -326,7 +323,8 @@ final class ChatMarkdownListRenderer {
         )
     }
 
-    private func symbolImage(named name: String) -> UIImage? {
+    private func checkboxImage(isChecked: Bool) -> UIImage? {
+        let name = isChecked ? "checkmark.square" : "square"
         let configuration = UIImage.SymbolConfiguration(font: context.currentBodyFont(), scale: .medium)
         return UIImage(systemName: name, withConfiguration: configuration)?
             .withTintColor(

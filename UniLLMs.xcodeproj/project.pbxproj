@@ -301,8 +301,6 @@
 				DEVELOPMENT_TEAM = KZVVM23HRZ;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = UniLLMs/Info.plist;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Take photos to attach to your chat messages.";
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Save photos captured in chat to your library.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UIMainStoryboardFile = Main;
@@ -335,8 +333,6 @@
 				DEVELOPMENT_TEAM = KZVVM23HRZ;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = UniLLMs/Info.plist;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Take photos to attach to your chat messages.";
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Save photos captured in chat to your library.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UIMainStoryboardFile = Main;
