@@ -41,6 +41,7 @@ final class ChatViewController: UIViewController {
         static let maximumBubbleWidthRatio: CGFloat = 0.82
         static let sendAnimationDuration: TimeInterval = 0.46
         static let sendAnimationDampingRatio: CGFloat = 0.88
+        static let autoScrollAnimationDuration: TimeInterval = 0.24
         static let existingMessageShiftVisibilityMargin: CGFloat = 80.0
         static let bottomLockTolerance: CGFloat = 2.0
     }
@@ -90,7 +91,12 @@ final class ChatViewController: UIViewController {
         accessibilityLabel: "Layout"
     )
     private let messagesScrollView = UIScrollView()
-    private let messagesContentView = UIView()
+    private lazy var messagesScrollCoordinator = MessagesScrollCoordinator(
+        scrollView: messagesScrollView,
+        bottomLockTolerance: MessagesLayout.bottomLockTolerance,
+        autoScrollAnimationDuration: MessagesLayout.autoScrollAnimationDuration
+    )
+    private let messagesContentView = MessagesContentView()
     /// Empty title label sitting in the chat header band. It is placed behind
     /// the three header glass elements and in front of the messages scroll
     /// view, and also hosts the messages scroll view's top
@@ -117,8 +123,6 @@ final class ChatViewController: UIViewController {
     private var selectedModelSelection: ChatModelSelection?
     private var activeResponseTask: Task<Void, Never>?
     private weak var activeResponseView: AssistantResponseTextView?
-    private var isApplyingAssistantResponseChange = false
-    private var isMessagesBottomLocked = true
     private var pendingAttachments: [ChatAttachment] = []
     private let attachmentStore = ChatAttachmentStore.shared
     private var attachmentPreviewItem: AttachmentPreviewItem?
@@ -413,6 +417,13 @@ final class ChatViewController: UIViewController {
         mainPageView.insertSubview(messagesScrollView, aboveSubview: backgroundView)
 
         messagesContentView.translatesAutoresizingMaskIntoConstraints = false
+        messagesContentView.onDidLayoutSubviews = { [weak self] in
+            guard let self else {
+                return
+            }
+
+            self.updateMessagesContentOffsetAfterLayoutChange()
+        }
         messagesScrollView.addSubview(messagesContentView)
 
         messagesStackView.axis = .vertical
@@ -601,7 +612,7 @@ final class ChatViewController: UIViewController {
             self.view.layoutIfNeeded()
             self.updateMessagesContentInsets()
             self.messagesScrollView.layoutIfNeeded()
-            self.updateMessagesContentOffsetAfterLayoutChange()
+            self.updateMessagesContentOffsetAfterLayoutChange(allowsAnimatedFollow: false)
         }
 
         if animated {
@@ -670,7 +681,7 @@ final class ChatViewController: UIViewController {
         chatRuntime.resetConversation()
         removeChatContent()
         reloadSelectedSystemPrompt()
-        isMessagesBottomLocked = true
+        messagesScrollCoordinator.lockToBottom()
         updateRightHeaderButtonState(animated: true)
         reloadHistorySessions(selectedSessionID: nil)
     }
@@ -973,7 +984,6 @@ final class ChatViewController: UIViewController {
         let responseView = AssistantResponseTextView()
         responseView.translatesAutoresizingMaskIntoConstraints = false
         responseView.isHidden = true
-        configureStreamingHeightUpdates(for: responseView)
         responseView.setContentHuggingPriority(.required, for: .vertical)
         responseView.setContentCompressionResistancePriority(.required, for: .vertical)
 
@@ -1077,57 +1087,14 @@ final class ChatViewController: UIViewController {
         messagesScrollView.layoutIfNeeded()
         updateMessagesContentInsets()
         messagesScrollView.layoutIfNeeded()
-
-        let targetOffsetY = messagesBottomContentOffsetY()
-        messagesScrollView.setContentOffset(CGPoint(x: 0.0, y: targetOffsetY), animated: animated)
-        isMessagesBottomLocked = true
+        messagesScrollCoordinator.scrollToBottom(hostView: view, animated: animated)
     }
 
-    private func messagesBottomContentOffsetY() -> CGFloat {
-        messagesContentOffsetBounds().maximum
-    }
-
-    private func isMessagesScrolledToBottom(
-        offsetY: CGFloat? = nil,
-        tolerance: CGFloat = MessagesLayout.bottomLockTolerance
-    ) -> Bool {
-        let candidateOffsetY = offsetY ?? messagesScrollView.contentOffset.y
-        return candidateOffsetY >= messagesBottomContentOffsetY() - tolerance
-    }
-
-    private func messagesContentOffsetBounds() -> (minimum: CGFloat, maximum: CGFloat) {
-        let adjustedInsets = messagesScrollView.adjustedContentInset
-        let minimumOffsetY = -adjustedInsets.top
-        let maximumOffsetY = max(
-            minimumOffsetY,
-            messagesScrollView.contentSize.height - messagesScrollView.bounds.height + adjustedInsets.bottom
+    private func updateMessagesContentOffsetAfterLayoutChange(allowsAnimatedFollow: Bool = true) {
+        messagesScrollCoordinator.reconcileAfterLayout(
+            hostView: view,
+            allowsAnimatedFollow: allowsAnimatedFollow
         )
-
-        return (minimumOffsetY, maximumOffsetY)
-    }
-
-    private func clampMessagesContentOffsetIfNeeded() {
-        guard !messagesScrollView.isDragging,
-              !messagesScrollView.isDecelerating else {
-            return
-        }
-
-        let bounds = messagesContentOffsetBounds()
-        let currentOffsetY = messagesScrollView.contentOffset.y
-        let clampedOffsetY = min(max(currentOffsetY, bounds.minimum), bounds.maximum)
-        guard abs(currentOffsetY - clampedOffsetY) > CGFloat.ulpOfOne else {
-            return
-        }
-
-        messagesScrollView.setContentOffset(CGPoint(x: 0.0, y: clampedOffsetY), animated: false)
-    }
-
-    private func updateMessagesContentOffsetAfterLayoutChange() {
-        if isMessagesBottomLocked {
-            scrollMessagesToBottom(animated: false)
-        } else {
-            clampMessagesContentOffsetIfNeeded()
-        }
     }
 
     private func animateSentMessage(
@@ -1296,51 +1263,15 @@ final class ChatViewController: UIViewController {
     }
 
     private func applyAssistantResponseChange(
-        to responseView: AssistantResponseTextView,
+        to _: AssistantResponseTextView,
         update: () -> Void
     ) {
-        guard !isApplyingAssistantResponseChange else {
-            update()
-            return
-        }
-
-        isApplyingAssistantResponseChange = true
-        defer {
-            isApplyingAssistantResponseChange = false
-        }
-
-        mainPageView.layoutIfNeeded()
-        let previousFrames = visibleMessageFrames()
-        let previousHeight = responseView.isHidden ? 0.0 : responseView.bounds.height
-        let shouldFollowBottom = isMessagesBottomLocked
-
         update()
 
-        mainPageView.layoutIfNeeded()
-        if shouldFollowBottom {
-            scrollMessagesToBottom(animated: false)
-        } else {
-            clampMessagesContentOffsetIfNeeded()
-        }
-        mainPageView.layoutIfNeeded()
-
-        let didGrow = responseView.bounds.height - previousHeight > 0.5
-        if didGrow {
-            animateExistingMessages(from: previousFrames)
-        }
-    }
-
-    private func configureStreamingHeightUpdates(for responseView: AssistantResponseTextView) {
-        responseView.onTimelineHeightUpdate = { [weak self, weak responseView] update in
-            guard let self,
-                  let responseView,
-                  self.activeResponseView === responseView else {
-                update()
-                return
-            }
-
-            self.applyAssistantResponseChange(to: responseView, update: update)
-        }
+        messagesStackView.setNeedsLayout()
+        messagesContentView.setNeedsLayout()
+        messagesScrollView.setNeedsLayout()
+        mainPageView.setNeedsLayout()
     }
 
     private func finishAssistantResponseStream() {
@@ -1421,7 +1352,7 @@ final class ChatViewController: UIViewController {
             self.chatRuntime.loadConversation(session: session, events: events)
             self.renderConversationTimeline(events)
             self.reloadSelectedSystemPrompt()
-            self.isMessagesBottomLocked = true
+            self.messagesScrollCoordinator.lockToBottom()
             self.updateRightHeaderButtonState(animated: true)
             self.reloadHistorySessions(selectedSessionID: session.id)
             self.setSideMenuOpen(false, animated: true)
@@ -1448,7 +1379,7 @@ final class ChatViewController: UIViewController {
                 self.chatRuntime.resetConversation()
                 self.removeChatContent()
                 self.reloadSelectedSystemPrompt()
-                self.isMessagesBottomLocked = true
+                self.messagesScrollCoordinator.lockToBottom()
                 self.updateRightHeaderButtonState(animated: true)
                 self.reloadHistorySessions(selectedSessionID: nil)
             } else {
@@ -1730,6 +1661,231 @@ final class ChatViewController: UIViewController {
         return effect
     }
 
+    private final class MessagesContentView: UIView {
+        var onDidLayoutSubviews: (() -> Void)?
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            onDidLayoutSubviews?()
+        }
+    }
+
+    private final class MessagesScrollCoordinator {
+        private enum Metrics {
+            static let layoutEpsilon: CGFloat = 0.5
+        }
+
+        private weak var scrollView: UIScrollView?
+        private let bottomLockTolerance: CGFloat
+        private let autoScrollAnimationDuration: TimeInterval
+
+        private var isBottomLocked = true
+        private var hasRecordedLayout = false
+        private var lastContentSize: CGSize = .zero
+        private var lastBoundsSize: CGSize = .zero
+        private var lastAdjustedInsets: UIEdgeInsets = .zero
+        private var lastBottomOffsetY: CGFloat = 0.0
+        private var animationGeneration = 0
+
+        init(
+            scrollView: UIScrollView,
+            bottomLockTolerance: CGFloat,
+            autoScrollAnimationDuration: TimeInterval
+        ) {
+            self.scrollView = scrollView
+            self.bottomLockTolerance = bottomLockTolerance
+            self.autoScrollAnimationDuration = autoScrollAnimationDuration
+        }
+
+        func lockToBottom() {
+            isBottomLocked = true
+        }
+
+        func scrollToBottom(hostView: UIView?, animated: Bool) {
+            guard let scrollView else {
+                return
+            }
+
+            isBottomLocked = true
+            setContentOffset(
+                CGPoint(x: scrollView.contentOffset.x, y: bottomOffsetY()),
+                hostView: hostView,
+                animated: animated
+            )
+            recordCurrentLayout()
+        }
+
+        func reconcileAfterLayout(hostView: UIView?, allowsAnimatedFollow: Bool) {
+            guard let scrollView else {
+                return
+            }
+
+            let currentBottomOffsetY = bottomOffsetY()
+            let contentHeightIncreased = hasRecordedLayout
+                && scrollView.contentSize.height - lastContentSize.height > Metrics.layoutEpsilon
+            let bottomMovedDown = hasRecordedLayout
+                && currentBottomOffsetY - lastBottomOffsetY > Metrics.layoutEpsilon
+            let viewportChanged = hasRecordedLayout
+                && (
+                    abs(scrollView.bounds.size.height - lastBoundsSize.height) > Metrics.layoutEpsilon
+                    || abs(scrollView.adjustedContentInset.top - lastAdjustedInsets.top) > Metrics.layoutEpsilon
+                    || abs(scrollView.adjustedContentInset.bottom - lastAdjustedInsets.bottom) > Metrics.layoutEpsilon
+                )
+
+            if isBottomLocked {
+                let shouldAnimate = allowsAnimatedFollow
+                    && contentHeightIncreased
+                    && bottomMovedDown
+                    && !viewportChanged
+                    && !isUserInteracting
+                setContentOffset(
+                    CGPoint(x: scrollView.contentOffset.x, y: currentBottomOffsetY),
+                    hostView: hostView,
+                    animated: shouldAnimate
+                )
+            } else {
+                clampContentOffsetIfNeeded()
+            }
+
+            recordCurrentLayout()
+        }
+
+        func userWillBeginDragging() {
+            isBottomLocked = false
+            cancelInFlightScrollAnimation()
+        }
+
+        func userDidScroll() {
+            isBottomLocked = isScrolledToBottom()
+        }
+
+        func userWillEndDragging(targetOffsetY: CGFloat) {
+            isBottomLocked = isScrolledToBottom(offsetY: targetOffsetY)
+        }
+
+        func userDidFinishScrolling() {
+            isBottomLocked = isScrolledToBottom()
+        }
+
+        private func setContentOffset(
+            _ contentOffset: CGPoint,
+            hostView: UIView?,
+            animated: Bool
+        ) {
+            guard let scrollView else {
+                return
+            }
+
+            guard animated,
+                  hostView?.window != nil,
+                  !UIAccessibility.isReduceMotionEnabled,
+                  abs(scrollView.contentOffset.y - contentOffset.y) > Metrics.layoutEpsilon else {
+                animationGeneration += 1
+                scrollView.setContentOffset(contentOffset, animated: false)
+                return
+            }
+
+            animationGeneration += 1
+            let generation = animationGeneration
+            UIView.animate(
+                withDuration: autoScrollAnimationDuration,
+                delay: 0.0,
+                options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseOut]
+            ) {
+                scrollView.contentOffset = contentOffset
+            } completion: { [weak self, weak scrollView] _ in
+                guard let self,
+                      let scrollView,
+                      generation == self.animationGeneration,
+                      self.isBottomLocked,
+                      !self.isUserInteracting else {
+                    return
+                }
+
+                scrollView.setContentOffset(
+                    CGPoint(x: scrollView.contentOffset.x, y: self.bottomOffsetY()),
+                    animated: false
+                )
+                self.recordCurrentLayout()
+            }
+        }
+
+        private func cancelInFlightScrollAnimation() {
+            animationGeneration += 1
+            scrollView?.layer.removeAnimation(forKey: "bounds")
+        }
+
+        private var isUserInteracting: Bool {
+            guard let scrollView else {
+                return false
+            }
+
+            return scrollView.isTracking
+                || scrollView.isDragging
+                || scrollView.isDecelerating
+        }
+
+        private func isScrolledToBottom(offsetY: CGFloat? = nil) -> Bool {
+            guard let scrollView else {
+                return true
+            }
+
+            let candidateOffsetY = offsetY ?? scrollView.contentOffset.y
+            return candidateOffsetY >= bottomOffsetY() - bottomLockTolerance
+        }
+
+        private func bottomOffsetY() -> CGFloat {
+            contentOffsetBounds().maximum
+        }
+
+        private func contentOffsetBounds() -> (minimum: CGFloat, maximum: CGFloat) {
+            guard let scrollView else {
+                return (0.0, 0.0)
+            }
+
+            let adjustedInsets = scrollView.adjustedContentInset
+            let minimumOffsetY = -adjustedInsets.top
+            let maximumOffsetY = max(
+                minimumOffsetY,
+                scrollView.contentSize.height - scrollView.bounds.height + adjustedInsets.bottom
+            )
+
+            return (minimumOffsetY, maximumOffsetY)
+        }
+
+        private func clampContentOffsetIfNeeded() {
+            guard let scrollView,
+                  !isUserInteracting else {
+                return
+            }
+
+            let bounds = contentOffsetBounds()
+            let currentOffsetY = scrollView.contentOffset.y
+            let clampedOffsetY = min(max(currentOffsetY, bounds.minimum), bounds.maximum)
+            guard abs(currentOffsetY - clampedOffsetY) > CGFloat.ulpOfOne else {
+                return
+            }
+
+            animationGeneration += 1
+            scrollView.setContentOffset(
+                CGPoint(x: scrollView.contentOffset.x, y: clampedOffsetY),
+                animated: false
+            )
+        }
+
+        private func recordCurrentLayout() {
+            guard let scrollView else {
+                return
+            }
+
+            hasRecordedLayout = true
+            lastContentSize = scrollView.contentSize
+            lastBoundsSize = scrollView.bounds.size
+            lastAdjustedInsets = scrollView.adjustedContentInset
+            lastBottomOffsetY = bottomOffsetY()
+        }
+    }
+
 }
 
 extension ChatViewController: QLPreviewControllerDataSource, QLPreviewControllerDelegate {
@@ -1759,7 +1915,7 @@ extension ChatViewController: UIScrollViewDelegate {
             return
         }
 
-        isMessagesBottomLocked = false
+        messagesScrollCoordinator.userWillBeginDragging()
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
@@ -1768,7 +1924,7 @@ extension ChatViewController: UIScrollViewDelegate {
             return
         }
 
-        isMessagesBottomLocked = isMessagesScrolledToBottom()
+        messagesScrollCoordinator.userDidScroll()
     }
 
     func scrollViewWillEndDragging(
@@ -1780,7 +1936,7 @@ extension ChatViewController: UIScrollViewDelegate {
             return
         }
 
-        isMessagesBottomLocked = isMessagesScrolledToBottom(offsetY: targetContentOffset.pointee.y)
+        messagesScrollCoordinator.userWillEndDragging(targetOffsetY: targetContentOffset.pointee.y)
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
@@ -1789,7 +1945,7 @@ extension ChatViewController: UIScrollViewDelegate {
             return
         }
 
-        isMessagesBottomLocked = isMessagesScrolledToBottom()
+        messagesScrollCoordinator.userDidFinishScrolling()
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
@@ -1797,7 +1953,7 @@ extension ChatViewController: UIScrollViewDelegate {
             return
         }
 
-        isMessagesBottomLocked = isMessagesScrolledToBottom()
+        messagesScrollCoordinator.userDidFinishScrolling()
     }
 }
 

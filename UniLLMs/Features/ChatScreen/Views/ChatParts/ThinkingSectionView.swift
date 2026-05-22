@@ -548,6 +548,8 @@ final class ThinkingSectionView: UIView {
         itemsStack.setNeedsLayout()
         connectorLineView.setNeedsLayout()
         setNeedsLayout()
+        invalidateIntrinsicContentSize()
+        superview?.setNeedsLayout()
         scheduleConnectorLineUpdate()
     }
 
