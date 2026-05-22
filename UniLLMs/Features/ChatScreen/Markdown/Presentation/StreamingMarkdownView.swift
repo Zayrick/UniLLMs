@@ -16,6 +16,7 @@ final class StreamingMarkdownView: UIView {
         static let maxCharactersPerFlush = 4096
     }
 
+    private let style: ChatMarkdownRenderStyle
     private let stackView = UIStackView()
     private var segmenter = ChatMarkdownStreamSegmenter()
     private var completedSegmentMarkdown: [String] = []
@@ -34,13 +35,22 @@ final class StreamingMarkdownView: UIView {
     private var framesToSkip: Int = 0
     private var lastRenderDuration: CFTimeInterval = 0
 
+    init(style: ChatMarkdownRenderStyle = .assistant) {
+        self.style = style
+        super.init(frame: .zero)
+        configure()
+        configureTraitObservation()
+    }
+
     override init(frame: CGRect) {
+        style = .assistant
         super.init(frame: frame)
         configure()
         configureTraitObservation()
     }
 
     required init?(coder: NSCoder) {
+        style = .assistant
         super.init(coder: coder)
         configure()
         configureTraitObservation()
@@ -359,7 +369,7 @@ final class StreamingMarkdownView: UIView {
     }
 
     private func makeRenderer() -> ChatMarkdownRenderer {
-        ChatMarkdownRenderer(traitCollection: traitCollection)
+        ChatMarkdownRenderer(style: style, traitCollection: traitCollection)
     }
 
     private func blockViewConfiguration(

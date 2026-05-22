@@ -200,19 +200,19 @@ final class ThinkingSectionView: UIView {
         }
 
         if let lastRow = itemRows.last,
-           let reasoningTextView = lastRow.hostedView as? ReasoningTextView {
-            reasoningTextView.append(text)
+           let reasoningMarkdownView = lastRow.hostedView as? ReasoningMarkdownView {
+            reasoningMarkdownView.append(text)
             updateHeaderAfterTimelineChange()
             setNeedsConnectorLineUpdate()
             return
         }
 
-        let textView = ReasoningTextView()
-        let row = makeRow(iconStyle: Self.reasoningIconStyle, hosted: textView)
+        let markdownView = makeReasoningMarkdownView()
+        let row = makeRow(iconStyle: Self.reasoningIconStyle, hosted: markdownView)
         addRow(row)
         reasoningStepCount += 1
         updateHeaderAfterTimelineChange()
-        textView.append(text)
+        markdownView.append(text)
     }
 
     /// Append a tool-call row. If a row for the same `callID` already exists, the
@@ -223,6 +223,7 @@ final class ThinkingSectionView: UIView {
         displayName: String,
         state: ToolInvocationView.State
     ) -> ToolInvocationView {
+        finishCurrentReasoningMarkdownView()
         recordToolInvocation(callID: callID)
 
         if let existingRow = toolRowsByCallID[callID],
@@ -257,6 +258,9 @@ final class ThinkingSectionView: UIView {
             return
         }
         isThinking = thinking
+        if !thinking {
+            finishReasoningMarkdownViews()
+        }
         if thinking {
             applyProcessingHeader()
         } else {
@@ -481,6 +485,14 @@ final class ThinkingSectionView: UIView {
         return row
     }
 
+    private func makeReasoningMarkdownView() -> ReasoningMarkdownView {
+        let markdownView = ReasoningMarkdownView()
+        markdownView.onNeedsHeightUpdate = { [weak self] in
+            self?.setNeedsConnectorLineUpdate()
+        }
+        return markdownView
+    }
+
     private static var reasoningIconStyle: TimelineIconStyle {
         TimelineIconStyle(
             symbolName: "brain.fill",
@@ -516,6 +528,21 @@ final class ThinkingSectionView: UIView {
         setNeedsConnectorLineUpdate()
     }
 
+    private func finishCurrentReasoningMarkdownView() {
+        guard let lastRow = itemRows.last,
+              let reasoningMarkdownView = lastRow.hostedView as? ReasoningMarkdownView else {
+            return
+        }
+
+        reasoningMarkdownView.finishStreaming()
+    }
+
+    private func finishReasoningMarkdownViews() {
+        for row in itemRows {
+            (row.hostedView as? ReasoningMarkdownView)?.finishStreaming()
+        }
+    }
+
     private func setNeedsConnectorLineUpdate() {
         bodyContainer.setNeedsLayout()
         itemsStack.setNeedsLayout()
@@ -547,11 +574,20 @@ final class ThinkingSectionView: UIView {
         }
     }
 
-    // MARK: - Nested reasoning text view
+    // MARK: - Nested reasoning Markdown view
 
-    private final class ReasoningTextView: UITextView {
-        override init(frame: CGRect, textContainer: NSTextContainer?) {
-            super.init(frame: frame, textContainer: textContainer)
+    private final class ReasoningMarkdownView: UIView {
+        private enum Metrics {
+            static let verticalInset: CGFloat = 6.0
+        }
+
+        private let markdownView = StreamingMarkdownView(style: .thinking)
+        private var markdownHeightConstraint: NSLayoutConstraint?
+        private var lastMeasuredWidth: CGFloat = 0.0
+        var onNeedsHeightUpdate: (() -> Void)?
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
             configure()
         }
 
@@ -560,33 +596,104 @@ final class ThinkingSectionView: UIView {
             configure()
         }
 
+        override var intrinsicContentSize: CGSize {
+            CGSize(
+                width: UIView.noIntrinsicMetric,
+                height: ceil(
+                    (markdownHeightConstraint?.constant ?? 0.0)
+                        + Metrics.verticalInset * 2.0
+                )
+            )
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            updateMarkdownHeightIfNeeded()
+        }
+
+        override func sizeThatFits(_ size: CGSize) -> CGSize {
+            let width = max(1.0, size.width)
+            let markdownHeight = markdownView.sizeThatFits(
+                CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+            ).height
+            return CGSize(
+                width: width,
+                height: ceil(markdownHeight + Metrics.verticalInset * 2.0)
+            )
+        }
+
+        override func systemLayoutSizeFitting(
+            _ targetSize: CGSize,
+            withHorizontalFittingPriority horizontalFittingPriority: UILayoutPriority,
+            verticalFittingPriority: UILayoutPriority
+        ) -> CGSize {
+            sizeThatFits(targetSize)
+        }
+
         private func configure() {
             backgroundColor = .clear
-            isEditable = false
-            isScrollEnabled = false
-            isSelectable = true
-            textContainerInset = UIEdgeInsets(top: 6.0, left: 0.0, bottom: 6.0, right: 0.0)
-            self.textContainer.lineFragmentPadding = 0.0
-            dataDetectorTypes = [.link]
+            isOpaque = false
+            isAccessibilityElement = false
             setContentCompressionResistancePriority(.required, for: .vertical)
             setContentHuggingPriority(.required, for: .vertical)
-            font = .preferredFont(forTextStyle: .footnote)
-            adjustsFontForContentSizeCategory = true
-            textColor = .secondaryLabel
+
+            markdownView.translatesAutoresizingMaskIntoConstraints = false
+            markdownView.onNeedsHeightUpdate = { [weak self] in
+                self?.updateMarkdownHeight()
+            }
+            addSubview(markdownView)
+
+            let heightConstraint = markdownView.heightAnchor.constraint(equalToConstant: 0.0)
+            markdownHeightConstraint = heightConstraint
+            NSLayoutConstraint.activate([
+                markdownView.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.verticalInset),
+                markdownView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                markdownView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                markdownView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Metrics.verticalInset),
+                heightConstraint
+            ])
         }
 
         func append(_ string: String) {
             guard !string.isEmpty else {
                 return
             }
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont.preferredFont(forTextStyle: .footnote),
-                .foregroundColor: UIColor.secondaryLabel
-            ]
-            textStorage.beginEditing()
-            textStorage.append(NSAttributedString(string: string, attributes: attributes))
-            textStorage.endEditing()
+            markdownView.appendMarkdown(string)
+            updateMarkdownHeight()
+        }
+
+        func finishStreaming() {
+            markdownView.finishStreamingContent()
+            updateMarkdownHeight()
+        }
+
+        private func updateMarkdownHeightIfNeeded() {
+            let width = markdownMeasurementWidth
+            guard abs(width - lastMeasuredWidth) > 0.5 else {
+                return
+            }
+
+            updateMarkdownHeight()
+        }
+
+        private func updateMarkdownHeight() {
+            let width = markdownMeasurementWidth
+            guard width > 0.0 else {
+                return
+            }
+
+            let fittingSize = markdownView.sizeThatFits(
+                CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+            )
+            markdownHeightConstraint?.constant = ceil(fittingSize.height)
+            lastMeasuredWidth = width
             invalidateIntrinsicContentSize()
+            setNeedsLayout()
+            onNeedsHeightUpdate?()
+        }
+
+        private var markdownMeasurementWidth: CGFloat {
+            max(bounds.width, superview?.bounds.width ?? 0.0, 1.0)
         }
     }
 }

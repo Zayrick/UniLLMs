@@ -9,12 +9,45 @@
 import UIKit
 
 struct ChatMarkdownRenderStyle {
+    enum HeadingScale {
+        case standard
+        case compact
+    }
+
     var textColor: UIColor
     var secondaryTextColor: UIColor
     var linkColor: UIColor
     var codeTextColor: UIColor
     var codeBackgroundColor: UIColor
     var codeBlockBackgroundColor: UIColor
+    var bodyTextStyle: UIFont.TextStyle
+    var secondaryTextStyle: UIFont.TextStyle
+    var codeTextStyle: UIFont.TextStyle
+    var headingScale: HeadingScale
+
+    init(
+        textColor: UIColor,
+        secondaryTextColor: UIColor,
+        linkColor: UIColor,
+        codeTextColor: UIColor,
+        codeBackgroundColor: UIColor,
+        codeBlockBackgroundColor: UIColor,
+        bodyTextStyle: UIFont.TextStyle = .body,
+        secondaryTextStyle: UIFont.TextStyle = .callout,
+        codeTextStyle: UIFont.TextStyle = .callout,
+        headingScale: HeadingScale = .standard
+    ) {
+        self.textColor = textColor
+        self.secondaryTextColor = secondaryTextColor
+        self.linkColor = linkColor
+        self.codeTextColor = codeTextColor
+        self.codeBackgroundColor = codeBackgroundColor
+        self.codeBlockBackgroundColor = codeBlockBackgroundColor
+        self.bodyTextStyle = bodyTextStyle
+        self.secondaryTextStyle = secondaryTextStyle
+        self.codeTextStyle = codeTextStyle
+        self.headingScale = headingScale
+    }
 
     static var assistant: ChatMarkdownRenderStyle {
         ChatMarkdownRenderStyle(
@@ -27,18 +60,33 @@ struct ChatMarkdownRenderStyle {
         )
     }
 
+    static var thinking: ChatMarkdownRenderStyle {
+        ChatMarkdownRenderStyle(
+            textColor: .secondaryLabel,
+            secondaryTextColor: .tertiaryLabel,
+            linkColor: .secondaryLabel,
+            codeTextColor: .secondaryLabel,
+            codeBackgroundColor: .tertiarySystemFill,
+            codeBlockBackgroundColor: .quaternarySystemFill,
+            bodyTextStyle: .footnote,
+            secondaryTextStyle: .footnote,
+            codeTextStyle: .footnote,
+            headingScale: .compact
+        )
+    }
+
     func bodyFont(compatibleWith traitCollection: UITraitCollection) -> UIFont {
-        .preferredFont(forTextStyle: .body, compatibleWith: traitCollection)
+        .preferredFont(forTextStyle: bodyTextStyle, compatibleWith: traitCollection)
     }
 
     func calloutFont(compatibleWith traitCollection: UITraitCollection) -> UIFont {
-        .preferredFont(forTextStyle: .callout, compatibleWith: traitCollection)
+        .preferredFont(forTextStyle: secondaryTextStyle, compatibleWith: traitCollection)
     }
 
     func codeFont(compatibleWith traitCollection: UITraitCollection) -> UIFont {
         .monospacedSystemFont(
             ofSize: UIFont.preferredFont(
-                forTextStyle: .callout,
+                forTextStyle: codeTextStyle,
                 compatibleWith: traitCollection
             ).pointSize,
             weight: .regular
@@ -94,6 +142,10 @@ struct ChatMarkdownRenderStyle {
     }
 
     private func headingTextStyle(level: Int) -> UIFont.TextStyle {
+        if headingScale == .compact {
+            return bodyTextStyle
+        }
+
         switch level {
         case 1:
             return .title1
@@ -111,7 +163,11 @@ struct ChatMarkdownRenderStyle {
     }
 
     private func headingTraits(level: Int) -> UIFontDescriptor.SymbolicTraits {
-        level == 4 ? [] : .traitBold
+        if headingScale == .compact {
+            return .traitBold
+        }
+
+        return level == 4 ? UIFontDescriptor.SymbolicTraits() : .traitBold
     }
 
     private func systemParagraphSpacing(for font: UIFont) -> CGFloat {
