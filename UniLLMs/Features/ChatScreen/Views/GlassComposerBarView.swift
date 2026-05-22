@@ -85,6 +85,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     private var isStreamingResponse = false
     private var pendingAttachments: [PendingAttachmentDisplay] = []
     private var selectedSystemPrompt: SelectedSystemPromptDisplay?
+    private var traitChangeRegistration: (any UITraitChangeRegistration)?
 
     var onSend: ((SendTransition) -> Void)?
     var onStop: (() -> Void)?
@@ -127,19 +128,6 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
             lastMeasuredTextWidth = width
             updateTextHeight(animated: false)
         }
-    }
-
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-
-        guard previousTraitCollection?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory else {
-            return
-        }
-
-        updateFontsForCurrentContentSize()
-        updateTextHeight(animated: false)
-        updateSystemPromptPreviewHeight()
-        onLayoutChange?()
     }
 
     func textViewDidChange(_ textView: UITextView) {
@@ -192,7 +180,19 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         configurePlusButton()
         configureWaveformButton()
         configureCapsule()
+        configureTraitObservation()
         updateInputMode(animated: false)
+    }
+
+    private func configureTraitObservation() {
+        traitChangeRegistration = registerForTraitChanges(
+            [UITraitPreferredContentSizeCategory.self]
+        ) { (view: GlassComposerBarView, _) in
+            view.updateFontsForCurrentContentSize()
+            view.updateTextHeight(animated: false)
+            view.updateSystemPromptPreviewHeight()
+            view.onLayoutChange?()
+        }
     }
 
     private func configureStackView() {
