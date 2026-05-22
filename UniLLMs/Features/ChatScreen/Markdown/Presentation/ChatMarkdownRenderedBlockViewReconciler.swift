@@ -1,0 +1,382 @@
+//
+//  ChatMarkdownRenderedBlockViewReconciler.swift
+//  UniLLMs
+//
+//  Shared UIKit view reuse for rendered Markdown presentation blocks.
+//  Created by Codex on 2026/5/22.
+//
+
+import UIKit
+
+struct ChatMarkdownRenderedBlockViewConfiguration {
+    let style: ChatMarkdownRenderStyle
+    let traitCollection: UITraitCollection
+    let onNeedsHeightUpdate: (() -> Void)?
+}
+
+struct ChatMarkdownRenderedBlockViewRecord {
+    let view: UIView
+    let kind: ChatMarkdownRenderedBlockViewKind
+    let identity: ChatMarkdownRenderedBlockViewIdentity
+}
+
+enum ChatMarkdownRenderedBlockViewKind: Equatable {
+    case text
+    case codeBlock
+    case mathBlock
+    case table
+    case image
+    case details
+}
+
+struct ChatMarkdownRenderedBlockViewIdentity: Equatable {
+    fileprivate let value: String
+
+    init(_ block: ChatMarkdownRenderedBlock) {
+        value = Self.value(for: block)
+    }
+
+    private static func value(for block: ChatMarkdownRenderedBlock) -> String {
+        switch block {
+        case let .text(attributedText):
+            return "text:\(attributedText.string)"
+        case let .codeBlock(codeBlock):
+            return "code:\(codeBlock.language ?? ""):\(codeBlock.code)"
+        case let .mathBlock(mathBlock):
+            return "math:\(mathBlock.latex)"
+        case let .table(tableData):
+            return "table:\(tableData.identityValue)"
+        case let .image(imageBlock):
+            return "image:\(imageBlock.source):\(imageBlock.altText)"
+        case let .details(detailsBlock):
+            return "details:\(detailsBlock.summary):\(detailsBlock.children.identityValue)"
+        }
+    }
+}
+
+enum ChatMarkdownRenderedBlockViewReconciler {
+    @discardableResult
+    static func append(
+        _ blocks: [ChatMarkdownRenderedBlock],
+        to stackView: UIStackView,
+        configuration: ChatMarkdownRenderedBlockViewConfiguration
+    ) -> [ChatMarkdownRenderedBlockViewRecord] {
+        var records: [ChatMarkdownRenderedBlockViewRecord] = []
+        for block in renderableBlocks(from: blocks) {
+            guard let record = makeRecord(for: block, configuration: configuration) else {
+                continue
+            }
+            records.append(record)
+            stackView.addArrangedSubview(record.view)
+        }
+        return records
+    }
+
+    static func reconcile(
+        _ blocks: [ChatMarkdownRenderedBlock],
+        records currentRecords: [ChatMarkdownRenderedBlockViewRecord],
+        in stackView: UIStackView,
+        startingAt startIndex: Int = 0,
+        allowsIdentityChange: Bool = false,
+        configuration: ChatMarkdownRenderedBlockViewConfiguration
+    ) -> [ChatMarkdownRenderedBlockViewRecord] {
+        let blocks = renderableBlocks(from: blocks)
+        var nextRecords: [ChatMarkdownRenderedBlockViewRecord] = []
+        var shouldRebuildRemainingRecords = false
+
+        for (blockIndex, block) in blocks.enumerated() {
+            let existing = currentRecords.indices.contains(blockIndex)
+                ? currentRecords[blockIndex]
+                : nil
+            let desiredIndex = startIndex + blockIndex
+
+            if !shouldRebuildRemainingRecords,
+               let existing,
+               let updated = update(
+                   existing,
+                   with: block,
+                   allowsIdentityChange: allowsIdentityChange
+               ) {
+                ensureView(updated.view, at: desiredIndex, in: stackView)
+                nextRecords.append(updated)
+                continue
+            }
+
+            if existing != nil {
+                shouldRebuildRemainingRecords = true
+            }
+
+            guard let record = makeRecord(for: block, configuration: configuration) else {
+                continue
+            }
+            insertView(record.view, at: desiredIndex, in: stackView)
+            nextRecords.append(record)
+        }
+
+        let retainedViews = Set(nextRecords.map { ObjectIdentifier($0.view) })
+        for record in currentRecords where !retainedViews.contains(ObjectIdentifier(record.view)) {
+            removeView(record.view, from: stackView)
+        }
+
+        return nextRecords
+    }
+
+    static func updateAllInPlaceIfPossible(
+        _ records: [ChatMarkdownRenderedBlockViewRecord],
+        with blocks: [ChatMarkdownRenderedBlock]
+    ) -> Bool {
+        let blocks = renderableBlocks(from: blocks)
+        guard records.count == blocks.count,
+              zip(records, blocks).allSatisfy({ record, block in
+                  record.kind == block.viewKind &&
+                      record.identity == ChatMarkdownRenderedBlockViewIdentity(block) &&
+                      block.supportsInPlaceUpdate
+              }) else {
+            return false
+        }
+
+        for (record, block) in zip(records, blocks) {
+            guard update(record, withAlreadyValidatedBlock: block) != nil else {
+                return false
+            }
+        }
+        return true
+    }
+
+    static func remove(
+        _ records: [ChatMarkdownRenderedBlockViewRecord],
+        from stackView: UIStackView
+    ) {
+        for record in records {
+            removeView(record.view, from: stackView)
+        }
+    }
+
+    static func removeAllArrangedSubviews(in stackView: UIStackView) {
+        for view in stackView.arrangedSubviews {
+            removeView(view, from: stackView)
+        }
+    }
+
+    private static func renderableBlocks(
+        from blocks: [ChatMarkdownRenderedBlock]
+    ) -> [ChatMarkdownRenderedBlock] {
+        blocks.compactMap(\.renderableBlockView)
+    }
+
+    private static func update(
+        _ record: ChatMarkdownRenderedBlockViewRecord,
+        with block: ChatMarkdownRenderedBlock,
+        allowsIdentityChange: Bool
+    ) -> ChatMarkdownRenderedBlockViewRecord? {
+        guard record.kind == block.viewKind,
+              (allowsIdentityChange || record.identity == ChatMarkdownRenderedBlockViewIdentity(block)),
+              block.supportsInPlaceUpdate else {
+            return nil
+        }
+        return update(record, withAlreadyValidatedBlock: block)
+    }
+
+    private static func update(
+        _ record: ChatMarkdownRenderedBlockViewRecord,
+        withAlreadyValidatedBlock block: ChatMarkdownRenderedBlock
+    ) -> ChatMarkdownRenderedBlockViewRecord? {
+        switch block {
+        case let .text(attributedText):
+            guard let textView = record.view as? ChatMarkdownTextView else {
+                return nil
+            }
+            textView.replaceMarkdownAttributedText(attributedText)
+            return updatedRecord(from: record, for: block)
+
+        case let .codeBlock(codeBlock):
+            guard let codeBlockView = record.view as? ChatMarkdownCodeBlockView else {
+                return nil
+            }
+            codeBlockView.update(codeBlock: codeBlock)
+            return updatedRecord(from: record, for: block)
+
+        case let .table(tableData):
+            guard let tableView = record.view as? ChatMarkdownTableView else {
+                return nil
+            }
+            tableView.update(tableData: tableData)
+            return updatedRecord(from: record, for: block)
+
+        case let .details(detailsBlock):
+            guard let detailsView = record.view as? ChatMarkdownDetailsView else {
+                return nil
+            }
+            detailsView.update(detailsBlock: detailsBlock)
+            return updatedRecord(from: record, for: block)
+
+        case .mathBlock, .image:
+            return nil
+        }
+    }
+
+    private static func updatedRecord(
+        from record: ChatMarkdownRenderedBlockViewRecord,
+        for block: ChatMarkdownRenderedBlock
+    ) -> ChatMarkdownRenderedBlockViewRecord {
+        ChatMarkdownRenderedBlockViewRecord(
+            view: record.view,
+            kind: record.kind,
+            identity: ChatMarkdownRenderedBlockViewIdentity(block)
+        )
+    }
+
+    private static func makeRecord(
+        for block: ChatMarkdownRenderedBlock,
+        configuration: ChatMarkdownRenderedBlockViewConfiguration
+    ) -> ChatMarkdownRenderedBlockViewRecord? {
+        switch block {
+        case let .text(attributedText):
+            guard attributedText.length > 0 else {
+                return nil
+            }
+            return ChatMarkdownRenderedBlockViewRecord(
+                view: ChatMarkdownTextView(attributedText: attributedText),
+                kind: .text,
+                identity: ChatMarkdownRenderedBlockViewIdentity(block)
+            )
+        case let .codeBlock(codeBlock):
+            return ChatMarkdownRenderedBlockViewRecord(
+                view: ChatMarkdownCodeBlockView(
+                    codeBlock: codeBlock,
+                    style: configuration.style,
+                    traitCollection: configuration.traitCollection
+                ),
+                kind: .codeBlock,
+                identity: ChatMarkdownRenderedBlockViewIdentity(block)
+            )
+        case let .mathBlock(mathBlock):
+            return ChatMarkdownRenderedBlockViewRecord(
+                view: ChatMarkdownMathBlockView(
+                    mathBlock: mathBlock,
+                    style: configuration.style,
+                    traitCollection: configuration.traitCollection
+                ),
+                kind: .mathBlock,
+                identity: ChatMarkdownRenderedBlockViewIdentity(block)
+            )
+        case let .table(tableData):
+            return ChatMarkdownRenderedBlockViewRecord(
+                view: ChatMarkdownTableView(
+                    tableData: tableData,
+                    style: configuration.style,
+                    traitCollection: configuration.traitCollection
+                ),
+                kind: .table,
+                identity: ChatMarkdownRenderedBlockViewIdentity(block)
+            )
+        case let .image(imageBlock):
+            let imageView = ChatMarkdownImageView(
+                imageBlock: imageBlock,
+                style: configuration.style,
+                traitCollection: configuration.traitCollection
+            )
+            imageView.onImageSizeDidChange = configuration.onNeedsHeightUpdate
+            return ChatMarkdownRenderedBlockViewRecord(
+                view: imageView,
+                kind: .image,
+                identity: ChatMarkdownRenderedBlockViewIdentity(block)
+            )
+        case let .details(detailsBlock):
+            let detailsView = ChatMarkdownDetailsView(
+                detailsBlock: detailsBlock,
+                style: configuration.style,
+                traitCollection: configuration.traitCollection
+            )
+            detailsView.onNeedsHeightUpdate = configuration.onNeedsHeightUpdate
+            return ChatMarkdownRenderedBlockViewRecord(
+                view: detailsView,
+                kind: .details,
+                identity: ChatMarkdownRenderedBlockViewIdentity(block)
+            )
+        }
+    }
+
+    private static func removeView(_ view: UIView, from stackView: UIStackView) {
+        stackView.removeArrangedSubview(view)
+        view.removeFromSuperview()
+    }
+
+    private static func insertView(_ view: UIView, at index: Int, in stackView: UIStackView) {
+        stackView.insertArrangedSubview(view, at: clampedIndex(index, in: stackView))
+    }
+
+    private static func ensureView(_ view: UIView, at index: Int, in stackView: UIStackView) {
+        guard let currentIndex = stackView.arrangedSubviews.firstIndex(of: view),
+              currentIndex != index else {
+            return
+        }
+        stackView.removeArrangedSubview(view)
+        insertView(view, at: index, in: stackView)
+    }
+
+    private static func clampedIndex(_ index: Int, in stackView: UIStackView) -> Int {
+        max(0, min(index, stackView.arrangedSubviews.count))
+    }
+}
+
+extension ChatMarkdownRenderedBlock {
+    var viewKind: ChatMarkdownRenderedBlockViewKind {
+        switch self {
+        case .text:
+            return .text
+        case .codeBlock:
+            return .codeBlock
+        case .mathBlock:
+            return .mathBlock
+        case .table:
+            return .table
+        case .image:
+            return .image
+        case .details:
+            return .details
+        }
+    }
+
+    var renderableBlockView: ChatMarkdownRenderedBlock? {
+        switch self {
+        case let .text(attributedText):
+            return attributedText.length > 0 ? self : nil
+        case .codeBlock, .mathBlock, .table, .image, .details:
+            return self
+        }
+    }
+
+    fileprivate var supportsInPlaceUpdate: Bool {
+        switch self {
+        case .text, .codeBlock, .table, .details:
+            return true
+        case .mathBlock, .image:
+            return false
+        }
+    }
+}
+
+private extension Array where Element == ChatMarkdownRenderedBlock {
+    var identityValue: String {
+        map { ChatMarkdownRenderedBlockViewIdentity($0) }
+            .map(\.value)
+            .joined(separator: "\u{1F}")
+    }
+}
+
+private extension ChatMarkdownTableData {
+    var identityValue: String {
+        rows
+            .map { row in
+                row.map(\.identityValue).joined(separator: "\u{1E}")
+            }
+            .joined(separator: "\u{1D}")
+    }
+}
+
+private extension ChatMarkdownTableCell {
+    var identityValue: String {
+        "\(isHeader):\(alignment.rawValue):\(attributedText.string)"
+    }
+}

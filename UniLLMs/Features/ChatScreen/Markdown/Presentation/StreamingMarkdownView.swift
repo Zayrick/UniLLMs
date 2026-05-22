@@ -11,38 +11,24 @@
 
 import UIKit
 
-private enum StreamingMarkdownRenderedKind: Equatable {
-    case text
-    case codeBlock
-    case mathBlock
-    case table
-    case image
-    case details
-}
-
 final class StreamingMarkdownView: UIView {
     private enum Scheduling {
         static let maxCharactersPerFlush = 4096
     }
 
-    private struct RenderedRecord {
-        let view: UIView
-        let kind: StreamingMarkdownRenderedKind
-    }
-
     private let stackView = UIStackView()
     private var segmenter = ChatMarkdownStreamSegmenter()
     private var completedSegmentMarkdown: [String] = []
+    private var completedSegmentRecords: [[ChatMarkdownRenderedBlockViewRecord]] = []
     private var currentSegmentMarkdown: String?
-    private var currentSegmentRecords: [RenderedRecord] = []
+    private var currentSegmentRecords: [ChatMarkdownRenderedBlockViewRecord] = []
     private var traitChangeRegistration: (any UITraitChangeRegistration)?
+    private var isRenderAllSegmentsScheduled = false
     var onNeedsHeightUpdate: (() -> Void)?
 
     private var pendingMarkdownChunks: [String] = []
     private var pendingChunkIndex = 0
     private var pendingChunkStartIndex: String.Index?
-    private var pendingCarriageReturn = false
-    private var shouldDropLeadingLineFeedAfterFlushedCarriageReturn = false
     private var displayLink: CADisplayLink?
     private var displayLinkProxy: DisplayLinkProxy?
     private var framesToSkip: Int = 0
@@ -79,10 +65,11 @@ final class StreamingMarkdownView: UIView {
         resetRenderedState()
         segmenter.reset()
         completedSegmentMarkdown = markdown.isEmpty ? [] : [markdown]
+        completedSegmentRecords = []
         currentSegmentMarkdown = nil
 
         if !markdown.isEmpty {
-            appendRenderedSegment(markdown)
+            completedSegmentRecords.append(appendRenderedSegment(markdown))
         }
 
         notifyHeightChanged()
@@ -99,6 +86,7 @@ final class StreamingMarkdownView: UIView {
         clearPendingMarkdown()
         segmenter.reset()
         completedSegmentMarkdown = []
+        completedSegmentRecords = []
         currentSegmentMarkdown = nil
         resetRenderedState()
     }
@@ -134,7 +122,7 @@ final class StreamingMarkdownView: UIView {
                 UITraitDisplayScale.self
             ]
         ) { (view: StreamingMarkdownView, _) in
-            view.renderAllSegments()
+            view.scheduleRenderAllSegments()
         }
     }
 
@@ -170,7 +158,6 @@ final class StreamingMarkdownView: UIView {
     }
 
     private func flushPendingMarkdown(limitToFrameBudget: Bool, notify: Bool) {
-        flushPendingCarriageReturnIfNeeded()
         guard hasPendingMarkdown else { return }
         let chunk = limitToFrameBudget ? nextPendingChunk() : drainPendingMarkdown()
 
@@ -226,7 +213,7 @@ final class StreamingMarkdownView: UIView {
     }
 
     private var hasPendingMarkdown: Bool {
-        pendingCarriageReturn || pendingCurrentChunk != nil
+        pendingCurrentChunk != nil
     }
 
     private var pendingCurrentChunk: String? {
@@ -240,38 +227,7 @@ final class StreamingMarkdownView: UIView {
     }
 
     private func appendPendingMarkdown(_ string: String) {
-        var text = string
-
-        if shouldDropLeadingLineFeedAfterFlushedCarriageReturn {
-            if text.first == "\n" {
-                text.removeFirst()
-            }
-            shouldDropLeadingLineFeedAfterFlushedCarriageReturn = false
-        }
-
-        if pendingCarriageReturn {
-            if text.first == "\n" {
-                text.removeFirst()
-            }
-            appendPendingChunk("\n")
-            pendingCarriageReturn = false
-        }
-
-        if text.last == "\r" {
-            pendingCarriageReturn = true
-            text.removeLast()
-        }
-
-        appendPendingChunk(Self.normalizedLineEndings(text))
-    }
-
-    private func flushPendingCarriageReturnIfNeeded() {
-        guard pendingCarriageReturn else {
-            return
-        }
-        appendPendingChunk("\n")
-        pendingCarriageReturn = false
-        shouldDropLeadingLineFeedAfterFlushedCarriageReturn = true
+        appendPendingChunk(string)
     }
 
     private func appendPendingChunk(_ chunk: String) {
@@ -300,14 +256,6 @@ final class StreamingMarkdownView: UIView {
         pendingMarkdownChunks.removeAll(keepingCapacity: true)
         pendingChunkIndex = 0
         pendingChunkStartIndex = nil
-        pendingCarriageReturn = false
-        shouldDropLeadingLineFeedAfterFlushedCarriageReturn = false
-    }
-
-    private static func normalizedLineEndings(_ markdown: String) -> String {
-        markdown
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
     }
 
     // MARK: - Rendering
@@ -316,18 +264,13 @@ final class StreamingMarkdownView: UIView {
         for segment in update.completedSegments {
             completedSegmentMarkdown.append(segment)
             if commitCurrentSegment(markdown: segment) {
+                completedSegmentRecords.append(currentSegmentRecords)
+                currentSegmentRecords = []
                 continue
             }
 
-            let currentDetailsExpansionStates = detailsExpansionStates(in: stackView)
             removeCurrentSegmentViews()
-            let detailsStartIndex = detailsExpansionStates(in: stackView).count
-            appendRenderedSegment(segment)
-            restoreDetailsExpansionStates(
-                Array(currentDetailsExpansionStates.dropFirst(detailsStartIndex)),
-                startingAt: detailsStartIndex,
-                in: stackView
-            )
+            completedSegmentRecords.append(appendRenderedSegment(segment))
         }
 
         currentSegmentMarkdown = update.currentSegment
@@ -349,235 +292,97 @@ final class StreamingMarkdownView: UIView {
 
         let renderer = makeRenderer()
         let blocks = renderer.render(markdown: markdown)
-        guard blocks.count == currentSegmentRecords.count,
-              zip(currentSegmentRecords, blocks).allSatisfy({ pair in
-                  pair.0.kind == pair.1.kind
-              }) else {
+        guard ChatMarkdownRenderedBlockViewReconciler.updateAllInPlaceIfPossible(
+            currentSegmentRecords,
+            with: blocks
+        ) else {
             return false
         }
 
-        for (record, block) in zip(currentSegmentRecords, blocks) {
-            guard update(record, with: block) != nil else {
-                return false
-            }
-        }
-
-        currentSegmentRecords = []
         currentSegmentMarkdown = nil
         return true
     }
 
     private func renderAllSegments() {
-        let restoredDetailsExpansionStates = detailsExpansionStates(in: stackView)
-        resetRenderedState()
+        removeCurrentSegmentViews()
+        let renderer = makeRenderer()
+        let configuration = blockViewConfiguration(for: renderer)
+        var nextRecords: [[ChatMarkdownRenderedBlockViewRecord]] = []
+        var startIndex = 0
 
-        for segment in completedSegmentMarkdown {
-            appendRenderedSegment(segment)
+        for (segmentIndex, segment) in completedSegmentMarkdown.enumerated() {
+            let blocks = renderer.render(markdown: segment)
+            let records = completedSegmentRecords.indices.contains(segmentIndex)
+                ? completedSegmentRecords[segmentIndex]
+                : []
+            let reconciledRecords = ChatMarkdownRenderedBlockViewReconciler.reconcile(
+                blocks,
+                records: records,
+                in: stackView,
+                startingAt: startIndex,
+                configuration: configuration
+            )
+            nextRecords.append(reconciledRecords)
+            startIndex += reconciledRecords.count
         }
+        completedSegmentRecords = nextRecords
 
         if let currentSegmentMarkdown {
             renderCurrentSegment(currentSegmentMarkdown)
         }
 
-        restoreDetailsExpansionStates(restoredDetailsExpansionStates, in: stackView)
         notifyHeightChanged()
     }
 
-    private func appendRenderedSegment(_ markdown: String) {
+    @discardableResult
+    private func appendRenderedSegment(_ markdown: String) -> [ChatMarkdownRenderedBlockViewRecord] {
         let renderer = makeRenderer()
-        for block in renderer.render(markdown: markdown) {
-            guard let record = makeRecord(for: block, renderer: renderer) else {
-                continue
-            }
-            stackView.addArrangedSubview(record.view)
-        }
+        return ChatMarkdownRenderedBlockViewReconciler.append(
+            renderer.render(markdown: markdown),
+            to: stackView,
+            configuration: blockViewConfiguration(for: renderer)
+        )
     }
 
     private func renderCurrentSegment(_ markdown: String) {
         let renderer = makeRenderer()
-        let blocks = renderer.render(markdown: markdown).compactMap(\.currentSegmentRenderableBlock)
+        let blocks = currentSegmentBlocks(from: renderer.render(markdown: markdown))
         let startIndex = max(0, stackView.arrangedSubviews.count - currentSegmentRecords.count)
-        var nextRecords: [RenderedRecord] = []
-
-        for (blockIndex, block) in blocks.enumerated() {
-            let existing = currentSegmentRecords.indices.contains(blockIndex)
-                ? currentSegmentRecords[blockIndex]
-                : nil
-            let desiredIndex = startIndex + blockIndex
-
-            if let existing,
-               let updated = update(existing, with: block) {
-                ensureView(updated.view, at: desiredIndex)
-                nextRecords.append(updated)
-                continue
-            }
-
-            if let existing {
-                removeView(existing.view)
-            }
-
-            guard let record = makeRecord(for: block, renderer: renderer) else {
-                continue
-            }
-            insertView(record.view, at: desiredIndex)
-            nextRecords.append(record)
-        }
-
-        for record in currentSegmentRecords.dropFirst(nextRecords.count) {
-            removeView(record.view)
-        }
-        currentSegmentRecords = nextRecords
-    }
-
-    private func update(
-        _ record: RenderedRecord,
-        with block: ChatMarkdownRenderedBlock
-    ) -> RenderedRecord? {
-        guard record.kind == block.kind else {
-            return nil
-        }
-
-        switch block {
-        case let .text(attributedText):
-            guard let textView = record.view as? ChatMarkdownTextView else {
-                return nil
-            }
-            textView.replaceMarkdownAttributedText(attributedText)
-            return record
-
-        case let .codeBlock(codeBlock):
-            guard let codeBlockView = record.view as? ChatMarkdownCodeBlockView else {
-                return nil
-            }
-            codeBlockView.update(codeBlock: codeBlock)
-            return record
-
-        case let .table(tableData):
-            guard let tableView = record.view as? ChatMarkdownTableView else {
-                return nil
-            }
-            tableView.update(tableData: tableData)
-            return record
-
-        case let .details(detailsBlock):
-            guard let detailsView = record.view as? ChatMarkdownDetailsView else {
-                return nil
-            }
-            detailsView.update(detailsBlock: detailsBlock)
-            return record
-
-        case .mathBlock, .image:
-            return nil
-        }
-    }
-
-    private func makeRecord(
-        for block: ChatMarkdownRenderedBlock,
-        renderer: ChatMarkdownRenderer
-    ) -> RenderedRecord? {
-        switch block {
-        case let .text(attributedText):
-            guard attributedText.length > 0 else {
-                return nil
-            }
-            return RenderedRecord(
-                view: ChatMarkdownTextView(attributedText: attributedText),
-                kind: .text
-            )
-
-        case let .codeBlock(codeBlock):
-            return RenderedRecord(
-                view: ChatMarkdownCodeBlockView(
-                    codeBlock: codeBlock,
-                    style: renderer.style,
-                    traitCollection: traitCollection
-                ),
-                kind: .codeBlock
-            )
-
-        case let .mathBlock(mathBlock):
-            return RenderedRecord(
-                view: ChatMarkdownMathBlockView(
-                    mathBlock: mathBlock,
-                    style: renderer.style,
-                    traitCollection: traitCollection
-                ),
-                kind: .mathBlock
-            )
-
-        case let .table(tableData):
-            return RenderedRecord(
-                view: ChatMarkdownTableView(
-                    tableData: tableData,
-                    style: renderer.style,
-                    traitCollection: traitCollection
-                ),
-                kind: .table
-            )
-
-        case let .image(imageBlock):
-            let imageView = ChatMarkdownImageView(
-                imageBlock: imageBlock,
-                style: renderer.style,
-                traitCollection: traitCollection
-            )
-            imageView.onImageSizeDidChange = { [weak self] in
-                self?.notifyHeightChanged()
-            }
-            return RenderedRecord(view: imageView, kind: .image)
-
-        case let .details(detailsBlock):
-            let detailsView = ChatMarkdownDetailsView(
-                detailsBlock: detailsBlock,
-                style: renderer.style,
-                traitCollection: traitCollection
-            )
-            detailsView.onNeedsHeightUpdate = { [weak self] in
-                self?.notifyHeightChanged()
-            }
-            return RenderedRecord(view: detailsView, kind: .details)
-        }
+        currentSegmentRecords = ChatMarkdownRenderedBlockViewReconciler.reconcile(
+            blocks,
+            records: currentSegmentRecords,
+            in: stackView,
+            startingAt: startIndex,
+            allowsIdentityChange: true,
+            configuration: blockViewConfiguration(for: renderer)
+        )
     }
 
     private func makeRenderer() -> ChatMarkdownRenderer {
         ChatMarkdownRenderer(traitCollection: traitCollection)
     }
 
-    private func resetRenderedState() {
-        for view in stackView.arrangedSubviews {
-            removeView(view)
+    private func blockViewConfiguration(
+        for renderer: ChatMarkdownRenderer
+    ) -> ChatMarkdownRenderedBlockViewConfiguration {
+        ChatMarkdownRenderedBlockViewConfiguration(
+            style: renderer.style,
+            traitCollection: traitCollection
+        ) { [weak self] in
+            self?.notifyHeightChanged()
         }
+    }
+
+    private func resetRenderedState() {
+        ChatMarkdownRenderedBlockViewReconciler.removeAllArrangedSubviews(in: stackView)
+        completedSegmentRecords = []
         currentSegmentRecords = []
         invalidateIntrinsicContentSize()
     }
 
     private func removeCurrentSegmentViews() {
-        for record in currentSegmentRecords {
-            removeView(record.view)
-        }
+        ChatMarkdownRenderedBlockViewReconciler.remove(currentSegmentRecords, from: stackView)
         currentSegmentRecords = []
-    }
-
-    private func removeView(_ view: UIView) {
-        stackView.removeArrangedSubview(view)
-        view.removeFromSuperview()
-    }
-
-    private func insertView(_ view: UIView, at index: Int) {
-        stackView.insertArrangedSubview(view, at: clampedArrangedSubviewIndex(index))
-    }
-
-    private func ensureView(_ view: UIView, at index: Int) {
-        guard let currentIndex = stackView.arrangedSubviews.firstIndex(of: view),
-              currentIndex != index else {
-            return
-        }
-        stackView.removeArrangedSubview(view)
-        insertView(view, at: index)
-    }
-
-    private func clampedArrangedSubviewIndex(_ index: Int) -> Int {
-        max(0, min(index, stackView.arrangedSubviews.count))
     }
 
     private func notifyHeightChanged() {
@@ -597,101 +402,29 @@ final class StreamingMarkdownView: UIView {
         )
     }
 
-    private func detailsExpansionStates(in rootView: UIView) -> [Bool] {
-        var states: [Bool] = []
-        appendDetailsExpansionStates(from: rootView, to: &states)
-        return states
-    }
-
-    private func appendDetailsExpansionStates(from view: UIView, to states: inout [Bool]) {
-        if let detailsView = view as? ChatMarkdownDetailsView {
-            states.append(detailsView.restoredExpansionState)
+    private func scheduleRenderAllSegments() {
+        guard !isRenderAllSegmentsScheduled else {
+            return
         }
 
-        for subview in view.subviews {
-            appendDetailsExpansionStates(from: subview, to: &states)
-        }
-    }
-
-    private func restoreDetailsExpansionStates(_ states: [Bool], in rootView: UIView) {
-        var index = 0
-        restoreDetailsExpansionStates(states, from: rootView, index: &index)
-    }
-
-    private func restoreDetailsExpansionStates(
-        _ states: [Bool],
-        startingAt startIndex: Int,
-        in rootView: UIView
-    ) {
-        var visitedIndex = 0
-        var restoreIndex = 0
-        restoreDetailsExpansionStates(
-            states,
-            startingAt: startIndex,
-            from: rootView,
-            visitedIndex: &visitedIndex,
-            restoreIndex: &restoreIndex
-        )
-    }
-
-    private func restoreDetailsExpansionStates(_ states: [Bool], from view: UIView, index: inout Int) {
-        if let detailsView = view as? ChatMarkdownDetailsView,
-           states.indices.contains(index) {
-            detailsView.restoreExpansionState(states[index])
-            index += 1
-        }
-
-        for subview in view.subviews {
-            restoreDetailsExpansionStates(states, from: subview, index: &index)
-        }
-    }
-
-    private func restoreDetailsExpansionStates(
-        _ states: [Bool],
-        startingAt startIndex: Int,
-        from view: UIView,
-        visitedIndex: inout Int,
-        restoreIndex: inout Int
-    ) {
-        if let detailsView = view as? ChatMarkdownDetailsView {
-            if visitedIndex >= startIndex,
-               states.indices.contains(restoreIndex) {
-                detailsView.restoreExpansionState(states[restoreIndex])
-                restoreIndex += 1
+        isRenderAllSegmentsScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else {
+                return
             }
-            visitedIndex += 1
+            isRenderAllSegmentsScheduled = false
+            renderAllSegments()
         }
+    }
 
-        for subview in view.subviews {
-            restoreDetailsExpansionStates(
-                states,
-                startingAt: startIndex,
-                from: subview,
-                visitedIndex: &visitedIndex,
-                restoreIndex: &restoreIndex
-            )
-        }
+    private func currentSegmentBlocks(
+        from blocks: [ChatMarkdownRenderedBlock]
+    ) -> [ChatMarkdownRenderedBlock] {
+        blocks.compactMap(\.currentSegmentRenderableBlock)
     }
 }
 
 private extension ChatMarkdownRenderedBlock {
-    var kind: StreamingMarkdownRenderedKind {
-        switch self {
-        case .text:
-            return .text
-        case .codeBlock:
-            return .codeBlock
-        case .mathBlock:
-            return .mathBlock
-        case .table:
-            return .table
-        case .image:
-            return .image
-        case .details:
-            return .details
-        }
-    }
-
     var currentSegmentRenderableBlock: ChatMarkdownRenderedBlock? {
         switch self {
         case let .text(attributedText):

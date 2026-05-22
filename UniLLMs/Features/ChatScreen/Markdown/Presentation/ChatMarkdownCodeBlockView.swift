@@ -286,7 +286,8 @@ final class ChatMarkdownCodeBlockView: UIView {
             ? "\(displayLanguage) code, streaming"
             : "\(displayLanguage) code"
         scrollView.accessibilityLabel = label
-        codeContentView.accessibilityHint = isStreaming ? "Streaming" : nil
+        codeContentView.accessibilityValue = isStreaming ? "Streaming" : nil
+        codeContentView.accessibilityHint = nil
     }
 
     @objc private func copyCodeFromAccessibilityAction(_ action: UIAccessibilityCustomAction) -> Bool {

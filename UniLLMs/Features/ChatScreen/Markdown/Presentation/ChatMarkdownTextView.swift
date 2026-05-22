@@ -78,20 +78,15 @@ final class ChatMarkdownTextView: UITextView {
         setNeedsDisplay()
     }
 
-    /// Legacy entry-point kept for callers that have not migrated yet.
-    func updateMarkdownAttributedTextWithBlur(_ newText: NSAttributedString) {
-        replaceMarkdownAttributedText(newText)
-    }
-
     private func canAppendOnly(_ newText: NSAttributedString) -> Bool {
         let oldLength = currentAttributedText.length
         guard newText.length > oldLength else {
             return false
         }
-        return currentAttributedText.chatMarkdownSemanticallyMatchesPrefix(
-            of: newText,
-            length: oldLength
+        let newPrefix = newText.attributedSubstring(
+            from: NSRange(location: 0, length: oldLength)
         )
+        return currentAttributedText.isEqual(to: newPrefix)
     }
 
     private func configure() {

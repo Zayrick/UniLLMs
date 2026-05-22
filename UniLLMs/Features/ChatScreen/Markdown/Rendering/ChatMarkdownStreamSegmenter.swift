@@ -2,7 +2,7 @@
 //  ChatMarkdownStreamSegmenter.swift
 //  UniLLMs
 //
-//  Incremental top-level Markdown block segmentation for streamed chat content.
+//  Incremental presentation-block segmentation for streamed chat content.
 //  Created by Zayrick on 2026/5/13.
 //
 
@@ -135,8 +135,10 @@ struct ChatMarkdownStreamSegmenter {
         if isBlockQuoteLine(firstLine.text) {
             return blockQuoteEnd(in: lines, finishing: finishing)
         }
-        if startsHTMLDetailsBlock(firstLine.text) {
-            return htmlDetailsEnd(in: lines, finishing: finishing)
+        // The native details renderer spans cmark HTML blocks and Markdown body
+        // children, so streaming keeps the whole details block together.
+        if startsNativeDetailsBlock(firstLine.text) {
+            return nativeDetailsEnd(in: lines, finishing: finishing)
         }
         if let htmlBlockEndCondition = htmlBlockEndCondition(
             for: firstLine.text,
@@ -267,7 +269,7 @@ struct ChatMarkdownStreamSegmenter {
         return finishing ? SegmentEnd(segmentLineCount: lines.count, consumedLineCount: lines.count) : nil
     }
 
-    private static func htmlDetailsEnd(in lines: [Line], finishing: Bool) -> SegmentEnd? {
+    private static func nativeDetailsEnd(in lines: [Line], finishing: Bool) -> SegmentEnd? {
         var depth = 0
         var didStart = false
         var openFence: (marker: Character, count: Int)?
@@ -300,15 +302,10 @@ struct ChatMarkdownStreamSegmenter {
                 continue
             }
 
-            let consumedLineCount: Int
-            if index + 1 < lines.count,
-               lines[index + 1].isComplete,
-               isBlank(lines[index + 1].text) {
-                consumedLineCount = index + 2
-            } else {
-                consumedLineCount = index + 1
-            }
-            return SegmentEnd(segmentLineCount: index + 1, consumedLineCount: consumedLineCount)
+            return segmentEndIncludingFollowingBlankLine(
+                lineIndex: index,
+                in: lines
+            )
         }
 
         return finishing ? SegmentEnd(segmentLineCount: lines.count, consumedLineCount: lines.count) : nil
@@ -425,7 +422,7 @@ struct ChatMarkdownStreamSegmenter {
     }
 
     private static func isSingleLineBlock(_ line: String) -> Bool {
-        isATXHeading(line) || isThematicBreak(line) || isStandaloneImageLine(line)
+        isATXHeading(line) || isThematicBreak(line)
     }
 
     private static func isTableStart(in lines: [Line]) -> Bool {
@@ -598,16 +595,6 @@ struct ChatMarkdownStreamSegmenter {
         return !trimmedLine.isEmpty && trimmedLine.allSatisfy { $0 == marker }
     }
 
-    private static func isStandaloneImageLine(_ line: String) -> Bool {
-        guard let indentedLine = lineAfterOptionalBlockIndent(line) else {
-            return false
-        }
-        let trimmedLine = indentedLine.trimmingCharacters(in: .whitespaces)
-        return trimmedLine.hasPrefix("![") &&
-            trimmedLine.contains("](") &&
-            trimmedLine.hasSuffix(")")
-    }
-
     private static func isBlockQuoteLine(_ line: String) -> Bool {
         guard let indentedLine = lineAfterOptionalBlockIndent(line) else {
             return false
@@ -631,7 +618,7 @@ struct ChatMarkdownStreamSegmenter {
         return String(content)
     }
 
-    private static func startsHTMLDetailsBlock(_ line: String) -> Bool {
+    private static func startsNativeDetailsBlock(_ line: String) -> Bool {
         guard let indentedLine = lineAfterOptionalBlockIndent(line) else {
             return false
         }
@@ -745,14 +732,196 @@ struct ChatMarkdownStreamSegmenter {
 
     private static func isCompleteStandaloneHTMLTagLine(_ line: String) -> Bool {
         let trimmedLine = line.trimmingCharacters(in: .whitespaces)
-        let tokens = ChatMarkdownHTMLSupport.tokens(in: trimmedLine)
-        guard tokens.count == 1,
-              case let .tag(tag) = tokens[0] else {
+        guard let tag = standaloneRawHTMLTag(in: trimmedLine) else {
             return false
         }
 
         return tag.isClosing ||
-            (tag.name != "script" && tag.name != "pre" && tag.name != "style")
+            !["script", "pre", "style"].contains(tag.name)
+    }
+
+    private static func standaloneRawHTMLTag(
+        in line: String
+    ) -> (name: String, isClosing: Bool)? {
+        guard line.hasPrefix("<"), line.hasSuffix(">") else {
+            return nil
+        }
+
+        var index = line.index(after: line.startIndex)
+        let isClosing = index < line.endIndex && line[index] == "/"
+        if isClosing {
+            index = line.index(after: index)
+        }
+
+        guard let name = rawHTMLTagName(in: line, index: &index) else {
+            return nil
+        }
+
+        if isClosing {
+            skipHTMLWhitespace(in: line, index: &index)
+            guard index < line.endIndex, line[index] == ">" else {
+                return nil
+            }
+            return line.index(after: index) == line.endIndex ? (name, true) : nil
+        }
+
+        while index < line.endIndex {
+            let hadWhitespace = skipHTMLWhitespace(in: line, index: &index)
+            guard index < line.endIndex else {
+                return nil
+            }
+
+            if line[index] == ">" {
+                return line.index(after: index) == line.endIndex ? (name, false) : nil
+            }
+            if line[index] == "/" {
+                let nextIndex = line.index(after: index)
+                guard nextIndex < line.endIndex, line[nextIndex] == ">" else {
+                    return nil
+                }
+                return line.index(after: nextIndex) == line.endIndex ? (name, false) : nil
+            }
+            guard hadWhitespace,
+                  consumeRawHTMLAttribute(in: line, index: &index) else {
+                return nil
+            }
+        }
+
+        return nil
+    }
+
+    private static func rawHTMLTagName(in line: String, index: inout String.Index) -> String? {
+        guard index < line.endIndex,
+              isASCIIAlpha(line[index]) else {
+            return nil
+        }
+
+        let nameStart = index
+        index = line.index(after: index)
+        while index < line.endIndex,
+              isASCIIAlphanumeric(line[index]) || line[index] == "-" {
+            index = line.index(after: index)
+        }
+        return String(line[nameStart..<index]).lowercased()
+    }
+
+    private static func consumeRawHTMLAttribute(
+        in line: String,
+        index: inout String.Index
+    ) -> Bool {
+        guard index < line.endIndex,
+              isRawHTMLAttributeNameStart(line[index]) else {
+            return false
+        }
+
+        index = line.index(after: index)
+        while index < line.endIndex,
+              isRawHTMLAttributeNameCharacter(line[index]) {
+            index = line.index(after: index)
+        }
+
+        skipHTMLWhitespace(in: line, index: &index)
+        guard index < line.endIndex, line[index] == "=" else {
+            return true
+        }
+
+        index = line.index(after: index)
+        skipHTMLWhitespace(in: line, index: &index)
+        return consumeRawHTMLAttributeValue(in: line, index: &index)
+    }
+
+    private static func consumeRawHTMLAttributeValue(
+        in line: String,
+        index: inout String.Index
+    ) -> Bool {
+        guard index < line.endIndex else {
+            return false
+        }
+
+        if line[index] == "\"" || line[index] == "'" {
+            let quote = line[index]
+            index = line.index(after: index)
+            while index < line.endIndex, line[index] != quote {
+                index = line.index(after: index)
+            }
+            guard index < line.endIndex else {
+                return false
+            }
+            index = line.index(after: index)
+            return true
+        }
+
+        let valueStart = index
+        while index < line.endIndex,
+              isRawHTMLUnquotedAttributeValueCharacter(line[index]) {
+            index = line.index(after: index)
+        }
+        return valueStart < index
+    }
+
+    @discardableResult
+    private static func skipHTMLWhitespace(
+        in line: String,
+        index: inout String.Index
+    ) -> Bool {
+        let start = index
+        while index < line.endIndex, isHTMLWhitespace(line[index]) {
+            index = line.index(after: index)
+        }
+        return index != start
+    }
+
+    private static func isRawHTMLAttributeNameStart(_ character: Character) -> Bool {
+        isASCIIAlpha(character) || character == "_" || character == ":"
+    }
+
+    private static func isRawHTMLAttributeNameCharacter(_ character: Character) -> Bool {
+        isASCIIAlphanumeric(character) ||
+            character == "_" ||
+            character == "." ||
+            character == ":" ||
+            character == "-"
+    }
+
+    private static func isRawHTMLUnquotedAttributeValueCharacter(_ character: Character) -> Bool {
+        guard !isHTMLWhitespace(character) else {
+            return false
+        }
+        return character != "\"" &&
+            character != "'" &&
+            character != "=" &&
+            character != "<" &&
+            character != ">" &&
+            character != "`"
+    }
+
+    private static func isHTMLWhitespace(_ character: Character) -> Bool {
+        character.unicodeScalars.allSatisfy { scalar in
+            switch scalar.value {
+            case 0x20, 0x0A, 0x09, 0x0D, 0x0C:
+                return true
+            default:
+                return false
+            }
+        }
+    }
+
+    private static func isASCIIAlpha(_ character: Character) -> Bool {
+        guard let scalar = character.unicodeScalars.first,
+              character.unicodeScalars.count == 1 else {
+            return false
+        }
+        return (65...90).contains(scalar.value) || (97...122).contains(scalar.value)
+    }
+
+    private static func isASCIIAlphanumeric(_ character: Character) -> Bool {
+        guard let scalar = character.unicodeScalars.first,
+              character.unicodeScalars.count == 1 else {
+            return false
+        }
+        return (48...57).contains(scalar.value) ||
+            (65...90).contains(scalar.value) ||
+            (97...122).contains(scalar.value)
     }
 
     private static func isFencedCodeOpening(_ line: String) -> Bool {
@@ -911,65 +1080,19 @@ struct ChatMarkdownStreamSegmenter {
             isIndentedCodeLine(line) ||
             isListStart(line) ||
             isATXHeading(line) ||
-            isThematicBreak(line) ||
-            isStandaloneImageLine(line)
+            isThematicBreak(line)
     }
 
     private static func openingFenceInfo(in line: String) -> (marker: Character, count: Int)? {
-        fenceInfo(in: line, allowsInfoString: true)
+        ChatMarkdownBlockSyntax.openingFenceInfo(in: line)
     }
 
     private static func closingFenceInfo(in line: String) -> (marker: Character, count: Int)? {
-        fenceInfo(in: line, allowsInfoString: false)
-    }
-
-    private static func fenceInfo(
-        in line: String,
-        allowsInfoString: Bool
-    ) -> (marker: Character, count: Int)? {
-        guard let indentedLine = lineAfterOptionalBlockIndent(line),
-              let marker = indentedLine.first,
-              marker == "`" || marker == "~" else {
-            return nil
-        }
-
-        let count = indentedLine.prefix { $0 == marker }.count
-        guard count >= 3 else {
-            return nil
-        }
-
-        let rest = indentedLine.dropFirst(count)
-        if allowsInfoString {
-            if marker == "`", rest.contains("`") {
-                return nil
-            }
-        } else if !rest.allSatisfy(\.isWhitespace) {
-            return nil
-        }
-
-        return (marker, count)
+        ChatMarkdownBlockSyntax.closingFenceInfo(in: line)
     }
 
     private static func lineAfterOptionalBlockIndent(_ line: String) -> String? {
-        var column = 0
-        var index = line.startIndex
-        while index < line.endIndex {
-            let character = line[index]
-            if character == " " {
-                column += 1
-            } else if character == "\t" {
-                column += 4 - (column % 4)
-            } else {
-                break
-            }
-
-            guard column < 4 else {
-                return nil
-            }
-            index = line.index(after: index)
-        }
-
-        return String(line[index...])
+        ChatMarkdownBlockSyntax.lineAfterOptionalBlockIndent(line)
     }
 
     private static func isIndentedCodeLine(_ line: String) -> Bool {

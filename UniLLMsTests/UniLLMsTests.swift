@@ -1179,11 +1179,10 @@ final class UniLLMsTests: XCTestCase {
         XCTAssertEqual(
             update.completedSegments,
             [
-                "Intro\n",
-                "![Alt](https://example.com/image.png)\n"
+                "Intro\n"
             ]
         )
-        XCTAssertEqual(update.currentSegment, "Next")
+        XCTAssertEqual(update.currentSegment, "![Alt](https://example.com/image.png)\nNext")
     }
 
     func testMarkdownStreamSegmenterCompletesDisplayLatexBlock() {
@@ -1624,6 +1623,50 @@ final class UniLLMsTests: XCTestCase {
             [
                 "| A |\n| --- |\n",
                 "<Warning>\ntext\n"
+            ]
+        )
+        XCTAssertEqual(update.currentSegment, "After")
+    }
+
+    func testMarkdownStreamSegmenterKeepsStandaloneImageLineInsideTableBody() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append(
+            """
+            | A |
+            | --- |
+            ![Alt](https://example.com/image.png)
+
+            After
+            """
+        )
+
+        XCTAssertEqual(
+            update.completedSegments,
+            [
+                "| A |\n| --- |\n![Alt](https://example.com/image.png)\n"
+            ]
+        )
+        XCTAssertEqual(update.currentSegment, "After")
+    }
+
+    func testMarkdownStreamSegmenterKeepsMalformedHTMLTagInsideTableBody() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append(
+            """
+            | A |
+            | --- |
+            </a href="https://example.com">
+
+            After
+            """
+        )
+
+        XCTAssertEqual(
+            update.completedSegments,
+            [
+                "| A |\n| --- |\n</a href=\"https://example.com\">\n"
             ]
         )
         XCTAssertEqual(update.currentSegment, "After")
