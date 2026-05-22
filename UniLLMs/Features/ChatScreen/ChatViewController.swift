@@ -117,6 +117,7 @@ final class ChatViewController: UIViewController {
     private var selectedModelSelection: ChatModelSelection?
     private var activeResponseTask: Task<Void, Never>?
     private weak var activeResponseView: AssistantResponseTextView?
+    private var isApplyingAssistantResponseChange = false
     private var isMessagesBottomLocked = true
     private var pendingAttachments: [ChatAttachment] = []
     private let attachmentStore = ChatAttachmentStore.shared
@@ -972,6 +973,7 @@ final class ChatViewController: UIViewController {
         let responseView = AssistantResponseTextView()
         responseView.translatesAutoresizingMaskIntoConstraints = false
         responseView.isHidden = true
+        configureStreamingHeightUpdates(for: responseView)
         responseView.setContentHuggingPriority(.required, for: .vertical)
         responseView.setContentCompressionResistancePriority(.required, for: .vertical)
 
@@ -1297,6 +1299,16 @@ final class ChatViewController: UIViewController {
         to responseView: AssistantResponseTextView,
         update: () -> Void
     ) {
+        guard !isApplyingAssistantResponseChange else {
+            update()
+            return
+        }
+
+        isApplyingAssistantResponseChange = true
+        defer {
+            isApplyingAssistantResponseChange = false
+        }
+
         mainPageView.layoutIfNeeded()
         let previousFrames = visibleMessageFrames()
         let previousHeight = responseView.isHidden ? 0.0 : responseView.bounds.height
@@ -1315,6 +1327,19 @@ final class ChatViewController: UIViewController {
         let didGrow = responseView.bounds.height - previousHeight > 0.5
         if didGrow {
             animateExistingMessages(from: previousFrames)
+        }
+    }
+
+    private func configureStreamingHeightUpdates(for responseView: AssistantResponseTextView) {
+        responseView.onTimelineHeightUpdate = { [weak self, weak responseView] update in
+            guard let self,
+                  let responseView,
+                  self.activeResponseView === responseView else {
+                update()
+                return
+            }
+
+            self.applyAssistantResponseChange(to: responseView, update: update)
         }
     }
 

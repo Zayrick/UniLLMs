@@ -53,6 +53,7 @@ final class AssistantResponseTextView: UIView {
     private var lastMeasuredTextWidth: CGFloat = 0.0
     private weak var activeThinkingSection: ThinkingSectionView?
     private var toolSectionsByCallID: [String: ThinkingSectionView] = [:]
+    var onTimelineHeightUpdate: (((() -> Void) -> Void))?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -377,7 +378,7 @@ final class AssistantResponseTextView: UIView {
         contentMarkdownView.backgroundColor = .clear
         contentMarkdownView.isOpaque = false
         contentMarkdownView.onNeedsHeightUpdate = { [weak self] in
-            self?.updateTextViewHeights()
+            self?.performTimelineHeightUpdate()
         }
         contentMarkdownView.setContentCompressionResistancePriority(.required, for: .vertical)
         contentMarkdownView.setContentHuggingPriority(.required, for: .vertical)
@@ -500,6 +501,21 @@ final class AssistantResponseTextView: UIView {
         }
 
         updateTextViewHeights()
+    }
+
+    private func performTimelineHeightUpdate() {
+        let update = { [weak self] in
+            guard let self else {
+                return
+            }
+            self.updateTextViewHeights()
+        }
+
+        if let onTimelineHeightUpdate {
+            onTimelineHeightUpdate(update)
+        } else {
+            update()
+        }
     }
 
     private func updateTextViewHeights() {
