@@ -8,7 +8,12 @@ Provider configuration and model metadata are handled by `LLMProviderStore.swift
 
 ## Agent-Specific Instructions
 
-AI agents must not compile, build, archive, or launch the app for this repository unless the user explicitly asks for it. Do not run `xcodebuild build`, `xcodebuild test`, Xcode build actions, simulator launches, or equivalent commands that compile, build, install, or launch the app. It is acceptable to inspect, add, and edit unit tests or UI tests, as long as the agent does not run commands that trigger compilation or app launch. It is acceptable to inspect source files, storyboards, assets, and Xcode project metadata by reading files. Only run `xcodebuild -list` when the user explicitly asks for Xcode-reported project metadata.
+Available Xcode validation levels and AI-agent boundaries:
+
+- Compile-only app validation is allowed with `xcodebuild ... -destination 'generic/platform=iOS Simulator' build`. This checks that the app target compiles for Simulator without booting, installing to, or launching a specific simulator.
+- Compile-only test validation is allowed with `xcodebuild build-for-testing ... -destination 'generic/platform=iOS Simulator'`. This checks that the app and test bundles compile without executing tests.
+- Runtime validation requires explicit user approval. Agents must not run `xcodebuild test`, `xcodebuild test-without-building`, Xcode Run/Test actions, simulator launches, `simctl install`, `simctl launch`, or equivalent commands that execute tests, install the app, or launch the app unless the user explicitly asks for that specific action.
+- Archive and distribution actions require explicit user approval. Agents must not run `xcodebuild archive`, export archives, change signing/provisioning, or perform distribution-related actions unless the user explicitly asks for that specific action.
 
 AI agents may run read-only `git` commands for inspection. Do not perform Git operations that modify repository state unless the user explicitly asks for that specific action. 
 
@@ -22,7 +27,7 @@ Prefer primary sources: Apple Developer Documentation, OpenRouter documentation,
 
 If network access or documentation lookup is unavailable, explicitly state that current web verification could not be performed before making assumptions. In that case, make the smallest well-supported change possible, avoid speculative API usage, and ask the user before proceeding when the missing information could affect correctness, security, or data compatibility.
 
-This requirement does not weaken the repository's build restrictions. Web research is allowed for freshness, but agents still must not compile, build, test, archive, install, or launch the app unless the user explicitly asks for that specific action.
+This requirement does not weaken the repository's execution restrictions. Web research is allowed for freshness, and agents may perform the compile-only validation actions described above, but agents still must not run tests, archive, install, or launch the app unless the user explicitly asks for that specific action.
 
 ## Implementation Principles
 
@@ -34,12 +39,13 @@ Keep architecture and behavior extremely simple, clean, and direct. Solve the ro
 
 ## Build, Test, and Development Commands
 
-The following commands are for human contributors or for cases where the user explicitly requests them:
+The following commands describe the available local workflows and the AI-agent boundary for each:
 
 - `open UniLLMs.xcodeproj` opens the project in Xcode for simulator runs and interface editing.
 - `xcodebuild -list -project UniLLMs.xcodeproj` lists available targets, configurations, and schemes.
-- `xcodebuild -project UniLLMs.xcodeproj -scheme UniLLMs -configuration Debug -sdk iphonesimulator -derivedDataPath .DerivedData build` builds the app locally while keeping build output inside the repo.
-- `xcodebuild test -project UniLLMs.xcodeproj -scheme UniLLMs -destination 'platform=iOS Simulator,name=<Device Name>' -derivedDataPath .DerivedData` runs the unit and UI test targets when an appropriate simulator is available.
+- `xcodebuild -project UniLLMs.xcodeproj -scheme UniLLMs -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath .DerivedData build` compiles the app for Simulator without running it. Agents may run this.
+- `xcodebuild build-for-testing -project UniLLMs.xcodeproj -scheme UniLLMs -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath .DerivedData -only-testing:UniLLMsTests` compiles the app and unit test bundle without running tests. Agents may run this.
+- `xcodebuild test -project UniLLMs.xcodeproj -scheme UniLLMs -destination 'platform=iOS Simulator,name=<Device Name>' -derivedDataPath .DerivedData` runs the unit and UI test targets when an appropriate simulator is available. Agents must only run this when explicitly asked.
 
 ## Coding Style & Naming Conventions
 
@@ -53,7 +59,7 @@ For persistence changes, keep `LLMProviderRecord` and `LLMProviderModel` Codable
 
 XCTest targets already exist. Add focused unit tests in `UniLLMsTests/` for model, store, parsing, and non-UI behavior; name new files after the subject under test, for example `LLMProviderStoreTests.swift`. Use clear XCTest names such as `testAddingProviderAssignsUniqueName()` or `test_<behavior>_<expectedResult>()`, and keep test data isolated with dedicated `UserDefaults` suites when persistence is involved.
 
-Use `UniLLMsUITests/` for launch and interaction coverage that genuinely needs the app process. For visible UIKit changes, manually verify common iPhone and iPad sizes, light/dark appearances if supported, Dynamic Type behavior, keyboard interactions, and safe-area layout. Agents may add or edit unit and UI test coverage, but should not run test commands that compile, build, install, or launch the app unless explicitly asked.
+Use `UniLLMsUITests/` for launch and interaction coverage that genuinely needs the app process. For visible UIKit changes, manually verify common iPhone and iPad sizes, light/dark appearances if supported, Dynamic Type behavior, keyboard interactions, and safe-area layout. Agents may add or edit unit and UI test coverage and may perform compile-only test validation. Agents should not run commands that execute tests, install the app, or launch the app unless explicitly asked.
 
 ## Commit & Pull Request Guidelines
 
