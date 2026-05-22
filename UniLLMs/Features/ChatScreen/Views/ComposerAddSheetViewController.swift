@@ -1,29 +1,33 @@
 //
-//  AttachmentSheetViewController.swift
+//  ComposerAddSheetViewController.swift
 //  UniLLMs
 //
-//  Attachment sheet presented from the composer's plus button.
-//  Shows system list rows that map to Camera, Photo Library, and Files.
+//  Add menu presented from the composer's plus button.
+//  Shows composer-level actions such as choosing a prompt or adding input files.
 //
 //  Created by Zayrick on 2026/5/16.
 //
 
 import UIKit
 
-final class AttachmentSheetViewController: UITableViewController {
+final class ComposerAddSheetViewController: UITableViewController {
     enum Action {
+        case systemPrompt
         case camera
         case photoLibrary
         case files
     }
 
     private enum Row: Int, CaseIterable {
+        case systemPrompt
         case camera
         case photoLibrary
         case files
 
         var action: Action {
             switch self {
+            case .systemPrompt:
+                return .systemPrompt
             case .camera:
                 return .camera
             case .photoLibrary:
@@ -35,6 +39,8 @@ final class AttachmentSheetViewController: UITableViewController {
 
         var title: String {
             switch self {
+            case .systemPrompt:
+                return "System Prompt"
             case .camera:
                 return "Camera"
             case .photoLibrary:
@@ -46,6 +52,8 @@ final class AttachmentSheetViewController: UITableViewController {
 
         var description: String {
             switch self {
+            case .systemPrompt:
+                return "Choose reusable instructions."
             case .camera:
                 return "Take a new photo."
             case .photoLibrary:
@@ -57,6 +65,8 @@ final class AttachmentSheetViewController: UITableViewController {
 
         var symbolName: String {
             switch self {
+            case .systemPrompt:
+                return "text.quote"
             case .camera:
                 return "camera"
             case .photoLibrary:
@@ -67,7 +77,7 @@ final class AttachmentSheetViewController: UITableViewController {
         }
     }
 
-    private static let cellReuseIdentifier = "AttachmentActionCell"
+    private static let cellReuseIdentifier = "ComposerAddActionCell"
 
     var onAction: ((Action) -> Void)?
 
@@ -82,7 +92,7 @@ final class AttachmentSheetViewController: UITableViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        title = "Add Attachment"
+        title = "Add"
         // Required for the sheet transition; without this, the background overpaints during presentation.
         view.backgroundColor = .clear
         tableView.separatorStyle = .none

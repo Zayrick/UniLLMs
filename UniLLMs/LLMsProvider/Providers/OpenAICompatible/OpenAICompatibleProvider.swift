@@ -120,7 +120,18 @@ struct OpenAICompatibleProvider: LLMsProviderAdapter {
         request: ChatRequest,
         configuration: LLMsProviderConfiguration
     ) -> AsyncThrowingStream<ChatResponseDelta, Error> {
-        let messages = request.messages.map(OpenRouterChatMessage.init(message:))
+        guard !Self.containsFileAttachments(request) else {
+            return AsyncThrowingStream { continuation in
+                continuation.finish(
+                    throwing: OpenAICompatibleProviderError.unsupportedFileAttachments(displayName)
+                )
+            }
+        }
+
+        let messages = OpenAIChatPromptRenderer.messages(
+            for: request,
+            supportsFileAttachments: false
+        )
         let tools = Self.isToolsEnabled(configuration)
             ? request.context.availableTools.map(OpenRouterChatTool.init(definition:))
             : []
@@ -158,6 +169,12 @@ struct OpenAICompatibleProvider: LLMsProviderAdapter {
         }
     }
 
+    private static func containsFileAttachments(_ request: ChatRequest) -> Bool {
+        request.messages.contains { message in
+            message.attachments.contains { $0.kind == .file }
+        }
+    }
+
     private static func isToolsEnabled(_ configuration: LLMsProviderConfiguration) -> Bool {
         let value = configuration[ConfigurationKey.toolsEnabled]
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -168,11 +185,14 @@ struct OpenAICompatibleProvider: LLMsProviderAdapter {
 
 enum OpenAICompatibleProviderError: LocalizedError, Equatable {
     case missingAPIBase(String)
+    case unsupportedFileAttachments(String)
 
     var errorDescription: String? {
         switch self {
         case let .missingAPIBase(displayName):
             return "Add an API base for \(displayName) in Settings first."
+        case let .unsupportedFileAttachments(displayName):
+            return "File attachments are not supported by \(displayName)."
         }
     }
 }

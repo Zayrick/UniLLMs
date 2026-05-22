@@ -21,7 +21,7 @@ final class ChatResponseStreamer {
         messages: [ChatMessage],
         context: ChatContext
     ) throws -> AsyncThrowingStream<ChatResponseDelta, Error> {
-        try providerManager.streamChatCompletion(
+        try providerManager.streamChat(
             provider: provider,
             modelID: modelID,
             messages: messages,

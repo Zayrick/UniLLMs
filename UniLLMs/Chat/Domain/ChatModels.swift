@@ -134,17 +134,20 @@ nonisolated struct ChatSession: Codable, Equatable, Identifiable {
     var title: String
     var createdAt: Date
     var updatedAt: Date
+    var selectedSystemPromptID: UUID?
 
     init(
         id: UUID = UUID(),
         title: String = "",
         createdAt: Date = Date(),
-        updatedAt: Date = Date()
+        updatedAt: Date = Date(),
+        selectedSystemPromptID: UUID? = nil
     ) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.selectedSystemPromptID = selectedSystemPromptID
     }
 }
 
@@ -163,17 +166,20 @@ nonisolated struct ChatModelSelection: Equatable {
 nonisolated struct ChatContext: Equatable {
     var session: ChatSession?
     var messages: [ChatMessage]
+    var systemPrompt: SystemPromptRecord?
     var memories: [MemoryRecord]
     var availableTools: [ToolDefinition]
 
     init(
         session: ChatSession? = nil,
         messages: [ChatMessage] = [],
+        systemPrompt: SystemPromptRecord? = nil,
         memories: [MemoryRecord] = [],
         availableTools: [ToolDefinition] = []
     ) {
         self.session = session
         self.messages = messages
+        self.systemPrompt = systemPrompt
         self.memories = memories
         self.availableTools = availableTools
     }

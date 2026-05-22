@@ -76,6 +76,7 @@ final class AppDependencyContainer {
         chatRuntime = ChatRuntime(
             providerStore: providerStore,
             providerManager: providerManager,
+            systemPromptManager: systemPromptManager,
             contextBuilder: contextBuilder,
             turnRunner: turnRunner,
             historyStore: chatHistoryStore

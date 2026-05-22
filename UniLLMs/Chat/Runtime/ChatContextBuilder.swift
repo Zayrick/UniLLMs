@@ -23,12 +23,14 @@ final class ChatContextBuilder {
     func buildContext(
         session: ChatSession?,
         messages: [ChatMessage],
+        systemPrompt: SystemPromptRecord?,
         includeTools: Bool
     ) async -> ChatContext {
         let availableTools = includeTools ? await toolCatalog.loadAvailableTools() : []
         let baseContext = ChatContext(
             session: session,
             messages: messages,
+            systemPrompt: systemPrompt,
             memories: [],
             availableTools: availableTools
         )
@@ -36,6 +38,7 @@ final class ChatContextBuilder {
         return ChatContext(
             session: session,
             messages: messages,
+            systemPrompt: systemPrompt,
             memories: memories,
             availableTools: availableTools
         )

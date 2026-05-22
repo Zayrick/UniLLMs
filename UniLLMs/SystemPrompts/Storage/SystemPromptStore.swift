@@ -87,6 +87,10 @@ final class SystemPromptManager {
         store.loadPrompts()
     }
 
+    func prompt(id: UUID) -> SystemPromptRecord? {
+        savedPrompts().first { $0.id == id }
+    }
+
     func makePromptDraft() -> SystemPromptRecord {
         SystemPromptRecord()
     }

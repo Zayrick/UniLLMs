@@ -55,6 +55,7 @@ final class ChatRuntime {
 
     private let providerStore: LLMsProviderStore
     private let providerManager: LLMsProviderManager
+    private let systemPromptManager: SystemPromptManager
     private let contextBuilder: ChatContextBuilder
     private let turnRunner: ChatTurnRunner
     private let historyStore: (any ChatHistoryStore)?
@@ -67,6 +68,7 @@ final class ChatRuntime {
     init(
         providerStore: LLMsProviderStore,
         providerManager: LLMsProviderManager,
+        systemPromptManager: SystemPromptManager = SystemPromptManager(),
         contextBuilder: ChatContextBuilder,
         turnRunner: ChatTurnRunner,
         historyStore: (any ChatHistoryStore)? = nil,
@@ -74,6 +76,7 @@ final class ChatRuntime {
     ) {
         self.providerStore = providerStore
         self.providerManager = providerManager
+        self.systemPromptManager = systemPromptManager
         self.contextBuilder = contextBuilder
         self.turnRunner = turnRunner
         self.historyStore = historyStore
@@ -82,6 +85,41 @@ final class ChatRuntime {
 
     var currentSessionID: UUID {
         currentSession.id
+    }
+
+    var selectedSystemPromptID: UUID? {
+        currentSession.selectedSystemPromptID
+    }
+
+    func selectedSystemPrompt() -> SystemPromptRecord? {
+        resolvedSelectedSystemPrompt(persistIfCleared: true)
+    }
+
+    func selectSystemPrompt(id promptID: UUID) {
+        guard systemPromptManager.prompt(id: promptID) != nil else {
+            clearSelectedSystemPrompt()
+            return
+        }
+
+        guard currentSession.selectedSystemPromptID != promptID else {
+            return
+        }
+
+        currentSession.selectedSystemPromptID = promptID
+        persistCurrentSessionMetadataIfNeeded()
+    }
+
+    func clearSelectedSystemPrompt() {
+        guard currentSession.selectedSystemPromptID != nil else {
+            return
+        }
+
+        currentSession.selectedSystemPromptID = nil
+        persistCurrentSessionMetadataOrDeleteEmptySession()
+    }
+
+    func waitForPendingHistoryPersistence() async {
+        await historyPersistenceTask?.value
     }
 
     func startTurn(
@@ -102,6 +140,7 @@ final class ChatRuntime {
 
         let turnID = UUID()
         let sentAt = clock.now
+        let turnSystemPrompt = resolvedSystemPromptForNextTurn()
         if conversationTimeline.isEmpty {
             currentSession.title = Self.makeSessionTitle(from: prompt, attachments: attachments)
             currentSession.createdAt = sentAt
@@ -134,6 +173,7 @@ final class ChatRuntime {
                     let context = await self.contextBuilder.buildContext(
                         session: self.currentSession,
                         messages: requestMessages,
+                        systemPrompt: turnSystemPrompt,
                         includeTools: self.providerManager.provider(provider, supports: .tools)
                     )
                     let stream = self.turnRunner.streamResponse(
@@ -198,6 +238,7 @@ final class ChatRuntime {
 
         currentSession = session
         conversationTimeline = ChatTimelineEvent.sortedChronologically(events)
+        discardUnavailableSystemPromptSelection(persistIfCleared: true)
     }
 
     private func finishTurn(
@@ -251,6 +292,54 @@ final class ChatRuntime {
         }
     }
 
+    private func persistCurrentSessionMetadataIfNeeded() {
+        guard !conversationTimeline.isEmpty else {
+            return
+        }
+
+        currentSession.updatedAt = clock.now
+        persistCurrentHistorySnapshot()
+    }
+
+    private func persistCurrentSessionMetadataOrDeleteEmptySession() {
+        if !conversationTimeline.isEmpty {
+            currentSession.updatedAt = clock.now
+        }
+        persistCurrentHistorySnapshot()
+    }
+
+    private func resolvedSystemPromptForNextTurn() -> SystemPromptRecord? {
+        resolvedSelectedSystemPrompt(persistIfCleared: true)
+    }
+
+    private func resolvedSelectedSystemPrompt(persistIfCleared: Bool) -> SystemPromptRecord? {
+        guard let promptID = currentSession.selectedSystemPromptID else {
+            return nil
+        }
+
+        guard let prompt = systemPromptManager.prompt(id: promptID) else {
+            currentSession.selectedSystemPromptID = nil
+            if persistIfCleared {
+                persistCurrentSessionMetadataOrDeleteEmptySession()
+            }
+            return nil
+        }
+
+        return prompt
+    }
+
+    private func discardUnavailableSystemPromptSelection(persistIfCleared: Bool) {
+        guard let promptID = currentSession.selectedSystemPromptID,
+              systemPromptManager.prompt(id: promptID) == nil else {
+            return
+        }
+
+        currentSession.selectedSystemPromptID = nil
+        if persistIfCleared {
+            persistCurrentSessionMetadataOrDeleteEmptySession()
+        }
+    }
+
     private static func makeSessionTitle(
         from prompt: String,
         attachments: [ChatAttachment] = []
@@ -270,4 +359,5 @@ final class ChatRuntime {
 
         return "New Chat"
     }
+
 }

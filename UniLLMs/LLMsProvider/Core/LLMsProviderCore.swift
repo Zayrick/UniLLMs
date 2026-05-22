@@ -406,7 +406,7 @@ final class LLMsProviderManager {
         return try await adapter.fetchModels(configuration: provider.configuration)
     }
 
-    func streamChatCompletion(
+    func streamChat(
         provider: LLMsProviderRecord,
         modelID: String,
         messages: [ChatMessage],

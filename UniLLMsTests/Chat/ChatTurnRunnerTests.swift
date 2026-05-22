@@ -71,6 +71,55 @@ final class ChatTurnRunnerTests: LLMsProviderStoreTestCase {
         XCTAssertEqual(failedCall.presentationName, "Failing Tool")
         XCTAssertEqual(message, "Invalid tool input.")
     }
+
+    func testChatTurnRunnerKeepsSystemPromptSingleAcrossToolLoop() async throws {
+        let adapter = CapturingToolLoopProvider()
+        let providerManager = makeProviderManager(adapters: [adapter])
+        let runner = ChatTurnRunner(
+            responseStreamer: ChatResponseStreamer(providerManager: providerManager),
+            toolManager: ToolManager(
+                catalog: ToolCatalog(
+                    registry: ToolRegistry(tools: [ErrorStatusTool()]),
+                    isEnabled: { true }
+                )
+            )
+        )
+        let provider = LLMsProviderRecord(
+            kind: CapturingToolLoopProvider.providerKind,
+            name: "Tool Loop Capture",
+            configuration: LLMsProviderConfiguration()
+        )
+        let prompt = SystemPromptRecord(
+            title: "Translator",
+            content: "Always answer in Chinese."
+        )
+        let tool = ErrorStatusTool()
+        let context = ChatContext(
+            messages: [
+                ChatMessage(role: .user, content: "Use the failing tool.")
+            ],
+            systemPrompt: prompt,
+            availableTools: [tool.definition]
+        )
+
+        for try await _ in runner.streamResponse(
+            provider: provider,
+            modelID: "test-model",
+            context: context
+        ) {}
+
+        XCTAssertEqual(adapter.requests.count, 2)
+        guard adapter.requests.count == 2 else {
+            return
+        }
+
+        XCTAssertEqual(adapter.requests[0].messages.map(\.role), [.user])
+        XCTAssertEqual(adapter.requests[1].messages.map(\.role), [.user, .assistant, .tool])
+        XCTAssertTrue(adapter.requests.allSatisfy { request in
+            request.context.systemPrompt == prompt
+                && !request.messages.contains(where: { $0.role == .system })
+        })
+    }
 }
 
 private struct ToolLoopTestProvider: LLMsProviderAdapter {
@@ -107,6 +156,61 @@ private struct ToolLoopTestProvider: LLMsProviderAdapter {
         AsyncThrowingStream { continuation in
             if request.messages.contains(where: { $0.role == .tool }) {
                 continuation.yield(ChatResponseDelta(content: "Recovered after tool error."))
+            } else {
+                continuation.yield(
+                    ChatResponseDelta(
+                        toolCalls: [
+                            ChatToolCall(
+                                id: "call_1",
+                                toolID: ErrorStatusTool.toolID,
+                                arguments: "{}"
+                            )
+                        ]
+                    )
+                )
+            }
+            continuation.finish()
+        }
+    }
+}
+
+private final class CapturingToolLoopProvider: LLMsProviderAdapter {
+    static let providerKind = LLMsProviderKind(rawValue: "capturingToolLoopTest")
+
+    private(set) var requests: [ChatRequest] = []
+
+    var kind: LLMsProviderKind {
+        Self.providerKind
+    }
+
+    var displayName: String {
+        "Capturing Tool Loop Test Provider"
+    }
+
+    var capabilities: Set<LLMsProviderCapability> {
+        [.streamingChat, .tools]
+    }
+
+    var defaultConfiguration: LLMsProviderConfiguration {
+        LLMsProviderConfiguration()
+    }
+
+    var configurationFields: [LLMsProviderConfigurationField] {
+        []
+    }
+
+    var modelSource: LLMsProviderModelSource {
+        .manual
+    }
+
+    func streamChat(
+        request: ChatRequest,
+        configuration: LLMsProviderConfiguration
+    ) -> AsyncThrowingStream<ChatResponseDelta, Error> {
+        requests.append(request)
+        return AsyncThrowingStream { continuation in
+            if request.messages.contains(where: { $0.role == .tool }) {
+                continuation.yield(ChatResponseDelta(content: "Done."))
             } else {
                 continuation.yield(
                     ChatResponseDelta(

@@ -29,6 +29,7 @@ final class ChatContextBuilderTests: XCTestCase {
         let context = await builder.buildContext(
             session: session,
             messages: messages,
+            systemPrompt: nil,
             includeTools: true
         )
 
@@ -57,6 +58,7 @@ final class ChatContextBuilderTests: XCTestCase {
         let context = await builder.buildContext(
             session: nil,
             messages: [],
+            systemPrompt: nil,
             includeTools: false
         )
 
@@ -75,11 +77,34 @@ final class ChatContextBuilderTests: XCTestCase {
         let context = await builder.buildContext(
             session: nil,
             messages: [],
+            systemPrompt: nil,
             includeTools: true
         )
 
         XCTAssertTrue(context.memories.isEmpty)
         XCTAssertEqual(retriever.capturedContexts.count, 1)
+    }
+
+    func testBuildContextIncludesSystemPromptForMemoryRetrievalAndResult() async {
+        let prompt = SystemPromptRecord(
+            title: "Translator",
+            content: "Always answer in Chinese."
+        )
+        let retriever = RecordingMemoryRetriever(result: [])
+        let builder = ChatContextBuilder(
+            memoryManager: MemoryManager(retriever: retriever),
+            toolCatalog: ToolCatalog(registry: ToolRegistry(tools: []), isEnabled: { true })
+        )
+
+        let context = await builder.buildContext(
+            session: nil,
+            messages: [],
+            systemPrompt: prompt,
+            includeTools: false
+        )
+
+        XCTAssertEqual(context.systemPrompt, prompt)
+        XCTAssertEqual(retriever.capturedContexts.first?.systemPrompt, prompt)
     }
 }
 

@@ -16,16 +16,13 @@ final class ChatTurnRunner {
     }
 
     private let responseStreamer: ChatResponseStreamer
-    private let promptAssembler: ChatPromptAssembler
     private let toolManager: ToolManager
 
     init(
         responseStreamer: ChatResponseStreamer,
-        promptAssembler: ChatPromptAssembler = ChatPromptAssembler(),
         toolManager: ToolManager
     ) {
         self.responseStreamer = responseStreamer
-        self.promptAssembler = promptAssembler
         self.toolManager = toolManager
     }
 
@@ -34,13 +31,12 @@ final class ChatTurnRunner {
         modelID: String,
         context: ChatContext
     ) -> AsyncThrowingStream<ChatTurnEvent, Error> {
-        let initialMessages = promptAssembler.assembleMessages(from: context)
         let allowsTools = !context.availableTools.isEmpty
 
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    var requestMessages = initialMessages
+                    var requestMessages = context.messages
 
                     while true {
                         try Task.checkCancellation()

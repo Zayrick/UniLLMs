@@ -82,6 +82,152 @@ final class OpenRouterAPIClientTests: XCTestCase {
         }
     }
 
+    func testOpenRouterProviderRendersContextInstructionsAsSystemMessage() async throws {
+        let capture = RequestCapture { request in
+            try Self.doneStreamResponse(for: request)
+        }
+        let session = makeCapturingSession(capture: capture)
+        let provider = OpenRouterProvider(apiClient: OpenRouterAPIClient(session: session))
+        let prompt = makePrompt()
+        let memory = MemoryRecord(scope: .user, text: "Use metric units.")
+        defer {
+            capture.invalidate()
+        }
+
+        var deltas: [ChatResponseDelta] = []
+        for try await delta in provider.streamChat(
+            request: ChatRequest(
+                modelID: "openai/gpt-4o-mini",
+                messages: [ChatMessage(role: .user, content: "Hello")],
+                context: ChatContext(
+                    systemPrompt: prompt,
+                    memories: [memory]
+                )
+            ),
+            configuration: provider.defaultConfiguration
+        ) {
+            deltas.append(delta)
+        }
+
+        XCTAssertTrue(deltas.isEmpty)
+        let requests = capture.requests
+        XCTAssertEqual(requests.count, 1)
+        let request = try XCTUnwrap(requests.first)
+        let requestMessages = try Self.chatRequestMessages(from: request)
+        XCTAssertEqual(requestMessages.map { $0["role"] as? String }, ["system", "user"])
+        let systemMessage = try XCTUnwrap(requestMessages.first)
+        let userMessage = try XCTUnwrap(requestMessages.dropFirst().first)
+        XCTAssertEqual(systemMessage["content"] as? String, "Always answer in Chinese.\n\nMemory: Use metric units.")
+        XCTAssertEqual(userMessage["content"] as? String, "Hello")
+    }
+
+    func testOpenAICompatibleProviderRendersContextInstructionsAsSystemMessage() async throws {
+        let capture = RequestCapture { request in
+            try Self.doneStreamResponse(for: request)
+        }
+        let session = makeCapturingSession(capture: capture)
+        let provider = OpenAICompatibleProvider(apiClient: OpenRouterAPIClient(session: session))
+        let prompt = makePrompt()
+        var configuration = provider.defaultConfiguration
+        configuration[OpenAICompatibleProvider.ConfigurationKey.apiBase] = "https://api.example.com/v1"
+        defer {
+            capture.invalidate()
+        }
+
+        var deltas: [ChatResponseDelta] = []
+        for try await delta in provider.streamChat(
+            request: ChatRequest(
+                modelID: "test-model",
+                messages: [ChatMessage(role: .user, content: "Hello")],
+                context: ChatContext(systemPrompt: prompt)
+            ),
+            configuration: configuration
+        ) {
+            deltas.append(delta)
+        }
+
+        XCTAssertTrue(deltas.isEmpty)
+        let requests = capture.requests
+        XCTAssertEqual(requests.count, 1)
+        let request = try XCTUnwrap(requests.first)
+        let requestMessages = try Self.chatRequestMessages(from: request)
+        XCTAssertEqual(requestMessages.map { $0["role"] as? String }, ["system", "user"])
+        let systemMessage = try XCTUnwrap(requestMessages.first)
+        let userMessage = try XCTUnwrap(requestMessages.dropFirst().first)
+        XCTAssertEqual(systemMessage["content"] as? String, "Always answer in Chinese.")
+        XCTAssertEqual(userMessage["content"] as? String, "Hello")
+    }
+
+    func testOpenAICompatibleProviderRejectsFileAttachmentsBeforeSendingRequest() async throws {
+        let capture = RequestCapture { request in
+            XCTFail("File attachments should be rejected before a request is sent.")
+            return try Self.doneStreamResponse(for: request)
+        }
+        let session = makeCapturingSession(capture: capture)
+        let provider = OpenAICompatibleProvider(apiClient: OpenRouterAPIClient(session: session))
+        var configuration = provider.defaultConfiguration
+        configuration[OpenAICompatibleProvider.ConfigurationKey.apiBase] = "https://api.example.com/v1"
+        let attachment = ChatAttachment(
+            kind: .file,
+            filename: "notes.pdf",
+            contentType: "application/pdf",
+            relativePath: "missing-notes.pdf"
+        )
+        defer {
+            capture.invalidate()
+        }
+
+        do {
+            for try await _ in provider.streamChat(
+                request: ChatRequest(
+                    modelID: "test-model",
+                    messages: [
+                        ChatMessage(
+                            role: .user,
+                            content: "Summarize this.",
+                            attachments: [attachment]
+                        )
+                    ],
+                    context: ChatContext()
+                ),
+                configuration: configuration
+            ) {}
+            XCTFail("Expected file attachment rejection.")
+        } catch {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "File attachments are not supported by OpenAI Compatible."
+            )
+        }
+
+        XCTAssertTrue(capture.requests.isEmpty)
+    }
+
+    func testOpenRouterChatMessageEncodesAssistantToolCallsWithNullContent() throws {
+        let message = OpenRouterChatMessage(
+            message: ChatMessage(
+                role: .assistant,
+                content: "",
+                toolCalls: [
+                    ChatToolCall(
+                        id: "call_1",
+                        toolID: "lookup",
+                        arguments: "{}"
+                    )
+                ]
+            )
+        )
+
+        let data = try JSONEncoder().encode(message)
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+
+        XCTAssertTrue(payload["content"] is NSNull)
+        XCTAssertEqual(payload["role"] as? String, "assistant")
+        XCTAssertNotNil(payload["tool_calls"])
+    }
+
     func testOpenRouterClientRejectsRelativeAPIBase() async {
         let client = OpenRouterAPIClient()
 
@@ -105,12 +251,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
     }
 
     func testOpenRouterClientFetchModelsUsesAuthenticatedUserModelsEndpoint() async throws {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [RequestCapturingURLProtocol.self]
-        let session = URLSession(configuration: configuration)
-        let client = OpenRouterAPIClient(session: session)
-
-        RequestCapturingURLProtocol.requestHandler = { request in
+        let capture = RequestCapture { request in
             let url = try XCTUnwrap(request.url)
             XCTAssertEqual(url.absoluteString, "https://openrouter.ai/api/v1/models/user")
             XCTAssertEqual(request.httpMethod, "GET")
@@ -131,8 +272,10 @@ final class OpenRouterAPIClientTests: XCTestCase {
             )
             return (response, data)
         }
+        let session = makeCapturingSession(capture: capture)
+        let client = OpenRouterAPIClient(session: session)
         defer {
-            RequestCapturingURLProtocol.requestHandler = nil
+            capture.invalidate()
         }
 
         let models = try await client.fetchModels(
@@ -140,6 +283,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
             apiKey: " sk-or-test "
         )
 
+        XCTAssertEqual(capture.requests.count, 1)
         XCTAssertEqual(
             models,
             [
@@ -153,12 +297,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
     }
 
     func testOpenRouterClientFetchModelsOmitsAuthorizationWhenAPIKeyIsBlank() async throws {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [RequestCapturingURLProtocol.self]
-        let session = URLSession(configuration: configuration)
-        let client = OpenRouterAPIClient(session: session)
-
-        RequestCapturingURLProtocol.requestHandler = { request in
+        let capture = RequestCapture { request in
             let url = try XCTUnwrap(request.url)
             XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
 
@@ -173,8 +312,10 @@ final class OpenRouterAPIClientTests: XCTestCase {
             let data = try XCTUnwrap(#"{"data":[]}"#.data(using: .utf8))
             return (response, data)
         }
+        let session = makeCapturingSession(capture: capture)
+        let client = OpenRouterAPIClient(session: session)
         defer {
-            RequestCapturingURLProtocol.requestHandler = nil
+            capture.invalidate()
         }
 
         let models = try await client.fetchModels(
@@ -182,16 +323,12 @@ final class OpenRouterAPIClientTests: XCTestCase {
             apiKey: "   "
         )
 
+        XCTAssertEqual(capture.requests.count, 1)
         XCTAssertTrue(models.isEmpty)
     }
 
     func testOpenRouterClientFetchModelsIgnoresAdditionalOfficialModelFields() async throws {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [RequestCapturingURLProtocol.self]
-        let session = URLSession(configuration: configuration)
-        let client = OpenRouterAPIClient(session: session)
-
-        RequestCapturingURLProtocol.requestHandler = { request in
+        let capture = RequestCapture { request in
             let url = try XCTUnwrap(request.url)
             let response = try XCTUnwrap(
                 HTTPURLResponse(
@@ -231,8 +368,10 @@ final class OpenRouterAPIClientTests: XCTestCase {
             )
             return (response, data)
         }
+        let session = makeCapturingSession(capture: capture)
+        let client = OpenRouterAPIClient(session: session)
         defer {
-            RequestCapturingURLProtocol.requestHandler = nil
+            capture.invalidate()
         }
 
         let models = try await client.fetchModels(
@@ -240,18 +379,14 @@ final class OpenRouterAPIClientTests: XCTestCase {
             apiKey: "sk-or-test"
         )
 
+        XCTAssertEqual(capture.requests.count, 1)
         XCTAssertEqual(models, [
             LLMsProviderModel(id: "openai/gpt-4", name: "GPT-4", contextLength: 8192)
         ])
     }
 
     func testOpenRouterClientFetchModelsPropagatesServerStatusBody() async throws {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [RequestCapturingURLProtocol.self]
-        let session = URLSession(configuration: configuration)
-        let client = OpenRouterAPIClient(session: session)
-
-        RequestCapturingURLProtocol.requestHandler = { request in
+        let capture = RequestCapture { request in
             let url = try XCTUnwrap(request.url)
             let response = try XCTUnwrap(
                 HTTPURLResponse(
@@ -264,8 +399,10 @@ final class OpenRouterAPIClientTests: XCTestCase {
             let data = try XCTUnwrap(#"{"error":{"message":"Unauthorized"}}"#.data(using: .utf8))
             return (response, data)
         }
+        let session = makeCapturingSession(capture: capture)
+        let client = OpenRouterAPIClient(session: session)
         defer {
-            RequestCapturingURLProtocol.requestHandler = nil
+            capture.invalidate()
         }
 
         do {
@@ -280,15 +417,11 @@ final class OpenRouterAPIClientTests: XCTestCase {
                 #"OpenRouter returned HTTP 401: {"error":{"message":"Unauthorized"}}"#
             )
         }
+        XCTAssertEqual(capture.requests.count, 1)
     }
 
     func testOpenRouterClientFetchModelsThrowsForMalformedJSON() async throws {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [RequestCapturingURLProtocol.self]
-        let session = URLSession(configuration: configuration)
-        let client = OpenRouterAPIClient(session: session)
-
-        RequestCapturingURLProtocol.requestHandler = { request in
+        let capture = RequestCapture { request in
             let url = try XCTUnwrap(request.url)
             let response = try XCTUnwrap(
                 HTTPURLResponse(
@@ -301,8 +434,10 @@ final class OpenRouterAPIClientTests: XCTestCase {
             let data = try XCTUnwrap(#"{"data":"not an array"}"#.data(using: .utf8))
             return (response, data)
         }
+        let session = makeCapturingSession(capture: capture)
+        let client = OpenRouterAPIClient(session: session)
         defer {
-            RequestCapturingURLProtocol.requestHandler = nil
+            capture.invalidate()
         }
 
         do {
@@ -314,13 +449,112 @@ final class OpenRouterAPIClientTests: XCTestCase {
         } catch {
             XCTAssertTrue(error is DecodingError)
         }
+        XCTAssertEqual(capture.requests.count, 1)
+    }
+
+    private func makeCapturingSession(capture: RequestCapture) -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RequestCapturingURLProtocol.self]
+        configuration.httpAdditionalHeaders = [
+            RequestCapturingURLProtocol.captureIDHeader: capture.id
+        ]
+        return URLSession(configuration: configuration)
+    }
+
+    private func makePrompt() -> SystemPromptRecord {
+        SystemPromptRecord(
+            title: "Translator",
+            content: "Always answer in Chinese.",
+            createdAt: Date(timeIntervalSince1970: 1),
+            updatedAt: Date(timeIntervalSince1970: 2)
+        )
+    }
+
+    private static func chatRequestMessages(from request: URLRequest) throws -> [[String: Any]] {
+        let body = try XCTUnwrap(request.httpBody)
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        return try XCTUnwrap(payload["messages"] as? [[String: Any]])
+    }
+
+    private static func doneStreamResponse(
+        for request: URLRequest
+    ) throws -> (HTTPURLResponse, Data) {
+        let url = try XCTUnwrap(request.url)
+        let response = try XCTUnwrap(
+            HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "text/event-stream"]
+            )
+        )
+        let data = try XCTUnwrap("data: [DONE]\n\n".data(using: .utf8))
+        return (response, data)
+    }
+}
+
+private final class RequestCapture {
+    fileprivate let id = UUID().uuidString
+    private let handler: RequestCapturingURLProtocol.RequestHandler
+    private let lock = NSLock()
+    private var capturedRequests: [URLRequest] = []
+
+    init(handler: @escaping RequestCapturingURLProtocol.RequestHandler) {
+        self.handler = handler
+        RequestCapturingURLProtocol.register(capture: self, id: id)
+    }
+
+    var requests: [URLRequest] {
+        lock.lock()
+        defer {
+            lock.unlock()
+        }
+
+        return capturedRequests
+    }
+
+    func invalidate() {
+        RequestCapturingURLProtocol.unregisterCapture(id: id)
+    }
+
+    fileprivate func handle(_ request: URLRequest) throws -> (HTTPURLResponse, Data) {
+        lock.lock()
+        capturedRequests.append(request)
+        lock.unlock()
+
+        return try handler(request)
     }
 }
 
 private final class RequestCapturingURLProtocol: URLProtocol {
     typealias RequestHandler = (URLRequest) throws -> (HTTPURLResponse, Data)
 
-    static var requestHandler: RequestHandler?
+    fileprivate static let captureIDHeader = "X-UniLLMs-Test-Capture-ID"
+    private static let lock = NSLock()
+    private static var capturesByID: [String: RequestCapture] = [:]
+
+    fileprivate static func register(capture: RequestCapture, id: String) {
+        lock.lock()
+        capturesByID[id] = capture
+        lock.unlock()
+    }
+
+    fileprivate static func unregisterCapture(id: String) {
+        lock.lock()
+        capturesByID[id] = nil
+        lock.unlock()
+    }
+
+    private static func capture(for id: String) -> RequestCapture? {
+        lock.lock()
+        defer {
+            lock.unlock()
+        }
+
+        return capturesByID[id]
+    }
 
     override class func canInit(with request: URLRequest) -> Bool {
         true
@@ -331,13 +565,14 @@ private final class RequestCapturingURLProtocol: URLProtocol {
     }
 
     override func startLoading() {
-        guard let requestHandler = Self.requestHandler else {
+        guard let captureID = request.value(forHTTPHeaderField: Self.captureIDHeader),
+              let capture = Self.capture(for: captureID) else {
             client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
             return
         }
 
         do {
-            let (response, data) = try requestHandler(request)
+            let (response, data) = try capture.handle(request)
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: data)
             client?.urlProtocolDidFinishLoading(self)

@@ -108,7 +108,10 @@ struct OpenRouterProvider: LLMsProviderAdapter {
         request: ChatRequest,
         configuration: LLMsProviderConfiguration
     ) -> AsyncThrowingStream<ChatResponseDelta, Error> {
-        let messages = request.messages.map(OpenRouterChatMessage.init(message:))
+        let messages = OpenAIChatPromptRenderer.messages(
+            for: request,
+            supportsFileAttachments: true
+        )
         let tools = request.context.availableTools.map(OpenRouterChatTool.init(definition:))
         let stream = apiClient.streamChatCompletion(
             apiBase: configuration[ConfigurationKey.apiBase],
@@ -157,11 +160,17 @@ enum OpenRouterProviderError: LocalizedError, Equatable {
 }
 
 nonisolated extension OpenRouterChatMessage {
-    init(message: ChatMessage) {
-        let content: OpenRouterMessageContent? = Self.encodeContent(for: message)
+    init(
+        message: ChatMessage,
+        supportsFileAttachments: Bool = false
+    ) {
+        let content: OpenRouterMessageContent? = Self.encodeContent(
+            for: message,
+            supportsFileAttachments: supportsFileAttachments
+        )
 
         self.init(
-            role: Role(rawValue: message.role.rawValue) ?? .user,
+            role: Self.role(for: message.role),
             content: content,
             toolCalls: message.toolCalls?.map {
                 ToolCall(
@@ -177,8 +186,29 @@ nonisolated extension OpenRouterChatMessage {
         )
     }
 
-    private static func encodeContent(for message: ChatMessage) -> OpenRouterMessageContent? {
-        let attachmentParts = message.attachments.compactMap { Self.contentPart(for: $0) }
+    private static func role(for role: ChatRole) -> Role {
+        switch role {
+        case .user:
+            return .user
+        case .assistant:
+            return .assistant
+        case .system:
+            return .system
+        case .tool:
+            return .tool
+        }
+    }
+
+    private static func encodeContent(
+        for message: ChatMessage,
+        supportsFileAttachments: Bool
+    ) -> OpenRouterMessageContent? {
+        let attachmentParts = message.attachments.compactMap {
+            Self.contentPart(
+                for: $0,
+                supportsFileAttachments: supportsFileAttachments
+            )
+        }
 
         if attachmentParts.isEmpty {
             if message.role == .assistant && message.content.isEmpty {
@@ -195,7 +225,10 @@ nonisolated extension OpenRouterChatMessage {
         return .parts(parts)
     }
 
-    private static func contentPart(for attachment: ChatAttachment) -> OpenRouterContentPart? {
+    private static func contentPart(
+        for attachment: ChatAttachment,
+        supportsFileAttachments: Bool
+    ) -> OpenRouterContentPart? {
         guard let data = try? ChatAttachmentStore.shared.loadData(for: attachment),
               !data.isEmpty else {
             return nil
@@ -211,6 +244,9 @@ nonisolated extension OpenRouterChatMessage {
         case .image:
             return .imageURL(url: dataURL)
         case .file:
+            guard supportsFileAttachments else {
+                return nil
+            }
             return .file(filename: attachment.filename, fileData: dataURL)
         }
     }

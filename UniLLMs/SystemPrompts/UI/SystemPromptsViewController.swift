@@ -9,17 +9,32 @@
 import UIKit
 
 final class SystemPromptsViewController: UITableViewController {
+    enum Mode {
+        case manage
+        case select(
+            selectedID: UUID?,
+            onSelect: (SystemPromptRecord) -> Void,
+            onClear: () -> Void
+        )
+    }
+
     private let dependencies: AppDependencyContainer
+    private let mode: Mode
     private var prompts: [SystemPromptRecord] = []
     private var storeObservation: NSObjectProtocol?
 
-    init(dependencies: AppDependencyContainer = AppEnvironment.shared.dependencies) {
+    init(
+        dependencies: AppDependencyContainer = AppEnvironment.shared.dependencies,
+        mode: Mode = .manage
+    ) {
         self.dependencies = dependencies
+        self.mode = mode
         super.init(style: .insetGrouped)
     }
 
     required init?(coder: NSCoder) {
         dependencies = AppEnvironment.shared.dependencies
+        mode = .manage
         super.init(coder: coder)
     }
 
@@ -32,8 +47,10 @@ final class SystemPromptsViewController: UITableViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        title = "System Prompts"
+        title = isSelectingPrompt ? "Choose Prompt" : "System Prompts"
+        configureCancelButtonIfNeeded()
         configureAddButton()
+        configureClearButtonIfNeeded()
         installStoreObserver()
         reloadContent()
     }
@@ -45,10 +62,40 @@ final class SystemPromptsViewController: UITableViewController {
     }
 
     private func configureAddButton() {
+        guard !isSelectingPrompt else {
+            return
+        }
+
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             barButtonSystemItem: .add,
             target: self,
             action: #selector(addPrompt)
+        )
+    }
+
+    private func configureClearButtonIfNeeded() {
+        guard isSelectingPrompt,
+              selectedPromptID != nil else {
+            return
+        }
+
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            title: "Clear",
+            style: .plain,
+            target: self,
+            action: #selector(clearSelection)
+        )
+    }
+
+    private func configureCancelButtonIfNeeded() {
+        guard isSelectingPrompt else {
+            return
+        }
+
+        navigationItem.leftBarButtonItem = UIBarButtonItem(
+            barButtonSystemItem: .cancel,
+            target: self,
+            action: #selector(cancelSelection)
         )
     }
 
@@ -80,6 +127,17 @@ final class SystemPromptsViewController: UITableViewController {
         )
     }
 
+    @objc private func cancelSelection() {
+        dismiss(animated: true)
+    }
+
+    @objc private func clearSelection() {
+        if case let .select(_, _, onClear) = mode {
+            onClear()
+        }
+        dismiss(animated: true)
+    }
+
     override func numberOfSections(in tableView: UITableView) -> Int {
         prompts.isEmpty ? 0 : 1
     }
@@ -99,10 +157,14 @@ final class SystemPromptsViewController: UITableViewController {
         var configuration = UIContentUnavailableConfiguration.empty()
         configuration.image = UIImage(systemName: "text.quote")
         configuration.text = "No System Prompts"
-        configuration.secondaryText = "Save reusable instructions and apply them when starting new conversations."
-        configuration.button = addPromptButtonConfiguration()
-        configuration.buttonProperties.primaryAction = UIAction { [weak self] _ in
-            self?.addPrompt()
+        configuration.secondaryText = isSelectingPrompt
+            ? "Create prompts from Settings."
+            : "Save reusable instructions and apply them when starting new conversations."
+        if !isSelectingPrompt {
+            configuration.button = addPromptButtonConfiguration()
+            configuration.buttonProperties.primaryAction = UIAction { [weak self] _ in
+                self?.addPrompt()
+            }
         }
         contentUnavailableConfiguration = configuration
     }
@@ -129,6 +191,12 @@ final class SystemPromptsViewController: UITableViewController {
             return
         }
 
+        if case let .select(_, onSelect, _) = mode {
+            onSelect(prompts[indexPath.row])
+            dismiss(animated: true)
+            return
+        }
+
         navigationController?.pushViewController(
             SystemPromptEditorViewController(
                 prompt: prompts[indexPath.row],
@@ -142,6 +210,10 @@ final class SystemPromptsViewController: UITableViewController {
         _ tableView: UITableView,
         trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath
     ) -> UISwipeActionsConfiguration? {
+        guard !isSelectingPrompt else {
+            return nil
+        }
+
         guard prompts.indices.contains(indexPath.row) else {
             return nil
         }
@@ -171,7 +243,13 @@ final class SystemPromptsViewController: UITableViewController {
         contentConfiguration.secondaryText = subtitle(for: prompt)
         contentConfiguration.image = UIImage(systemName: "text.quote")
         cell.contentConfiguration = contentConfiguration
-        cell.accessoryType = .disclosureIndicator
+        if prompt.id == selectedPromptID {
+            cell.accessoryType = .checkmark
+            cell.accessibilityTraits.insert(.selected)
+        } else {
+            cell.accessoryType = isSelectingPrompt ? .none : .disclosureIndicator
+            cell.accessibilityTraits.remove(.selected)
+        }
         return cell
     }
 
@@ -181,5 +259,19 @@ final class SystemPromptsViewController: UITableViewController {
             .filter { !$0.isEmpty }
             .joined(separator: " ")
         return content.isEmpty ? nil : content
+    }
+
+    private var isSelectingPrompt: Bool {
+        if case .select = mode {
+            return true
+        }
+        return false
+    }
+
+    private var selectedPromptID: UUID? {
+        if case let .select(selectedID, _, _) = mode {
+            return selectedID
+        }
+        return nil
     }
 }

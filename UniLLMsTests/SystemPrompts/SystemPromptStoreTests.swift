@@ -83,6 +83,16 @@ final class SystemPromptStoreTests: XCTestCase {
         XCTAssertEqual(manager.savedPrompts(), [draft])
     }
 
+    func testPromptReturnsMatchingRecordByID() throws {
+        let prompt = makePrompt(title: "Translation Assistant", content: "Always answer in Chinese.")
+        let otherPrompt = makePrompt(title: "Code Review", content: "Review for correctness first.")
+        manager.savePrompt(prompt)
+        manager.savePrompt(otherPrompt)
+
+        XCTAssertEqual(manager.prompt(id: prompt.id), prompt)
+        XCTAssertNil(manager.prompt(id: UUID()))
+    }
+
     private func makePrompt(
         id: UUID = UUID(),
         title: String,

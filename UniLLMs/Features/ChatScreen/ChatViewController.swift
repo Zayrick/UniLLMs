@@ -109,6 +109,7 @@ final class ChatViewController: UIViewController {
     private var keyboardObservation: NotificationCenter.ObservationToken?
     private var selectedModelSelectionObservation: NSObjectProtocol?
     private var chatHistoryObservation: NSObjectProtocol?
+    private var systemPromptObservation: NSObjectProtocol?
     private var historyReloadTask: Task<Void, Never>?
     private var historySelectionTask: Task<Void, Never>?
     private var isKeyboardVisible = false
@@ -140,7 +141,9 @@ final class ChatViewController: UIViewController {
         installKeyboardObserver()
         installSelectedModelSelectionObserver()
         installChatHistoryObserver()
+        installSystemPromptObserver()
         reloadSelectedModelSelection(animated: false)
+        reloadSelectedSystemPrompt()
         reloadHistorySessions(selectedSessionID: nil)
     }
 
@@ -157,12 +160,16 @@ final class ChatViewController: UIViewController {
         if let chatHistoryObservation {
             NotificationCenter.default.removeObserver(chatHistoryObservation)
         }
+        if let systemPromptObservation {
+            NotificationCenter.default.removeObserver(systemPromptObservation)
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
 
         reloadSelectedModelSelection(animated: false)
+        reloadSelectedSystemPrompt()
     }
 
     override func viewSafeAreaInsetsDidChange() {
@@ -351,7 +358,7 @@ final class ChatViewController: UIViewController {
             self?.cancelAssistantResponseStream()
         }
         composerView.onPlusTap = { [weak self] in
-            self?.presentAttachmentSheet()
+            self?.presentComposerAddSheet()
         }
         composerView.onLayoutChange = { [weak self] in
             self?.updateMessagesContentInsets()
@@ -361,6 +368,9 @@ final class ChatViewController: UIViewController {
         }
         composerView.onPreviewAttachment = { [weak self] id in
             self?.previewPendingAttachment(id: id)
+        }
+        composerView.onRemoveSystemPrompt = { [weak self] in
+            self?.clearSelectedSystemPrompt()
         }
         mainPageView.addSubview(composerView)
 
@@ -658,6 +668,7 @@ final class ChatViewController: UIViewController {
 
         chatRuntime.resetConversation()
         removeChatContent()
+        reloadSelectedSystemPrompt()
         isMessagesBottomLocked = true
         updateRightHeaderButtonState(animated: true)
         reloadHistorySessions(selectedSessionID: nil)
@@ -732,26 +743,28 @@ final class ChatViewController: UIViewController {
         composerRestingBottomConstraint.isActive = !shouldTrackKeyboard
     }
 
-    private func presentAttachmentSheet() {
+    private func presentComposerAddSheet() {
         view.endEditing(true)
 
-        let attachmentViewController = AttachmentSheetViewController()
-        attachmentViewController.modalPresentationStyle = .pageSheet
-        if let sheet = attachmentViewController.sheetPresentationController {
+        let addViewController = ComposerAddSheetViewController()
+        addViewController.modalPresentationStyle = .pageSheet
+        if let sheet = addViewController.sheetPresentationController {
             sheet.detents = [.medium(), .large()]
             sheet.prefersGrabberVisible = true
         }
-        attachmentViewController.preferredTransition = .zoom { [weak self] _ in
+        addViewController.preferredTransition = .zoom { [weak self] _ in
             self?.composerView.plusSourceView
         }
-        attachmentViewController.onAction = { [weak self] action in
-            self?.handleAttachmentSheetAction(action)
+        addViewController.onAction = { [weak self] action in
+            self?.handleComposerAddSheetAction(action)
         }
-        present(attachmentViewController, animated: true)
+        present(addViewController, animated: true)
     }
 
-    private func handleAttachmentSheetAction(_ action: AttachmentSheetViewController.Action) {
+    private func handleComposerAddSheetAction(_ action: ComposerAddSheetViewController.Action) {
         switch action {
+        case .systemPrompt:
+            presentSystemPromptSelection()
         case .camera:
             presentCameraPicker()
         case .photoLibrary:
@@ -759,6 +772,28 @@ final class ChatViewController: UIViewController {
         case .files:
             presentDocumentPicker()
         }
+    }
+
+    private func presentSystemPromptSelection() {
+        guard presentedViewController == nil else {
+            return
+        }
+
+        let promptsViewController = SystemPromptsViewController(
+            dependencies: dependencies,
+            mode: .select(
+                selectedID: chatRuntime.selectedSystemPromptID,
+                onSelect: { [weak self] prompt in
+                    self?.selectSystemPrompt(prompt)
+                },
+                onClear: { [weak self] in
+                    self?.clearSelectedSystemPrompt()
+                }
+            )
+        )
+        let navigationController = UINavigationController(rootViewController: promptsViewController)
+        navigationController.modalPresentationStyle = .pageSheet
+        present(navigationController, animated: true)
     }
 
     private func presentCameraPicker() {
@@ -822,6 +857,16 @@ final class ChatViewController: UIViewController {
         refreshComposerAttachmentPreview()
     }
 
+    private func selectSystemPrompt(_ prompt: SystemPromptRecord) {
+        chatRuntime.selectSystemPrompt(id: prompt.id)
+        reloadSelectedSystemPrompt()
+    }
+
+    private func clearSelectedSystemPrompt() {
+        chatRuntime.clearSelectedSystemPrompt()
+        reloadSelectedSystemPrompt()
+    }
+
     private func previewPendingAttachment(id: UUID) {
         guard let attachment = pendingAttachments.first(where: { $0.id == id }) else {
             return
@@ -879,6 +924,34 @@ final class ChatViewController: UIViewController {
             )
         }
         composerView.setPendingAttachments(displays)
+    }
+
+    private func refreshComposerSystemPromptPreview() {
+        let display = chatRuntime.selectedSystemPrompt().map {
+            GlassComposerBarView.SelectedSystemPromptDisplay(
+                id: $0.id,
+                title: $0.displayTitle
+            )
+        }
+        composerView.setSelectedSystemPrompt(display)
+    }
+
+    private func installSystemPromptObserver() {
+        systemPromptObservation = NotificationCenter.default.addObserver(
+            forName: UserDefaultsSystemPromptStore.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else {
+                return
+            }
+
+            self.reloadSelectedSystemPrompt()
+        }
+    }
+
+    private func reloadSelectedSystemPrompt() {
+        refreshComposerSystemPromptPreview()
     }
 
     private func appendSentMessage(using transition: GlassComposerBarView.SendTransition) {
@@ -1111,7 +1184,10 @@ final class ChatViewController: UIViewController {
 
         let responseStream: AsyncThrowingStream<ChatResponseDelta, Error>
         do {
-            responseStream = try chatRuntime.startTurn(prompt: prompt, attachments: attachments)
+            responseStream = try chatRuntime.startTurn(
+                prompt: prompt,
+                attachments: attachments
+            )
         } catch {
             setAssistantResponseError(error.localizedDescription, in: responseView)
             updateRightHeaderButtonState(animated: true)
@@ -1319,6 +1395,7 @@ final class ChatViewController: UIViewController {
 
             self.chatRuntime.loadConversation(session: session, events: events)
             self.renderConversationTimeline(events)
+            self.reloadSelectedSystemPrompt()
             self.isMessagesBottomLocked = true
             self.updateRightHeaderButtonState(animated: true)
             self.reloadHistorySessions(selectedSessionID: session.id)
@@ -1345,6 +1422,7 @@ final class ChatViewController: UIViewController {
             if session.id == self.chatRuntime.currentSessionID {
                 self.chatRuntime.resetConversation()
                 self.removeChatContent()
+                self.reloadSelectedSystemPrompt()
                 self.isMessagesBottomLocked = true
                 self.updateRightHeaderButtonState(animated: true)
                 self.reloadHistorySessions(selectedSessionID: nil)

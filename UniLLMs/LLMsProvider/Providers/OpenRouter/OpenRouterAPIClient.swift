@@ -135,6 +135,19 @@ nonisolated struct OpenRouterChatMessage: Codable, Equatable {
         case toolCalls = "tool_calls"
         case toolCallID = "tool_call_id"
     }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(role, forKey: .role)
+        if let content {
+            try container.encode(content, forKey: .content)
+        } else if role == .assistant,
+                  toolCalls?.isEmpty == false {
+            try container.encodeNil(forKey: .content)
+        }
+        try container.encodeIfPresent(toolCalls, forKey: .toolCalls)
+        try container.encodeIfPresent(toolCallID, forKey: .toolCallID)
+    }
 }
 
 nonisolated struct OpenRouterChatTool: Encodable, Equatable {
