@@ -25,17 +25,6 @@ final class SettingsViewController: UITableViewController {
             }
         }
 
-        var detail: String {
-            switch self {
-            case .providers:
-                return "Manage provider credentials and model settings"
-            case .tools:
-                return "Configure tool calling, built-in tools, and MCP servers"
-            case .systemPrompts:
-                return "Create and manage reusable instructions for conversations"
-            }
-        }
-
         var symbolName: String {
             switch self {
             case .providers:
@@ -94,23 +83,17 @@ final class SettingsViewController: UITableViewController {
         Row.allCases.count
     }
 
-    override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        "Configuration"
-    }
-
     override func tableView(
         _ tableView: UITableView,
         cellForRowAt indexPath: IndexPath
     ) -> UITableViewCell {
-        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
         guard let row = Row(rawValue: indexPath.row) else {
             return cell
         }
 
         var contentConfiguration = cell.defaultContentConfiguration()
         contentConfiguration.text = row.title
-        contentConfiguration.secondaryText = row.detail
-        contentConfiguration.secondaryTextProperties.numberOfLines = 2
         contentConfiguration.image = UIImage(systemName: row.symbolName)
         contentConfiguration.imageProperties.tintColor = row.iconTintColor
         cell.contentConfiguration = contentConfiguration

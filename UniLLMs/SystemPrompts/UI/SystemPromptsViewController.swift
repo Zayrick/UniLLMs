@@ -241,6 +241,7 @@ final class SystemPromptsViewController: UITableViewController {
         var contentConfiguration = cell.defaultContentConfiguration()
         contentConfiguration.text = prompt.displayTitle
         contentConfiguration.secondaryText = subtitle(for: prompt)
+        contentConfiguration.secondaryTextProperties.numberOfLines = 1
         contentConfiguration.image = UIImage(systemName: "text.quote")
         cell.contentConfiguration = contentConfiguration
         if prompt.id == selectedPromptID {
