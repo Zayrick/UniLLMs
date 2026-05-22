@@ -241,8 +241,11 @@ final class ChatHistoryStoreTests: XCTestCase {
 
         try await store.deleteSession(id: session.id)
 
-        XCTAssertTrue(try await store.fetchSessions().isEmpty)
-        XCTAssertTrue(try await store.fetchEvents(sessionID: session.id).isEmpty)
+        let sessions = try await store.fetchSessions()
+        let events = try await store.fetchEvents(sessionID: session.id)
+
+        XCTAssertTrue(sessions.isEmpty)
+        XCTAssertTrue(events.isEmpty)
     }
 
     func testAttachmentStoreCreatesDistinctAttachmentsForDuplicateData() throws {
