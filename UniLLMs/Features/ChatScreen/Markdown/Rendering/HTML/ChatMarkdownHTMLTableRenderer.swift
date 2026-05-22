@@ -3,7 +3,7 @@
 //  UniLLMs
 //
 //  Converts GFM raw HTML tables into native chat table data.
-//  Created by Codex on 2026/5/14.
+//  Created by Zayrick on 2026/5/14.
 //
 
 import UIKit

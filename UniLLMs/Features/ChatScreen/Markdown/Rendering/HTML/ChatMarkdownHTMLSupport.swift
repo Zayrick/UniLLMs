@@ -3,7 +3,7 @@
 //  UniLLMs
 //
 //  Lightweight GFM raw HTML tokenization helpers for native Markdown rendering.
-//  Created by Codex on 2026/5/14.
+//  Created by Zayrick on 2026/5/14.
 //
 
 import Foundation

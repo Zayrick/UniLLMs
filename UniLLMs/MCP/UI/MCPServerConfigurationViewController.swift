@@ -3,7 +3,7 @@
 //  UniLLMs
 //
 //  Edits a Streamable HTTP MCP server configuration.
-//  Created by Codex on 2026/5/15.
+//  Created by Zayrick on 2026/5/15.
 //
 
 import UIKit

@@ -3,7 +3,7 @@
 //  UniLLMs
 //
 //  Adds OpenAI-compatible streaming chat providers with user-managed model IDs.
-//  Created by Codex on 2026/5/12.
+//  Created by Zayrick on 2026/5/12.
 //
 
 import Foundation

@@ -6,7 +6,7 @@
 //  support directory. Timelines store lightweight `ChatAttachment` references
 //  whose instance identity is separate from the on-disk file asset identity.
 //
-//  Created by Codex on 2026/5/17.
+//  Created by Zayrick on 2026/5/17.
 //
 
 import Foundation

@@ -3,7 +3,7 @@
 //  UniLLMs
 //
 //  Shared UIKit view reuse for rendered Markdown presentation blocks.
-//  Created by Codex on 2026/5/22.
+//  Created by Zayrick on 2026/5/22.
 //
 
 import UIKit

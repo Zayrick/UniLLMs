@@ -3,7 +3,7 @@
 //  UniLLMs
 //
 //  Displays tool-call settings, built-in tools, and configured MCP servers.
-//  Created by Codex on 2026/5/15.
+//  Created by Zayrick on 2026/5/15.
 //
 
 import UIKit

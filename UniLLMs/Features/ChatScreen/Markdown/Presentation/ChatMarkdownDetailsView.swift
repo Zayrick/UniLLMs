@@ -3,7 +3,7 @@
 //  UniLLMs
 //
 //  UIKit presentation for GitHub-style HTML details blocks.
-//  Created by Codex on 2026/5/14.
+//  Created by Zayrick on 2026/5/14.
 //
 
 import UIKit

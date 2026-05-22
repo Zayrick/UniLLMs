@@ -3,7 +3,7 @@
 //  UniLLMs
 //
 //  Provides a no-configuration fake LLM provider with deterministic static and streaming models.
-//  Created by Codex on 2026/5/12.
+//  Created by Zayrick on 2026/5/12.
 //
 
 import Foundation
