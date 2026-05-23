@@ -189,7 +189,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
         XCTAssertEqual(userMessage["content"] as? String, "Hello")
     }
 
-    func testOpenAIProviderRendersContextInstructionsAsDeveloperMessage() async throws {
+    func testOpenAIProviderRendersContextInstructionsAsSystemMessage() async throws {
         let capture = RequestCapture { request in
             try Self.doneStreamResponse(for: request)
         }
@@ -211,7 +211,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
 
         let request = try XCTUnwrap(capture.requests.first)
         let requestMessages = try Self.chatRequestMessages(from: request)
-        XCTAssertEqual(requestMessages.map { $0["role"] as? String }, ["developer", "user"])
+        XCTAssertEqual(requestMessages.map { $0["role"] as? String }, ["system", "user"])
         XCTAssertEqual(requestMessages.first?["content"] as? String, "Always answer in Chinese.")
     }
 

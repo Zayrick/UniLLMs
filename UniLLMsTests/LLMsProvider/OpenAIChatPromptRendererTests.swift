@@ -32,8 +32,7 @@ final class OpenAIChatPromptRendererTests: XCTestCase {
                 modelID: "test-model",
                 messages: [ChatMessage(role: .user, content: "Hello")],
                 context: ChatContext(systemPrompt: prompt, memories: memories)
-            ),
-            instructionRole: .system
+            )
         )
 
         XCTAssertEqual(messages.map(\.role), [.system, .user])
@@ -64,8 +63,7 @@ final class OpenAIChatPromptRendererTests: XCTestCase {
                     ChatMessage(role: .tool, content: "Result", toolCallID: "call_1")
                 ],
                 context: ChatContext(systemPrompt: prompt)
-            ),
-            instructionRole: .system
+            )
         )
 
         XCTAssertEqual(messages.map(\.role), [.system, .user, .assistant, .tool])

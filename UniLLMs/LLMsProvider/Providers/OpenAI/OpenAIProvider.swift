@@ -117,7 +117,7 @@ struct OpenAIProvider: LLMsProviderAdapter {
         do {
             messages = try OpenAIChatPromptRenderer.messages(
                 for: request,
-                instructionRole: .developer
+                instructionRole: .system
             )
         } catch {
             return AsyncThrowingStream { continuation in
@@ -191,7 +191,7 @@ nonisolated enum OpenAIChatPromptRenderer {
 
     static func messages(
         for request: ChatRequest,
-        instructionRole: InstructionRole = .developer
+        instructionRole: InstructionRole = .system
     ) throws -> [OpenAIChatMessage] {
         let prompt = ChatPromptAssembler().assemblePrompt(from: request)
         guard let instructionText = prompt.instructionText else {
