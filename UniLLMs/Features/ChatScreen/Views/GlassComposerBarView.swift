@@ -146,19 +146,36 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     }
 
     func setPendingAttachments(_ items: [PendingAttachmentDisplay]) {
+        let previousIDs = Set(pendingAttachments.map(\.id))
+        let nextIDs = Set(items.map(\.id))
+        let removedChips = attachmentPreviewStackView.arrangedSubviews
+            .compactMap { $0 as? ComposerAttachmentChipView }
+            .filter { !nextIDs.contains($0.itemID) }
+        let addedChips = items
+            .filter { !previousIDs.contains($0.id) }
+            .map(addAttachmentPreviewChip)
+
         pendingAttachments = items
-        rebuildAttachmentPreviewChips()
-        let hasAttachments = !items.isEmpty
 
-        attachmentPreviewContainerView.isHidden = !hasAttachments
-        attachmentPreviewHeightConstraint.constant = hasAttachments
-            ? Metrics.attachmentChipSize
-            : 0.0
+        if !items.isEmpty {
+            attachmentPreviewContainerView.isHidden = false
+        }
+        attachmentPreviewHeightConstraint.constant = items.isEmpty
+            ? 0.0
+            : Metrics.attachmentChipSize
         updateCapsulePreviewLayout()
-
         updateInputMode(animated: true)
 
-        animatePreviewLayoutChange()
+        animatePreviewLayoutChange(
+            animations: {
+                addedChips.forEach { $0.isHidden = false }
+                removedChips.forEach { $0.isHidden = true }
+            },
+            completion: {
+                removedChips.forEach { $0.removeFromSuperview() }
+                self.attachmentPreviewContainerView.isHidden = items.isEmpty
+            }
+        )
     }
 
     func setSelectedSystemPrompt(_ item: SelectedSystemPromptDisplay?) {
@@ -726,24 +743,22 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         return effect
     }
 
-    private func rebuildAttachmentPreviewChips() {
-        attachmentPreviewStackView.arrangedSubviews.forEach { view in
-            attachmentPreviewStackView.removeArrangedSubview(view)
-            view.removeFromSuperview()
+    private func addAttachmentPreviewChip(for item: PendingAttachmentDisplay) -> ComposerAttachmentChipView {
+        let chip = ComposerAttachmentChipView(item: item)
+        chip.isHidden = true
+        chip.onRemove = { [weak self] id in
+            self?.onRemoveAttachment?(id)
+        }
+        chip.onPreview = { [weak self] id in
+            self?.onPreviewAttachment?(id)
         }
 
-        for item in pendingAttachments {
-            let chip = ComposerAttachmentChipView(item: item)
-            chip.onRemove = { [weak self] id in
-                self?.onRemoveAttachment?(id)
-            }
-            chip.onPreview = { [weak self] id in
-                self?.onPreviewAttachment?(id)
-            }
-            attachmentPreviewStackView.addArrangedSubview(chip)
-            chip.widthAnchor.constraint(equalToConstant: Metrics.attachmentChipSize).isActive = true
-            chip.heightAnchor.constraint(equalToConstant: Metrics.attachmentChipSize).isActive = true
-        }
+        attachmentPreviewStackView.addArrangedSubview(chip)
+        NSLayoutConstraint.activate([
+            chip.widthAnchor.constraint(equalToConstant: Metrics.attachmentChipSize),
+            chip.heightAnchor.constraint(equalToConstant: Metrics.attachmentChipSize)
+        ])
+        return chip
     }
 
     private func updateCapsulePreviewLayout() {
@@ -753,15 +768,22 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
             : Metrics.capsuleVerticalInset
     }
 
-    private func animatePreviewLayoutChange() {
+    private func animatePreviewLayoutChange(
+        animations: (() -> Void)? = nil,
+        completion: (() -> Void)? = nil
+    ) {
         UIView.animate(
             withDuration: 0.2,
             delay: 0.0,
             options: [.beginFromCurrentState, .curveEaseInOut],
             animations: {
+                animations?()
                 self.superview?.layoutIfNeeded()
                 self.layoutIfNeeded()
                 self.onLayoutChange?()
+            },
+            completion: { _ in
+                completion?()
             }
         )
     }
@@ -784,7 +806,7 @@ private final class ComposerAttachmentChipView: UIView {
     private let fileIconView = UIImageView()
     private let filenameLabel = UILabel()
     private let removeButton = UIButton(type: .system)
-    private let itemID: UUID
+    let itemID: UUID
 
     var onRemove: ((UUID) -> Void)?
     var onPreview: ((UUID) -> Void)?
