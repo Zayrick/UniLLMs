@@ -30,9 +30,11 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         static let controlHeight: CGFloat = 44.0
         static let spacing: CGFloat = 8.0
         static let fusionSpacing: CGFloat = 24.0
-        static let capsuleHorizontalInset: CGFloat = 12.0
-        static let capsuleComposingTrailingInset: CGFloat = 5.0
+        static let capsuleHorizontalInset: CGFloat = 7.0
+        static let inputTextLeadingInset: CGFloat = 5.0
+        static let capsulePreviewTopInset: CGFloat = 7.0
         static let capsuleVerticalInset: CGFloat = 5.0
+        static let capsulePreviewGap: CGFloat = 7.0
         static let capsuleContentSpacing: CGFloat = 6.0
         static let textMinHeight: CGFloat = 32.0
         static let textMaxHeight: CGFloat = 118.0
@@ -41,8 +43,6 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         static let transitionDuration: TimeInterval = 0.24
         static let attachmentChipSize: CGFloat = 110.0
         static let attachmentChipSpacing: CGFloat = 10.0
-        static let attachmentPreviewVerticalPadding: CGFloat = 10.0
-        static let attachmentPreviewBottomSpacing: CGFloat = 8.0
         static let systemPromptMinimumHeight: CGFloat = 44.0
         static let systemPromptVerticalInset: CGFloat = 8.0
         static let systemPromptIconPointSize: CGFloat = 14.0
@@ -56,6 +56,8 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     private let plusGlassView = UIVisualEffectView(effect: GlassComposerBarView.makeGlassEffect())
     private let capsuleGlassView = UIVisualEffectView(effect: GlassComposerBarView.makeGlassEffect())
     private let waveformGlassView = UIVisualEffectView(effect: GlassComposerBarView.makeGlassEffect())
+    private let capsuleLayoutStackView = UIStackView()
+    private let inputRowContainerView = UIView()
     private let capsuleContentStackView = UIStackView()
     private let plusButton = UIButton(type: .system)
     private let waveformButton = UIButton(type: .system)
@@ -71,14 +73,13 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     private let attachmentPreviewScrollView = UIScrollView()
     private let attachmentPreviewStackView = UIStackView()
 
+    private var capsuleLayoutTopConstraint: NSLayoutConstraint!
     private var capsuleContentLeadingConstraint: NSLayoutConstraint!
     private var capsuleContentTrailingConstraint: NSLayoutConstraint!
     private var waveformWidthConstraint: NSLayoutConstraint!
     private var textHeightConstraint: NSLayoutConstraint!
     private var systemPromptHeightConstraint: NSLayoutConstraint!
-    private var systemPromptBottomSpacingConstraint: NSLayoutConstraint!
     private var attachmentPreviewHeightConstraint: NSLayoutConstraint!
-    private var attachmentPreviewBottomSpacingConstraint: NSLayoutConstraint!
     private var lastMeasuredTextWidth: CGFloat = 0.0
     private var isShowingSendControl = false
     private var isShowingStopControl = false
@@ -154,9 +155,9 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
 
         attachmentPreviewContainerView.isHidden = !hasAttachments
         attachmentPreviewHeightConstraint.constant = hasAttachments
-            ? Metrics.attachmentChipSize + Metrics.attachmentPreviewVerticalPadding * 2.0
+            ? Metrics.attachmentChipSize
             : 0.0
-        updatePreviewSpacing()
+        updateCapsulePreviewLayout()
 
         updateInputMode(animated: true)
 
@@ -168,7 +169,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         systemPromptTitleLabel.text = item?.title
         systemPromptContainerView.isHidden = item == nil
         updateSystemPromptPreviewHeight()
-        updatePreviewSpacing()
+        updateCapsulePreviewLayout()
         animatePreviewLayoutChange()
     }
 
@@ -290,80 +291,79 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         configureSystemPromptPreview()
         configureAttachmentPreview()
 
+        capsuleLayoutStackView.axis = .vertical
+        capsuleLayoutStackView.alignment = .fill
+        capsuleLayoutStackView.spacing = Metrics.capsulePreviewGap
+        capsuleLayoutStackView.translatesAutoresizingMaskIntoConstraints = false
+
+        inputRowContainerView.translatesAutoresizingMaskIntoConstraints = false
+        inputRowContainerView.clipsToBounds = false
+
         capsuleContentStackView.axis = .horizontal
         capsuleContentStackView.alignment = .bottom
         capsuleContentStackView.spacing = Metrics.capsuleContentSpacing
         capsuleContentStackView.translatesAutoresizingMaskIntoConstraints = false
+
         textView.translatesAutoresizingMaskIntoConstraints = false
         sendButton.translatesAutoresizingMaskIntoConstraints = false
-        capsuleGlassView.contentView.addSubview(systemPromptContainerView)
-        capsuleGlassView.contentView.addSubview(attachmentPreviewContainerView)
-        capsuleGlassView.contentView.addSubview(capsuleContentStackView)
+
+        capsuleGlassView.contentView.addSubview(capsuleLayoutStackView)
+        capsuleLayoutStackView.addArrangedSubview(systemPromptContainerView)
+        capsuleLayoutStackView.addArrangedSubview(attachmentPreviewContainerView)
+        capsuleLayoutStackView.addArrangedSubview(inputRowContainerView)
+
+        inputRowContainerView.addSubview(capsuleContentStackView)
         capsuleContentStackView.addArrangedSubview(textView)
-        capsuleGlassView.contentView.addSubview(sendButton)
+        inputRowContainerView.addSubview(sendButton)
 
         sendButton.setContentHuggingPriority(.required, for: .horizontal)
         sendButton.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         textHeightConstraint = textView.heightAnchor.constraint(equalToConstant: Metrics.textMinHeight)
-        systemPromptBottomSpacingConstraint = attachmentPreviewContainerView.topAnchor.constraint(
-            equalTo: systemPromptContainerView.bottomAnchor,
-            constant: 0.0
+        capsuleLayoutTopConstraint = capsuleLayoutStackView.topAnchor.constraint(
+            equalTo: capsuleGlassView.contentView.topAnchor,
+            constant: Metrics.capsuleVerticalInset
         )
         capsuleContentLeadingConstraint = capsuleContentStackView.leadingAnchor.constraint(
-            equalTo: capsuleGlassView.contentView.leadingAnchor,
-            constant: Metrics.capsuleHorizontalInset
+            equalTo: inputRowContainerView.leadingAnchor,
+            constant: Metrics.inputTextLeadingInset
         )
         capsuleContentTrailingConstraint = capsuleContentStackView.trailingAnchor.constraint(
-            equalTo: capsuleGlassView.contentView.trailingAnchor,
-            constant: -Metrics.capsuleHorizontalInset
-        )
-        attachmentPreviewBottomSpacingConstraint = capsuleContentStackView.topAnchor.constraint(
-            equalTo: attachmentPreviewContainerView.bottomAnchor,
-            constant: 0.0
+            equalTo: inputRowContainerView.trailingAnchor
         )
 
         NSLayoutConstraint.activate([
-            systemPromptContainerView.topAnchor.constraint(
-                equalTo: capsuleGlassView.contentView.topAnchor,
-                constant: Metrics.capsuleVerticalInset
-            ),
-            systemPromptContainerView.leadingAnchor.constraint(
+            capsuleLayoutTopConstraint,
+            capsuleLayoutStackView.leadingAnchor.constraint(
                 equalTo: capsuleGlassView.contentView.leadingAnchor,
                 constant: Metrics.capsuleHorizontalInset
             ),
-            systemPromptContainerView.trailingAnchor.constraint(
+            capsuleLayoutStackView.trailingAnchor.constraint(
                 equalTo: capsuleGlassView.contentView.trailingAnchor,
                 constant: -Metrics.capsuleHorizontalInset
             ),
+            capsuleLayoutStackView.bottomAnchor.constraint(
+                equalTo: capsuleGlassView.contentView.bottomAnchor,
+                constant: -Metrics.capsuleVerticalInset
+            ),
+
             systemPromptHeightConstraint,
-            systemPromptBottomSpacingConstraint,
 
-            attachmentPreviewContainerView.leadingAnchor.constraint(
-                equalTo: capsuleGlassView.contentView.leadingAnchor,
-                constant: Metrics.capsuleHorizontalInset
-            ),
-            attachmentPreviewContainerView.trailingAnchor.constraint(
-                equalTo: capsuleGlassView.contentView.trailingAnchor,
-                constant: -Metrics.capsuleHorizontalInset
-            ),
+            inputRowContainerView.heightAnchor.constraint(greaterThanOrEqualToConstant: Metrics.sendButtonSize),
 
-            attachmentPreviewBottomSpacingConstraint,
+            capsuleContentStackView.topAnchor.constraint(equalTo: inputRowContainerView.topAnchor),
             capsuleContentLeadingConstraint,
             capsuleContentTrailingConstraint,
             capsuleContentStackView.bottomAnchor.constraint(
-                equalTo: capsuleGlassView.contentView.bottomAnchor,
-                constant: -Metrics.capsuleVerticalInset
+                equalTo: inputRowContainerView.bottomAnchor
             ),
             textHeightConstraint,
 
             sendButton.trailingAnchor.constraint(
-                equalTo: capsuleGlassView.contentView.trailingAnchor,
-                constant: -Metrics.capsuleComposingTrailingInset
+                equalTo: inputRowContainerView.trailingAnchor
             ),
             sendButton.bottomAnchor.constraint(
-                equalTo: capsuleGlassView.contentView.bottomAnchor,
-                constant: -Metrics.capsuleVerticalInset
+                equalTo: inputRowContainerView.bottomAnchor
             ),
             sendButton.widthAnchor.constraint(equalToConstant: Metrics.sendButtonSize),
             sendButton.heightAnchor.constraint(equalToConstant: Metrics.sendButtonSize)
@@ -597,10 +597,10 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         }
 
         let applyTargetState = { [self] in
-            self.capsuleContentLeadingConstraint.constant = Metrics.capsuleHorizontalInset
+            self.capsuleContentLeadingConstraint.constant = Metrics.inputTextLeadingInset
             self.capsuleContentTrailingConstraint.constant = shouldShowSendControl
-                ? -(Metrics.capsuleComposingTrailingInset + Metrics.sendButtonSize + Metrics.capsuleContentSpacing)
-                : -Metrics.capsuleHorizontalInset
+                ? -(Metrics.sendButtonSize + Metrics.capsuleContentSpacing)
+                : 0.0
             self.waveformWidthConstraint.constant = shouldShowWaveformControl ? Metrics.controlHeight : 0.0
             self.stackView.setCustomSpacing(shouldShowWaveformControl ? Metrics.spacing : 0.0, after: self.capsuleGlassView)
             self.sendButton.alpha = shouldShowSendControl ? 1.0 : 0.0
@@ -760,13 +760,11 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         }
     }
 
-    private func updatePreviewSpacing() {
-        let hasSystemPrompt = selectedSystemPrompt != nil
-        let hasAttachments = !pendingAttachments.isEmpty
-        systemPromptBottomSpacingConstraint.constant = 0.0
-        attachmentPreviewBottomSpacingConstraint.constant = hasSystemPrompt || hasAttachments
-            ? Metrics.attachmentPreviewBottomSpacing
-            : 0.0
+    private func updateCapsulePreviewLayout() {
+        let hasPreviewContent = selectedSystemPrompt != nil || !pendingAttachments.isEmpty
+        capsuleLayoutTopConstraint.constant = hasPreviewContent
+            ? Metrics.capsulePreviewTopInset
+            : Metrics.capsuleVerticalInset
     }
 
     private func updateSystemPromptPreviewHeight() {
