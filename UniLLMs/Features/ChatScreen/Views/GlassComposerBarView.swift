@@ -45,11 +45,11 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         static let attachmentPreviewBottomSpacing: CGFloat = 8.0
         static let systemPromptMinimumHeight: CGFloat = 44.0
         static let systemPromptVerticalInset: CGFloat = 8.0
-        static let systemPromptBottomSpacing: CGFloat = 8.0
         static let systemPromptIconPointSize: CGFloat = 14.0
-        static let systemPromptRemoveButtonSize: CGFloat = 44.0
+        static let systemPromptRemoveIconPointSize: CGFloat = 10.0
         static let systemPromptPillHorizontalInset: CGFloat = 10.0
         static let systemPromptPillSpacing: CGFloat = 6.0
+        static let systemPromptRemoveIconSpacing: CGFloat = 4.0
     }
 
     private let stackView = UIStackView()
@@ -376,7 +376,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         systemPromptContainerView.isHidden = true
 
         systemPromptPillView.translatesAutoresizingMaskIntoConstraints = false
-        systemPromptPillView.backgroundColor = UIColor.secondarySystemFill.withAlphaComponent(0.72)
+        systemPromptPillView.backgroundColor = .tertiarySystemFill
         systemPromptPillView.layer.cornerRadius = Metrics.systemPromptMinimumHeight * 0.5
         systemPromptPillView.layer.cornerCurve = .continuous
         systemPromptPillView.clipsToBounds = true
@@ -408,9 +408,12 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         var removeConfig = UIButton.Configuration.plain()
         removeConfig.image = UIImage(
             systemName: "xmark",
-            withConfiguration: UIImage.SymbolConfiguration(pointSize: 10.0, weight: .bold)
+            withConfiguration: UIImage.SymbolConfiguration(
+                pointSize: Metrics.systemPromptRemoveIconPointSize,
+                weight: .semibold
+            )
         )
-        removeConfig.baseForegroundColor = .secondaryLabel
+        removeConfig.baseForegroundColor = .tertiaryLabel
         removeConfig.contentInsets = .zero
         systemPromptRemoveButton.configuration = removeConfig
         systemPromptRemoveButton.translatesAutoresizingMaskIntoConstraints = false
@@ -446,15 +449,13 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
 
             systemPromptRemoveButton.leadingAnchor.constraint(
                 equalTo: systemPromptTitleLabel.trailingAnchor,
-                constant: Metrics.systemPromptPillSpacing
+                constant: Metrics.systemPromptRemoveIconSpacing
             ),
             systemPromptRemoveButton.trailingAnchor.constraint(
                 equalTo: systemPromptPillView.trailingAnchor,
                 constant: -Metrics.systemPromptPillHorizontalInset
             ),
-            systemPromptRemoveButton.centerYAnchor.constraint(equalTo: systemPromptPillView.centerYAnchor),
-            systemPromptRemoveButton.widthAnchor.constraint(equalToConstant: Metrics.systemPromptRemoveButtonSize),
-            systemPromptRemoveButton.heightAnchor.constraint(equalToConstant: Metrics.systemPromptRemoveButtonSize)
+            systemPromptRemoveButton.centerYAnchor.constraint(equalTo: systemPromptPillView.centerYAnchor)
         ])
     }
 
@@ -762,9 +763,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     private func updatePreviewSpacing() {
         let hasSystemPrompt = selectedSystemPrompt != nil
         let hasAttachments = !pendingAttachments.isEmpty
-        systemPromptBottomSpacingConstraint.constant = hasSystemPrompt && hasAttachments
-            ? Metrics.systemPromptBottomSpacing
-            : 0.0
+        systemPromptBottomSpacingConstraint.constant = 0.0
         attachmentPreviewBottomSpacingConstraint.constant = hasSystemPrompt || hasAttachments
             ? Metrics.attachmentPreviewBottomSpacing
             : 0.0
