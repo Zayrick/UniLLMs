@@ -43,12 +43,11 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         static let transitionDuration: TimeInterval = 0.24
         static let attachmentChipSize: CGFloat = 110.0
         static let attachmentChipSpacing: CGFloat = 10.0
-        static let systemPromptMinimumHeight: CGFloat = 44.0
         static let systemPromptVerticalInset: CGFloat = 8.0
         static let systemPromptIconPointSize: CGFloat = 14.0
         static let systemPromptRemoveIconPointSize: CGFloat = 10.0
-        static let systemPromptPillHorizontalInset: CGFloat = 10.0
-        static let systemPromptPillSpacing: CGFloat = 6.0
+        static let systemPromptHorizontalInset: CGFloat = 10.0
+        static let systemPromptSpacing: CGFloat = 6.0
         static let systemPromptRemoveIconSpacing: CGFloat = 4.0
     }
 
@@ -65,7 +64,6 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     private let placeholderLabel = UILabel()
     private let sendButton = UIButton(type: .system)
     private let systemPromptContainerView = UIView()
-    private let systemPromptPillView = UIView()
     private let systemPromptIconView = UIImageView()
     private let systemPromptTitleLabel = UILabel()
     private let systemPromptRemoveButton = UIButton(type: .system)
@@ -78,7 +76,6 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     private var capsuleContentTrailingConstraint: NSLayoutConstraint!
     private var waveformWidthConstraint: NSLayoutConstraint!
     private var textHeightConstraint: NSLayoutConstraint!
-    private var systemPromptHeightConstraint: NSLayoutConstraint!
     private var attachmentPreviewHeightConstraint: NSLayoutConstraint!
     private var lastMeasuredTextWidth: CGFloat = 0.0
     private var isShowingSendControl = false
@@ -168,7 +165,6 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         selectedSystemPrompt = item
         systemPromptTitleLabel.text = item?.title
         systemPromptContainerView.isHidden = item == nil
-        updateSystemPromptPreviewHeight()
         updateCapsulePreviewLayout()
         animatePreviewLayoutChange()
     }
@@ -191,7 +187,6 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         ) { (view: GlassComposerBarView, _) in
             view.updateFontsForCurrentContentSize()
             view.updateTextHeight(animated: false)
-            view.updateSystemPromptPreviewHeight()
             view.onLayoutChange?()
         }
     }
@@ -347,8 +342,6 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
                 constant: -Metrics.capsuleVerticalInset
             ),
 
-            systemPromptHeightConstraint,
-
             inputRowContainerView.heightAnchor.constraint(greaterThanOrEqualToConstant: Metrics.sendButtonSize),
 
             capsuleContentStackView.topAnchor.constraint(equalTo: inputRowContainerView.topAnchor),
@@ -372,15 +365,8 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
 
     private func configureSystemPromptPreview() {
         systemPromptContainerView.translatesAutoresizingMaskIntoConstraints = false
-        systemPromptContainerView.clipsToBounds = true
+        systemPromptContainerView.clipsToBounds = false
         systemPromptContainerView.isHidden = true
-
-        systemPromptPillView.translatesAutoresizingMaskIntoConstraints = false
-        systemPromptPillView.backgroundColor = .tertiarySystemFill
-        systemPromptPillView.layer.cornerRadius = Metrics.systemPromptMinimumHeight * 0.5
-        systemPromptPillView.layer.cornerCurve = .continuous
-        systemPromptPillView.clipsToBounds = true
-        systemPromptContainerView.addSubview(systemPromptPillView)
 
         systemPromptIconView.translatesAutoresizingMaskIntoConstraints = false
         systemPromptIconView.contentMode = .scaleAspectFit
@@ -394,7 +380,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         )
         systemPromptIconView.setContentHuggingPriority(.required, for: .horizontal)
         systemPromptIconView.setContentCompressionResistancePriority(.required, for: .horizontal)
-        systemPromptPillView.addSubview(systemPromptIconView)
+        systemPromptContainerView.addSubview(systemPromptIconView)
 
         systemPromptTitleLabel.translatesAutoresizingMaskIntoConstraints = false
         systemPromptTitleLabel.font = .preferredFont(forTextStyle: .subheadline)
@@ -403,7 +389,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         systemPromptTitleLabel.lineBreakMode = .byTruncatingMiddle
         systemPromptTitleLabel.numberOfLines = 1
         systemPromptTitleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        systemPromptPillView.addSubview(systemPromptTitleLabel)
+        systemPromptContainerView.addSubview(systemPromptTitleLabel)
 
         var removeConfig = UIButton.Configuration.plain()
         removeConfig.image = UIImage(
@@ -425,37 +411,37 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
             action: #selector(removeSystemPromptButtonPressed),
             for: .touchUpInside
         )
-        systemPromptPillView.addSubview(systemPromptRemoveButton)
-
-        systemPromptHeightConstraint = systemPromptContainerView.heightAnchor.constraint(equalToConstant: 0.0)
+        systemPromptContainerView.addSubview(systemPromptRemoveButton)
 
         NSLayoutConstraint.activate([
-            systemPromptPillView.topAnchor.constraint(equalTo: systemPromptContainerView.topAnchor),
-            systemPromptPillView.leadingAnchor.constraint(equalTo: systemPromptContainerView.leadingAnchor),
-            systemPromptPillView.trailingAnchor.constraint(lessThanOrEqualTo: systemPromptContainerView.trailingAnchor),
-            systemPromptPillView.bottomAnchor.constraint(equalTo: systemPromptContainerView.bottomAnchor),
-
             systemPromptIconView.leadingAnchor.constraint(
-                equalTo: systemPromptPillView.leadingAnchor,
-                constant: Metrics.systemPromptPillHorizontalInset
+                equalTo: systemPromptContainerView.leadingAnchor,
+                constant: Metrics.systemPromptHorizontalInset
             ),
-            systemPromptIconView.centerYAnchor.constraint(equalTo: systemPromptPillView.centerYAnchor),
+            systemPromptIconView.centerYAnchor.constraint(equalTo: systemPromptTitleLabel.centerYAnchor),
 
             systemPromptTitleLabel.leadingAnchor.constraint(
                 equalTo: systemPromptIconView.trailingAnchor,
-                constant: Metrics.systemPromptPillSpacing
+                constant: Metrics.systemPromptSpacing
             ),
-            systemPromptTitleLabel.centerYAnchor.constraint(equalTo: systemPromptPillView.centerYAnchor),
+            systemPromptTitleLabel.topAnchor.constraint(
+                equalTo: systemPromptContainerView.topAnchor,
+                constant: Metrics.systemPromptVerticalInset
+            ),
+            systemPromptTitleLabel.bottomAnchor.constraint(
+                equalTo: systemPromptContainerView.bottomAnchor,
+                constant: -Metrics.systemPromptVerticalInset
+            ),
 
             systemPromptRemoveButton.leadingAnchor.constraint(
                 equalTo: systemPromptTitleLabel.trailingAnchor,
                 constant: Metrics.systemPromptRemoveIconSpacing
             ),
             systemPromptRemoveButton.trailingAnchor.constraint(
-                equalTo: systemPromptPillView.trailingAnchor,
-                constant: -Metrics.systemPromptPillHorizontalInset
+                lessThanOrEqualTo: systemPromptContainerView.trailingAnchor,
+                constant: -Metrics.systemPromptHorizontalInset
             ),
-            systemPromptRemoveButton.centerYAnchor.constraint(equalTo: systemPromptPillView.centerYAnchor)
+            systemPromptRemoveButton.centerYAnchor.constraint(equalTo: systemPromptTitleLabel.centerYAnchor)
         ])
     }
 
@@ -765,19 +751,6 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         capsuleLayoutTopConstraint.constant = hasPreviewContent
             ? Metrics.capsulePreviewTopInset
             : Metrics.capsuleVerticalInset
-    }
-
-    private func updateSystemPromptPreviewHeight() {
-        let height = selectedSystemPrompt == nil ? 0.0 : systemPromptPreviewHeight
-        systemPromptHeightConstraint.constant = height
-        systemPromptPillView.layer.cornerRadius = height * 0.5
-    }
-
-    private var systemPromptPreviewHeight: CGFloat {
-        max(
-            Metrics.systemPromptMinimumHeight,
-            ceil(systemPromptTitleLabel.font.lineHeight + Metrics.systemPromptVerticalInset * 2.0)
-        )
     }
 
     private func animatePreviewLayoutChange() {
