@@ -69,7 +69,6 @@ final class MemoriesViewController: UITableViewController {
     private var storeObservations: [NSObjectProtocol] = []
     private var memoryCountTask: Task<Void, Never>?
     private var clearTask: Task<Void, Never>?
-    private var localToolSettingsChangeNotificationsToIgnore = 0
 
     init(dependencies: AppDependencyContainer = AppEnvironment.shared.dependencies) {
         self.dependencies = dependencies
@@ -170,17 +169,25 @@ final class MemoriesViewController: UITableViewController {
     }
 
     private func reloadInjectionSettings() {
-        injectionSettings = dependencies.memoryManager.memoryInjectionSettings()
-        tableView.reloadSections(IndexSet(integer: Section.injection.rawValue), with: .automatic)
-    }
-
-    private func handleToolSettingsStoreChange() {
-        guard localToolSettingsChangeNotificationsToIgnore == 0 else {
-            localToolSettingsChangeNotificationsToIgnore -= 1
+        let updatedSettings = dependencies.memoryManager.memoryInjectionSettings()
+        guard updatedSettings != injectionSettings else {
             return
         }
 
-        tableView.reloadSections(IndexSet(integer: Section.assistantAccess.rawValue), with: .automatic)
+        injectionSettings = updatedSettings
+        updateVisibleInjectionCells()
+    }
+
+    private func handleToolSettingsStoreChange() {
+        let updatedMemoryToolItems = registeredMemoryToolItems()
+        guard updatedMemoryToolItems.map(\.id) == memoryToolItems.map(\.id) else {
+            memoryToolItems = updatedMemoryToolItems
+            tableView.reloadSections(IndexSet(integer: Section.assistantAccess.rawValue), with: .none)
+            return
+        }
+
+        memoryToolItems = updatedMemoryToolItems
+        updateVisibleMemoryToolCells()
     }
 
     override func numberOfSections(in tableView: UITableView) -> Int {
@@ -264,7 +271,7 @@ final class MemoriesViewController: UITableViewController {
 
         switch row {
         case .enabled:
-            return injectionEnabledCell(for: indexPath)
+            return injectionEnabledCell()
         case .timeRange:
             return injectionTimeRangeCell()
         case .maximumMemories:
@@ -272,23 +279,26 @@ final class MemoriesViewController: UITableViewController {
         }
     }
 
-    private func injectionEnabledCell(for indexPath: IndexPath) -> UITableViewCell {
+    private func injectionEnabledCell() -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.settingCell)
             ?? UITableViewCell(style: .subtitle, reuseIdentifier: ReuseIdentifier.settingCell)
-        var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = "Inject Memories"
-        contentConfiguration.image = UIImage(systemName: "arrow.down.doc")
-        contentConfiguration.imageProperties.tintColor = injectionSettings.isEnabled ? .systemGreen : .secondaryLabel
-        cell.contentConfiguration = contentConfiguration
+        configureInjectionEnabledCellContent(cell)
 
         let toggle = UISwitch()
         toggle.isOn = injectionSettings.isEnabled
-        toggle.tag = indexPath.row
         toggle.addTarget(self, action: #selector(toggleMemoryInjection(_:)), for: .valueChanged)
         cell.accessoryView = toggle
         cell.accessoryType = .none
         cell.selectionStyle = .none
         return cell
+    }
+
+    private func configureInjectionEnabledCellContent(_ cell: UITableViewCell) {
+        var contentConfiguration = cell.defaultContentConfiguration()
+        contentConfiguration.text = "Inject Memories"
+        contentConfiguration.image = UIImage(systemName: "arrow.down.doc")
+        contentConfiguration.imageProperties.tintColor = injectionSettings.isEnabled ? .systemGreen : .secondaryLabel
+        cell.contentConfiguration = contentConfiguration
     }
 
     private func injectionTimeRangeCell() -> UITableViewCell {
@@ -309,6 +319,15 @@ final class MemoriesViewController: UITableViewController {
         return cell
     }
 
+    private func configureInjectionTimeRangeButton(_ button: UIButton) {
+        configureMenuButton(
+            button,
+            title: injectionSettings.timeRange.title,
+            menu: timeRangeMenu(),
+            accessibilityLabel: "Memory injection time range"
+        )
+    }
+
     private func injectionMaximumMemoriesCell() -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.settingCell)
             ?? UITableViewCell(style: .subtitle, reuseIdentifier: ReuseIdentifier.settingCell)
@@ -327,19 +346,25 @@ final class MemoriesViewController: UITableViewController {
         return cell
     }
 
+    private func configureInjectionMaximumMemoriesButton(_ button: UIButton) {
+        configureMenuButton(
+            button,
+            title: memoryLimitMenuTitle,
+            menu: maximumMemoriesMenu(),
+            accessibilityLabel: "Memory injection limit"
+        )
+    }
+
     private func memoryToolCell(for indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.toolCell)
             ?? UITableViewCell(style: .subtitle, reuseIdentifier: ReuseIdentifier.toolCell)
         let item = memoryToolItems[indexPath.row]
         let isEnabled = dependencies.toolSettingsManager.isBuiltInToolEnabled(id: item.id)
-
-        var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = item.title
-        contentConfiguration.secondaryText = item.subtitle
-        contentConfiguration.secondaryTextProperties.numberOfLines = 2
-        contentConfiguration.image = UIImage(systemName: item.symbolName)
-        contentConfiguration.imageProperties.tintColor = isEnabled ? .systemGreen : .secondaryLabel
-        cell.contentConfiguration = contentConfiguration
+        configureMemoryToolCellContent(
+            cell,
+            item: item,
+            isEnabled: isEnabled
+        )
 
         let toggle = UISwitch()
         toggle.isOn = isEnabled
@@ -349,6 +374,20 @@ final class MemoriesViewController: UITableViewController {
         cell.accessoryType = .none
         cell.selectionStyle = .none
         return cell
+    }
+
+    private func configureMemoryToolCellContent(
+        _ cell: UITableViewCell,
+        item: MemoryToolUserFacingItem,
+        isEnabled: Bool
+    ) {
+        var contentConfiguration = cell.defaultContentConfiguration()
+        contentConfiguration.text = item.title
+        contentConfiguration.secondaryText = item.subtitle
+        contentConfiguration.secondaryTextProperties.numberOfLines = 2
+        contentConfiguration.image = UIImage(systemName: item.symbolName)
+        contentConfiguration.imageProperties.tintColor = isEnabled ? .systemGreen : .secondaryLabel
+        cell.contentConfiguration = contentConfiguration
     }
 
     private func savedMemoryCell() -> UITableViewCell {
@@ -385,6 +424,7 @@ final class MemoriesViewController: UITableViewController {
         var updatedSettings = injectionSettings
         updatedSettings.isEnabled = sender.isOn
         saveInjectionSettings(updatedSettings)
+        updateVisibleInjectionEnabledCell()
     }
 
     @objc private func toggleMemoryTool(_ sender: UISwitch) {
@@ -393,22 +433,7 @@ final class MemoriesViewController: UITableViewController {
         }
 
         let item = memoryToolItems[sender.tag]
-        applyLocalToolSettingsChange(
-            shouldIgnoreNotification: dependencies.toolSettingsManager.isBuiltInToolEnabled(id: item.id) != sender.isOn
-        ) {
-            dependencies.toolSettingsManager.setBuiltInTool(id: item.id, isEnabled: sender.isOn)
-        }
-        if let cell = tableView.cellForRow(
-            at: IndexPath(row: sender.tag, section: Section.assistantAccess.rawValue)
-        ) {
-            var contentConfiguration = cell.defaultContentConfiguration()
-            contentConfiguration.text = item.title
-            contentConfiguration.secondaryText = item.subtitle
-            contentConfiguration.secondaryTextProperties.numberOfLines = 2
-            contentConfiguration.image = UIImage(systemName: item.symbolName)
-            contentConfiguration.imageProperties.tintColor = sender.isOn ? .systemGreen : .secondaryLabel
-            cell.contentConfiguration = contentConfiguration
-        }
+        dependencies.toolSettingsManager.setBuiltInTool(id: item.id, isEnabled: sender.isOn)
     }
 
     private func menuButton(
@@ -416,16 +441,30 @@ final class MemoriesViewController: UITableViewController {
         menu: UIMenu,
         accessibilityLabel: String
     ) -> UIButton {
-        var configuration = UIButton.Configuration.plain()
-        configuration.title = title
+        let button = UIButton(configuration: .plain())
+        configureMenuButton(
+            button,
+            title: title,
+            menu: menu,
+            accessibilityLabel: accessibilityLabel
+        )
+        return button
+    }
 
-        let button = UIButton(configuration: configuration)
+    private func configureMenuButton(
+        _ button: UIButton,
+        title: String,
+        menu: UIMenu,
+        accessibilityLabel: String
+    ) {
+        var configuration = button.configuration ?? .plain()
+        configuration.title = title
+        button.configuration = configuration
         button.menu = menu
         button.showsMenuAsPrimaryAction = true
         button.changesSelectionAsPrimaryAction = true
         button.accessibilityLabel = accessibilityLabel
         button.sizeToFit()
-        return button
     }
 
     private func timeRangeMenu() -> UIMenu {
@@ -468,9 +507,12 @@ final class MemoriesViewController: UITableViewController {
     }
 
     private func saveInjectionSettings(_ settings: MemoryInjectionSettings) {
+        guard settings != injectionSettings else {
+            return
+        }
+
         injectionSettings = settings
         dependencies.memoryManager.saveMemoryInjectionSettings(settings)
-        tableView.reloadSections(IndexSet(integer: Section.injection.rawValue), with: .automatic)
     }
 
     private func presentClearAllConfirmation() {
@@ -514,15 +556,66 @@ final class MemoriesViewController: UITableViewController {
         }
     }
 
-    private func applyLocalToolSettingsChange(
-        shouldIgnoreNotification: Bool,
-        _ change: () -> Void
-    ) {
-        if shouldIgnoreNotification {
-            localToolSettingsChangeNotificationsToIgnore += 1
+    private func updateVisibleInjectionCells() {
+        updateVisibleInjectionEnabledCell()
+        updateVisibleInjectionMenuButton(
+            row: .timeRange
+        ) { button in
+            configureInjectionTimeRangeButton(button)
+        }
+        updateVisibleInjectionMenuButton(
+            row: .maximumMemories
+        ) { button in
+            configureInjectionMaximumMemoriesButton(button)
+        }
+    }
+
+    private func updateVisibleInjectionEnabledCell() {
+        let indexPath = IndexPath(row: InjectionRow.enabled.rawValue, section: Section.injection.rawValue)
+        guard let cell = tableView.cellForRow(at: indexPath) else {
+            return
         }
 
-        change()
+        configureInjectionEnabledCellContent(cell)
+        guard let toggle = cell.accessoryView as? UISwitch,
+              toggle.isOn != injectionSettings.isEnabled else {
+            return
+        }
+
+        toggle.setOn(injectionSettings.isEnabled, animated: false)
+    }
+
+    private func updateVisibleInjectionMenuButton(
+        row: InjectionRow,
+        configure: (UIButton) -> Void
+    ) {
+        let indexPath = IndexPath(row: row.rawValue, section: Section.injection.rawValue)
+        guard let cell = tableView.cellForRow(at: indexPath),
+              let button = cell.accessoryView as? UIButton else {
+            return
+        }
+
+        configure(button)
+    }
+
+    private func updateVisibleMemoryToolCells() {
+        for (row, item) in memoryToolItems.enumerated() {
+            let indexPath = IndexPath(row: row, section: Section.assistantAccess.rawValue)
+            guard let cell = tableView.cellForRow(at: indexPath) else {
+                continue
+            }
+
+            let isEnabled = dependencies.toolSettingsManager.isBuiltInToolEnabled(id: item.id)
+            configureMemoryToolCellContent(
+                cell,
+                item: item,
+                isEnabled: isEnabled
+            )
+            if let toggle = cell.accessoryView as? UISwitch,
+               toggle.isOn != isEnabled {
+                toggle.setOn(isEnabled, animated: false)
+            }
+        }
     }
 
     private var selectableMaximumMemories: [Int?] {

@@ -55,6 +55,14 @@ Prefer Auto Layout constraints over frame math for persistent layout. Keep UI co
 
 For persistence changes, keep `LLMProviderRecord` and `LLMProviderModel` Codable-compatible and consider migration for stored `UserDefaults` data. For network changes, keep `OpenRouterAPIClient` async/throws, validate URLs and HTTP status codes, and avoid logging secrets or full authorization headers.
 
+## UIKit Setting Controls
+
+Let UIKit own control interaction and animation whenever possible. For `UISwitch`, handle user changes from `.valueChanged`, persist the new value, and do not reload the row or section that contains the active switch. Programmatic `isOn` or `setOn(_:animated:)` updates do not send `.valueChanged`, so store-notification handlers can safely sync visible switches directly with `setOn(..., animated: false)`.
+
+For table-backed settings, update the visible cell or accessory view directly when only displayed values change. Use `reloadRows`, `reloadSections`, or `reloadData` only when row identity, row count, or section structure changes, or when an intentional table replacement animation is part of the UX. Avoid notification-ignore counters for ordinary control updates; make store-change handlers idempotent instead.
+
+For single-choice menu settings, prefer `UIButton` with `menu`, `showsMenuAsPrimaryAction`, `changesSelectionAsPrimaryAction`, and `UIMenu(options: .singleSelection)`. Let the button track the selected menu action and update its title; rebuild the menu only when external state changes or available choices change.
+
 ## Testing Guidelines
 
 XCTest targets already exist. Add focused unit tests in `UniLLMsTests/` for model, store, parsing, and non-UI behavior; name new files after the subject under test, for example `LLMProviderStoreTests.swift`. Use clear XCTest names such as `testAddingProviderAssignsUniqueName()` or `test_<behavior>_<expectedResult>()`, and keep test data isolated with dedicated `UserDefaults` suites when persistence is involved.
