@@ -19,6 +19,7 @@ final class AppDependencyContainer {
     let toolCatalog: ToolCatalog
     let toolManager: ToolManager
     let systemPromptManager: SystemPromptManager
+    let memoryStore: any MemoryStore
     let memoryManager: MemoryManager
     let chatHistoryStore: UserDefaultsChatStore
     let chatRuntime: ChatRuntime
@@ -28,10 +29,12 @@ final class AppDependencyContainer {
     init(
         coreDataStack: CoreDataStack = CoreDataStack(),
         providerStore: LLMsProviderStore = .shared,
-        systemPromptStore: any SystemPromptStore = UserDefaultsSystemPromptStore.shared
+        systemPromptStore: any SystemPromptStore = UserDefaultsSystemPromptStore.shared,
+        memoryStore: any MemoryStore = UserDefaultsMemoryStore.shared
     ) {
         self.coreDataStack = coreDataStack
         self.providerStore = providerStore
+        self.memoryStore = memoryStore
 
         providerRegistry = LLMsProviderCatalog.makeRegistry()
         providerManager = LLMsProviderManager(
@@ -39,7 +42,10 @@ final class AppDependencyContainer {
             store: providerStore
         )
 
-        let toolRegistry = BuiltInToolCatalog.makeRegistry()
+        systemPromptManager = SystemPromptManager(store: systemPromptStore)
+        memoryManager = MemoryManager(store: memoryStore)
+
+        let toolRegistry = BuiltInToolCatalog.makeRegistry(memoryManager: memoryManager)
         self.toolRegistry = toolRegistry
         let toolSettingsStore = UserDefaultsToolSettingsStore.shared
         // Preserve the previous MCP-owned global switch before MCP configuration is next saved.
@@ -50,8 +56,6 @@ final class AppDependencyContainer {
             store: toolSettingsStore
         )
         self.toolSettingsManager = toolSettingsManager
-        systemPromptManager = SystemPromptManager(store: systemPromptStore)
-        memoryManager = MemoryManager()
         chatHistoryStore = UserDefaultsChatStore()
         let mcpServerManager = MCPServerManager()
         self.mcpServerManager = mcpServerManager

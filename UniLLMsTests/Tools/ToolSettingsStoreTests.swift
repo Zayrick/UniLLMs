@@ -56,4 +56,41 @@ final class ToolSettingsStoreTests: UserDefaultsBackedTestCase {
 
         XCTAssertTrue(migratedStore.loadToolsEnabled())
     }
+
+    func testToolSettingsManagerUpdatesBuiltInToolsAsGroup() {
+        let settingsStore = UserDefaultsToolSettingsStore(
+            defaults: defaults,
+            storageKey: "toolGroupSettings",
+            legacyMCPStorageKey: "missingLegacyMCPSettings"
+        )
+        let registry = ToolRegistry(tools: [
+            SettingsTool(name: "memory_add"),
+            SettingsTool(name: "memory_delete"),
+            SettingsTool(name: "current_datetime")
+        ])
+        let manager = ToolSettingsManager(registry: registry, store: settingsStore)
+
+        XCTAssertEqual(manager.enabledBuiltInToolCount(ids: ["memory_add", "memory_delete"]), 2)
+
+        manager.setBuiltInTools(ids: ["memory_add", "memory_delete"], isEnabled: false)
+
+        XCTAssertEqual(manager.enabledBuiltInToolCount(ids: ["memory_add", "memory_delete"]), 0)
+        XCTAssertTrue(manager.isBuiltInToolEnabled(id: "current_datetime"))
+
+        manager.setBuiltInTools(ids: ["memory_add", "memory_delete"], isEnabled: true)
+
+        XCTAssertEqual(manager.enabledBuiltInToolCount(ids: ["memory_add", "memory_delete"]), 2)
+    }
+}
+
+private struct SettingsTool: Tool {
+    let definition: ToolDefinition
+
+    init(name: String) {
+        definition = ToolDefinition(name: name, summary: "")
+    }
+
+    func execute(call: ToolCall, context: ToolExecutionContext) async throws -> ToolResult {
+        ToolResult(callID: call.id, content: "")
+    }
 }

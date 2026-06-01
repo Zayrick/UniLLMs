@@ -9,10 +9,15 @@
 import Foundation
 
 enum BuiltInToolCatalog {
-    static func makeRegistry() -> ToolRegistry {
+    static func makeRegistry(memoryManager: MemoryManager) -> ToolRegistry {
         ToolRegistry(
             tools: [
-                DateTimeTool()
+                DateTimeTool(),
+                MemoryAddTool(memoryManager: memoryManager),
+                MemoryDeleteTool(memoryManager: memoryManager),
+                MemoryListTool(memoryManager: memoryManager),
+                MemorySearchTool(memoryManager: memoryManager),
+                MemoryUpdateTool(memoryManager: memoryManager)
             ]
         )
     }

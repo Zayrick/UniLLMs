@@ -158,6 +158,12 @@ final class ToolSettingsManager {
         registry.tools.map(\.definition)
     }
 
+    func enabledBuiltInToolCount(ids: [String]) -> Int {
+        ids.filter {
+            registry.tool(id: $0) != nil && isBuiltInToolEnabled(id: $0)
+        }.count
+    }
+
     func isBuiltInToolEnabled(id: String) -> Bool {
         store.isBuiltInToolEnabled(id: id)
     }
@@ -169,6 +175,29 @@ final class ToolSettingsManager {
         }
 
         store.saveBuiltInToolEnabled(isEnabled, id: id)
+        return true
+    }
+
+    @discardableResult
+    func setBuiltInTools(ids: [String], isEnabled: Bool) -> Bool {
+        let registeredIDs = ids.filter {
+            registry.tool(id: $0) != nil
+        }
+        guard !registeredIDs.isEmpty else {
+            return false
+        }
+
+        var disabledToolIDs = store.loadDisabledBuiltInToolIDs()
+        if isEnabled {
+            registeredIDs.forEach {
+                disabledToolIDs.remove($0)
+            }
+        } else {
+            registeredIDs.forEach {
+                disabledToolIDs.insert($0)
+            }
+        }
+        store.saveDisabledBuiltInToolIDs(disabledToolIDs)
         return true
     }
 }

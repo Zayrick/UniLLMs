@@ -10,10 +10,16 @@ import XCTest
 
 final class ToolCatalogTests: XCTestCase {
     func testBuiltInToolCatalogRegistersDateTimeTool() {
-        let registry = BuiltInToolCatalog.makeRegistry()
+        let registry = BuiltInToolCatalog.makeRegistry(
+            memoryManager: MemoryManager(store: InMemoryMemoryStore())
+        )
 
         XCTAssertNotNil(registry.tool(id: "current_datetime"))
-        XCTAssertEqual(registry.tools.map(\.definition.name), ["current_datetime"])
+        XCTAssertNotNil(registry.tool(id: "memory_add"))
+        XCTAssertNotNil(registry.tool(id: "memory_delete"))
+        XCTAssertNotNil(registry.tool(id: "memory_list"))
+        XCTAssertNotNil(registry.tool(id: "memory_search"))
+        XCTAssertNotNil(registry.tool(id: "memory_update"))
         XCTAssertEqual(registry.tools.first?.definition.symbolName, "clock")
     }
 
@@ -136,5 +142,43 @@ private struct CatalogTool: Tool {
 
     func execute(call: ToolCall, context: ToolExecutionContext) async throws -> ToolResult {
         ToolResult(callID: call.id, content: "")
+    }
+}
+
+private final class InMemoryMemoryStore: MemoryStore {
+    private var memories: [MemoryRecord] = []
+
+    func fetchMemories(scope: MemoryScope?) async throws -> [MemoryRecord] {
+        guard let scope else {
+            return memories
+        }
+
+        return memories.filter {
+            $0.scope == scope
+        }
+    }
+
+    func saveMemory(_ memory: MemoryRecord) async throws {
+        if let index = memories.firstIndex(where: { $0.id == memory.id }) {
+            memories[index] = memory
+        } else {
+            memories.append(memory)
+        }
+    }
+
+    func deleteMemory(id: UUID) async throws {
+        memories.removeAll {
+            $0.id == id
+        }
+    }
+
+    func deleteMemories(scope: MemoryScope?) async throws {
+        if let scope {
+            memories.removeAll {
+                $0.scope == scope
+            }
+        } else {
+            memories = []
+        }
     }
 }

@@ -11,6 +11,7 @@ import UIKit
 final class SettingsViewController: UITableViewController {
     private enum Row: Int, CaseIterable {
         case providers
+        case memories
         case tools
         case systemPrompts
 
@@ -18,6 +19,8 @@ final class SettingsViewController: UITableViewController {
             switch self {
             case .providers:
                 return "LLM Providers"
+            case .memories:
+                return "Memories"
             case .tools:
                 return "Tools"
             case .systemPrompts:
@@ -29,6 +32,8 @@ final class SettingsViewController: UITableViewController {
             switch self {
             case .providers:
                 return "globe"
+            case .memories:
+                return "brain.head.profile"
             case .tools:
                 return "hammer"
             case .systemPrompts:
@@ -40,6 +45,8 @@ final class SettingsViewController: UITableViewController {
             switch self {
             case .providers:
                 return .systemBlue
+            case .memories:
+                return .systemTeal
             case .tools:
                 return .systemGreen
             case .systemPrompts:
@@ -107,6 +114,11 @@ final class SettingsViewController: UITableViewController {
         case .providers:
             navigationController?.pushViewController(
                 LLMsProviderViewController(dependencies: dependencies),
+                animated: true
+            )
+        case .memories:
+            navigationController?.pushViewController(
+                MemoriesViewController(dependencies: dependencies),
                 animated: true
             )
         case .tools:
