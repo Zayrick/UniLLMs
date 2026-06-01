@@ -48,6 +48,26 @@ final class LLMsProviderManagerTests: LLMsProviderStoreTestCase {
         }
     }
 
+    func testProviderManagerCreatesPollinationsDraftFromRegisteredAdapter() throws {
+        let manager = makeProviderManager(adapters: [PollinationsProvider()])
+        let defaultAPIBase = PollinationsProvider().defaultConfiguration[PollinationsProvider.ConfigurationKey.apiBase]
+
+        let draft = try manager.makeProviderDraft(kind: .pollinations)
+
+        XCTAssertEqual(draft.kind, .pollinations)
+        XCTAssertEqual(draft.name, "Pollinations")
+        XCTAssertEqual(draft.configuration[PollinationsProvider.ConfigurationKey.apiBase], defaultAPIBase)
+        XCTAssertEqual(draft.configuration[PollinationsProvider.ConfigurationKey.apiKey], "")
+        XCTAssertTrue(draft.models.isEmpty)
+
+        switch manager.modelSource(for: .pollinations) {
+        case .some(.remote):
+            break
+        case .some(.manual), .some(.`static`), nil:
+            XCTFail("Pollinations should fetch models remotely.")
+        }
+    }
+
     func testProviderManagerCreatesFakeDraftWithBuiltInModelsAndNoConfiguration() async throws {
         let manager = makeProviderManager(adapters: [FakeLLMsProvider()])
 
@@ -85,6 +105,7 @@ final class LLMsProviderManagerTests: LLMsProviderStoreTestCase {
         XCTAssertNotNil(registry.adapter(for: .openAI))
         XCTAssertNotNil(registry.adapter(for: .anthropic))
         XCTAssertNotNil(registry.adapter(for: .gemini))
+        XCTAssertNotNil(registry.adapter(for: .pollinations))
         XCTAssertNotNil(registry.adapter(for: .openRouter))
         XCTAssertNotNil(registry.adapter(for: .openAICompatible))
         XCTAssertNotNil(registry.adapter(for: .fake))
@@ -103,15 +124,18 @@ final class LLMsProviderManagerTests: LLMsProviderStoreTestCase {
         let manager = makeProviderManager(
             adapters: [
                 OpenRouterProvider(),
+                PollinationsProvider(),
                 OpenAICompatibleProvider(),
                 FakeLLMsProvider()
             ]
         )
         let openRouterProvider = try manager.makeProviderDraft(kind: .openRouter)
         var openAICompatibleProvider = try manager.makeProviderDraft(kind: .openAICompatible)
+        let pollinationsProvider = try manager.makeProviderDraft(kind: .pollinations)
         let fakeProvider = try manager.makeProviderDraft(kind: .fake)
 
         XCTAssertTrue(manager.provider(openRouterProvider, supports: .tools))
+        XCTAssertTrue(manager.provider(pollinationsProvider, supports: .tools))
         XCTAssertFalse(manager.provider(openAICompatibleProvider, supports: .tools))
 
         openAICompatibleProvider.configuration[OpenAICompatibleProvider.ConfigurationKey.toolsEnabled] = "true"

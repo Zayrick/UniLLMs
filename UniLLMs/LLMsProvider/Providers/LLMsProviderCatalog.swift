@@ -16,6 +16,7 @@ enum LLMsProviderCatalog {
                 OpenAIProvider(),
                 AnthropicProvider(),
                 GeminiProvider(),
+                PollinationsProvider(),
                 OpenAICompatibleProvider(),
                 FakeLLMsProvider()
             ]
