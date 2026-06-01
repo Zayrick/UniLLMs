@@ -11,7 +11,7 @@ import UIKit
 final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
     private enum Metrics {
         static let controlHeight: CGFloat = 44.0
-        static let horizontalInset: CGFloat = 12.0
+        static let horizontalInset: CGFloat = 16.0
         static let verticalInset: CGFloat = 8.0
         static let multilineCornerRadius: CGFloat = 22.0
         static let maximumVisibleAttachmentCount = 3
@@ -40,7 +40,9 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
     var editHistoryCount = 0
 
     var currentCornerRadius: CGFloat {
-        (isSingleLineLayout && attachments.isEmpty) ? bounds.height * 0.5 : Metrics.multilineCornerRadius
+        (isSingleLineLayout && attachments.isEmpty)
+            ? min(bounds.width, bounds.height) * 0.5
+            : Metrics.multilineCornerRadius
     }
 
     convenience init(text: String) {
