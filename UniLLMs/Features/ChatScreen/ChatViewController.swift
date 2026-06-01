@@ -913,6 +913,165 @@ final class ChatViewController: UIViewController {
         present(previewController, animated: true)
     }
 
+    private func presentMessageEditor(
+        messageID: UUID,
+        text: String,
+        attachments: [ChatAttachment]
+    ) {
+        guard activeResponseTask == nil else {
+            presentAttachmentError("Wait for the current response to finish.")
+            return
+        }
+
+        guard presentedViewController == nil else {
+            return
+        }
+
+        view.endEditing(true)
+
+        let editorViewController = MessageEditViewController(
+            text: text,
+            allowsEmptyText: !attachments.isEmpty
+        )
+        editorViewController.onSubmit = { [weak self, weak editorViewController] editedText in
+            editorViewController?.dismiss(animated: true) {
+                self?.resendEditedMessage(
+                    messageID: messageID,
+                    text: editedText,
+                    attachments: attachments
+                )
+            }
+        }
+
+        let navigationController = UINavigationController(rootViewController: editorViewController)
+        navigationController.modalPresentationStyle = .pageSheet
+        if let sheet = navigationController.sheetPresentationController {
+            sheet.detents = [.medium(), .large()]
+            sheet.prefersGrabberVisible = true
+        }
+        present(navigationController, animated: true)
+    }
+
+    private func presentMessageRevisionHistory(messageID: UUID) {
+        guard presentedViewController == nil else {
+            return
+        }
+
+        let revisions = chatRuntime.messageRevisions(for: messageID)
+        guard !revisions.isEmpty else {
+            return
+        }
+
+        view.endEditing(true)
+
+        let historyViewController = MessageRevisionHistoryViewController(revisions: revisions)
+        let navigationController = UINavigationController(rootViewController: historyViewController)
+        historyViewController.onSelectRevision = { [weak self, weak navigationController] revision in
+            navigationController?.dismiss(animated: true) {
+                self?.switchToMessageRevision(
+                    messageID: messageID,
+                    revisionID: revision.id
+                )
+            }
+        }
+        navigationController.modalPresentationStyle = .pageSheet
+        if let sheet = navigationController.sheetPresentationController {
+            sheet.detents = [.medium(), .large()]
+            sheet.prefersGrabberVisible = true
+        }
+        present(navigationController, animated: true)
+    }
+
+    private func switchToMessageRevision(
+        messageID: UUID,
+        revisionID: UUID
+    ) {
+        guard activeResponseTask == nil else {
+            presentAttachmentError("Wait for the current response to finish.")
+            return
+        }
+
+        do {
+            let events = try chatRuntime.switchToMessageRevision(
+                anchorUserMessageID: messageID,
+                revisionID: revisionID
+            )
+            renderConversationTimeline(events)
+            messagesScrollCoordinator.lockToBottom()
+            updateRightHeaderButtonState(animated: true)
+            reloadHistorySessions(selectedSessionID: chatRuntime.currentSessionID)
+        } catch {
+            presentAttachmentError(error.localizedDescription)
+        }
+    }
+
+    private func resendEditedMessage(
+        messageID: UUID,
+        text: String,
+        attachments: [ChatAttachment]
+    ) {
+        guard activeResponseTask == nil else {
+            presentAttachmentError("Wait for the current response to finish.")
+            return
+        }
+
+        let editedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !editedText.isEmpty || !attachments.isEmpty else {
+            return
+        }
+
+        mainPageView.layoutIfNeeded()
+        let existingMessageFrames = visibleMessageFrames()
+
+        guard let firstRemovedIndex = messagesStackView.arrangedSubviews.firstIndex(where: { view in
+            (view as? SentMessageBubbleView)?.messageID == messageID
+        }) else {
+            presentAttachmentError("The message is no longer available.")
+            return
+        }
+
+        let responseStream: AsyncThrowingStream<ChatResponseDelta, Error>
+        do {
+            responseStream = try chatRuntime.startTurn(
+                prompt: editedText,
+                attachments: attachments,
+                userMessageID: messageID,
+                replacingUserMessageID: messageID
+            )
+        } catch {
+            presentAttachmentError(error.localizedDescription)
+            return
+        }
+
+        removeMessagesStarting(at: firstRemovedIndex)
+        let (bubbleView, responseView) = appendOutgoingMessageViews(
+            messageID: messageID,
+            text: editedText,
+            attachments: attachments
+        )
+
+        mainPageView.layoutIfNeeded()
+        scrollMessagesToBottom(animated: false)
+        mainPageView.layoutIfNeeded()
+
+        activateAssistantResponseStream(responseStream, responseView: responseView)
+        refreshEditHistory(for: bubbleView)
+        animateExistingMessages(from: existingMessageFrames)
+        showAssistantLoadingIfNeeded(in: responseView)
+    }
+
+    private func refreshEditHistory(for bubbleView: SentMessageBubbleView) {
+        bubbleView.editHistoryCount = chatRuntime.messageRevisions(for: bubbleView.messageID).count
+    }
+
+    private func removeMessagesStarting(at firstRemovedIndex: Int) {
+        let removedViews = Array(messagesStackView.arrangedSubviews[firstRemovedIndex...])
+        removedViews.forEach { messageView in
+            messagesStackView.removeArrangedSubview(messageView)
+            messageView.removeFromSuperview()
+        }
+    }
+
     private func refreshComposerAttachmentPreview() {
         let displays = pendingAttachments.map { attachment -> GlassComposerBarView.PendingAttachmentDisplay in
             let image: UIImage?
@@ -966,18 +1125,20 @@ final class ChatViewController: UIViewController {
         refreshComposerSystemPromptPreview()
     }
 
-    private func appendSentMessage(using transition: GlassComposerBarView.SendTransition) {
-        mainPageView.layoutIfNeeded()
-        let existingMessageFrames = visibleMessageFrames()
-
-        let attachmentsForTurn = pendingAttachments
-        pendingAttachments.removeAll()
-        refreshComposerAttachmentPreview()
-
-        let bubbleView = SentMessageBubbleView(text: transition.text, attachments: attachmentsForTurn)
-        configureAttachmentPreview(for: bubbleView)
+    private func appendOutgoingMessageViews(
+        messageID: UUID,
+        text: String,
+        attachments: [ChatAttachment],
+        initialBubbleAlpha: CGFloat = 1.0
+    ) -> (bubbleView: SentMessageBubbleView, responseView: AssistantResponseTextView) {
+        let bubbleView = SentMessageBubbleView(
+            messageID: messageID,
+            text: text,
+            attachments: attachments
+        )
+        configureSentMessageActions(for: bubbleView)
         bubbleView.translatesAutoresizingMaskIntoConstraints = false
-        bubbleView.alpha = 0.0
+        bubbleView.alpha = initialBubbleAlpha
         bubbleView.setContentHuggingPriority(.required, for: .vertical)
         bubbleView.setContentCompressionResistancePriority(.required, for: .vertical)
 
@@ -997,6 +1158,25 @@ final class ChatViewController: UIViewController {
             equalTo: messagesStackView.widthAnchor
         ).isActive = true
 
+        return (bubbleView, responseView)
+    }
+
+    private func appendSentMessage(using transition: GlassComposerBarView.SendTransition) {
+        mainPageView.layoutIfNeeded()
+        let existingMessageFrames = visibleMessageFrames()
+        let messageID = UUID()
+
+        let attachmentsForTurn = pendingAttachments
+        pendingAttachments.removeAll()
+        refreshComposerAttachmentPreview()
+
+        let (bubbleView, responseView) = appendOutgoingMessageViews(
+            messageID: messageID,
+            text: transition.text,
+            attachments: attachmentsForTurn,
+            initialBubbleAlpha: 0.0
+        )
+
         mainPageView.layoutIfNeeded()
         scrollMessagesToBottom(animated: false)
         mainPageView.layoutIfNeeded()
@@ -1004,6 +1184,7 @@ final class ChatViewController: UIViewController {
         startAssistantResponseStream(
             for: transition.text,
             attachments: attachmentsForTurn,
+            userMessageID: messageID,
             responseView: responseView
         )
         animateExistingMessages(from: existingMessageFrames)
@@ -1143,6 +1324,7 @@ final class ChatViewController: UIViewController {
     private func startAssistantResponseStream(
         for prompt: String,
         attachments: [ChatAttachment] = [],
+        userMessageID: UUID = UUID(),
         responseView: AssistantResponseTextView
     ) {
         guard activeResponseTask == nil else {
@@ -1155,7 +1337,8 @@ final class ChatViewController: UIViewController {
         do {
             responseStream = try chatRuntime.startTurn(
                 prompt: prompt,
-                attachments: attachments
+                attachments: attachments,
+                userMessageID: userMessageID
             )
         } catch {
             setAssistantResponseError(error.localizedDescription, in: responseView)
@@ -1163,6 +1346,13 @@ final class ChatViewController: UIViewController {
             return
         }
 
+        activateAssistantResponseStream(responseStream, responseView: responseView)
+    }
+
+    private func activateAssistantResponseStream(
+        _ responseStream: AsyncThrowingStream<ChatResponseDelta, Error>,
+        responseView: AssistantResponseTextView
+    ) {
         activeResponseView = responseView
         composerView.isSendingEnabled = false
         composerView.setStreamingResponseActive(true, animated: true)
@@ -1483,10 +1673,10 @@ final class ChatViewController: UIViewController {
             switch event.kind {
             case let .userMessage(text):
                 finishCurrentAssistantView()
-                appendStoredUserMessage(text: text, attachments: [])
+                appendStoredUserMessage(id: event.id, text: text, attachments: [])
             case let .userMessageWithAttachments(text, attachments):
                 finishCurrentAssistantView()
-                appendStoredUserMessage(text: text, attachments: attachments)
+                appendStoredUserMessage(id: event.id, text: text, attachments: attachments)
             case let .assistantReasoning(text):
                 assistantView().appendStoredReasoning(text)
             case let .assistantContent(markdown):
@@ -1497,6 +1687,8 @@ final class ChatViewController: UIViewController {
                 }
             case let .toolEvent(event):
                 assistantView().appendDisplayPart(.toolEvent(event))
+            case .messageRevision:
+                continue
             }
         }
 
@@ -1505,9 +1697,9 @@ final class ChatViewController: UIViewController {
         scrollMessagesToBottom(animated: false)
     }
 
-    private func appendStoredUserMessage(text: String, attachments: [ChatAttachment]) {
-        let bubbleView = SentMessageBubbleView(text: text, attachments: attachments)
-        configureAttachmentPreview(for: bubbleView)
+    private func appendStoredUserMessage(id: UUID, text: String, attachments: [ChatAttachment]) {
+        let bubbleView = SentMessageBubbleView(messageID: id, text: text, attachments: attachments)
+        configureSentMessageActions(for: bubbleView)
         bubbleView.translatesAutoresizingMaskIntoConstraints = false
         bubbleView.setContentHuggingPriority(.required, for: .vertical)
         bubbleView.setContentCompressionResistancePriority(.required, for: .vertical)
@@ -1519,9 +1711,28 @@ final class ChatViewController: UIViewController {
         ).isActive = true
     }
 
-    private func configureAttachmentPreview(for bubbleView: SentMessageBubbleView) {
+    private func configureSentMessageActions(for bubbleView: SentMessageBubbleView) {
+        bubbleView.editHistoryCount = chatRuntime.messageRevisions(for: bubbleView.messageID).count
         bubbleView.onPreviewAttachment = { [weak self] attachment in
             self?.presentAttachmentPreview(for: attachment)
+        }
+        bubbleView.onEditAndResend = { [weak self, weak bubbleView] text, attachments in
+            guard let bubbleView else {
+                return
+            }
+
+            self?.presentMessageEditor(
+                messageID: bubbleView.messageID,
+                text: text,
+                attachments: attachments
+            )
+        }
+        bubbleView.onShowHistory = { [weak self, weak bubbleView] in
+            guard let bubbleView else {
+                return
+            }
+
+            self?.presentMessageRevisionHistory(messageID: bubbleView.messageID)
         }
     }
 
@@ -2086,6 +2297,416 @@ extension ChatViewController: UIDocumentPickerDelegate {
             }
         }
         appendPendingAttachments(attachments)
+    }
+}
+
+private final class MessageEditViewController: UIViewController, UITextViewDelegate {
+    private enum Metrics {
+        static let horizontalInset: CGFloat = 16.0
+        static let topInset: CGFloat = 16.0
+        static let bottomInset: CGFloat = 16.0
+        static let textInset: CGFloat = 12.0
+        static let cornerRadius: CGFloat = 14.0
+        static let minimumTextHeight: CGFloat = 180.0
+    }
+
+    private let initialText: String
+    private let allowsEmptyText: Bool
+    private let textView = UITextView()
+    private var sendButtonItem: UIBarButtonItem?
+
+    var onSubmit: ((String) -> Void)?
+
+    init(text: String, allowsEmptyText: Bool) {
+        initialText = text
+        self.allowsEmptyText = allowsEmptyText
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        initialText = ""
+        allowsEmptyText = false
+        super.init(coder: coder)
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+
+        configureNavigationItem()
+        configureTextView()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+
+        textView.becomeFirstResponder()
+    }
+
+    func textViewDidChange(_ textView: UITextView) {
+        updateSendAvailability()
+    }
+
+    private func configureNavigationItem() {
+        title = "Edit Message"
+        navigationItem.leftBarButtonItem = UIBarButtonItem(
+            barButtonSystemItem: .cancel,
+            target: self,
+            action: #selector(cancelButtonPressed)
+        )
+        let sendItem = UIBarButtonItem(
+            title: "Send",
+            style: .prominent,
+            target: self,
+            action: #selector(sendButtonPressed)
+        )
+        navigationItem.rightBarButtonItem = sendItem
+        sendButtonItem = sendItem
+        updateSendAvailability()
+    }
+
+    private func configureTextView() {
+        view.backgroundColor = .clear
+
+        textView.translatesAutoresizingMaskIntoConstraints = false
+        textView.backgroundColor = .secondarySystemBackground
+        textView.delegate = self
+        textView.font = .preferredFont(forTextStyle: .body)
+        textView.adjustsFontForContentSizeCategory = true
+        textView.textColor = .label
+        textView.tintColor = .systemBlue
+        textView.text = initialText
+        textView.textContainerInset = UIEdgeInsets(
+            top: Metrics.textInset,
+            left: Metrics.textInset,
+            bottom: Metrics.textInset,
+            right: Metrics.textInset
+        )
+        textView.textContainer.lineFragmentPadding = 0.0
+        textView.layer.cornerRadius = Metrics.cornerRadius
+        textView.layer.cornerCurve = .continuous
+        textView.isScrollEnabled = true
+        textView.alwaysBounceVertical = true
+        view.addSubview(textView)
+
+        NSLayoutConstraint.activate([
+            textView.topAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.topAnchor,
+                constant: Metrics.topInset
+            ),
+            textView.leadingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.leadingAnchor,
+                constant: Metrics.horizontalInset
+            ),
+            textView.trailingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.trailingAnchor,
+                constant: -Metrics.horizontalInset
+            ),
+            textView.bottomAnchor.constraint(
+                equalTo: view.keyboardLayoutGuide.topAnchor,
+                constant: -Metrics.bottomInset
+            ),
+            textView.heightAnchor.constraint(greaterThanOrEqualToConstant: Metrics.minimumTextHeight)
+        ])
+        updateSendAvailability()
+    }
+
+    private func updateSendAvailability() {
+        let trimmedText = textView.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        sendButtonItem?.isEnabled = allowsEmptyText || !trimmedText.isEmpty
+    }
+
+    @objc private func cancelButtonPressed() {
+        dismiss(animated: true)
+    }
+
+    @objc private func sendButtonPressed() {
+        let trimmedText = textView.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard allowsEmptyText || !trimmedText.isEmpty else {
+            return
+        }
+
+        onSubmit?(trimmedText)
+    }
+}
+
+private final class MessageRevisionHistoryViewController: UITableViewController {
+    private enum ReuseIdentifier {
+        static let revisionCell = "MessageRevisionHistoryCell"
+    }
+
+    private let revisions: [ChatMessageRevision]
+    var onSelectRevision: ((ChatMessageRevision) -> Void)?
+
+    init(revisions: [ChatMessageRevision]) {
+        self.revisions = revisions
+        super.init(style: .plain)
+    }
+
+    required init?(coder: NSCoder) {
+        revisions = []
+        super.init(coder: coder)
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+
+        title = "History"
+        view.backgroundColor = .clear
+        navigationItem.leftBarButtonItem = UIBarButtonItem(
+            barButtonSystemItem: .done,
+            target: self,
+            action: #selector(doneButtonPressed)
+        )
+        tableView.register(MessageRevisionHistoryCell.self, forCellReuseIdentifier: ReuseIdentifier.revisionCell)
+    }
+
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        revisions.count
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        cellForRowAt indexPath: IndexPath
+    ) -> UITableViewCell {
+        let revision = revisions[indexPath.row]
+        let cell = tableView.dequeueReusableCell(
+            withIdentifier: ReuseIdentifier.revisionCell,
+            for: indexPath
+        )
+        (cell as? MessageRevisionHistoryCell)?.configure(with: revision)
+        cell.accessoryType = .none
+        return cell
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        didSelectRowAt indexPath: IndexPath
+    ) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        onSelectRevision?(revisions[indexPath.row])
+    }
+
+    @objc private func doneButtonPressed() {
+        dismiss(animated: true)
+    }
+}
+
+private final class MessageRevisionHistoryCell: UITableViewCell {
+    private enum Metrics {
+        static let horizontalInset: CGFloat = 16.0
+        static let verticalInset: CGFloat = 10.0
+        static let rowSpacing: CGFloat = 4.0
+        static let subtitleSpacing: CGFloat = 8.0
+        static let tagCornerRadius: CGFloat = 7.0
+    }
+
+    private let titleLabel = UILabel()
+    private let subtitleStackView = UIStackView()
+    private let dateLabel = UILabel()
+    private let countTagLabel = MessageRevisionCountTagLabel()
+    private let stackView = UIStackView()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        configure()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configure()
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+
+        titleLabel.text = nil
+        dateLabel.text = nil
+        countTagLabel.text = nil
+        countTagLabel.isHidden = true
+    }
+
+    func configure(with revision: ChatMessageRevision) {
+        titleLabel.text = revision.historyTitle
+        dateLabel.text = revision.historySubtitle
+
+        let followUpCount = revision.followUpUserMessageCount
+        countTagLabel.text = "+\(followUpCount)"
+        countTagLabel.isHidden = followUpCount == 0
+    }
+
+    private func configure() {
+        selectionStyle = .default
+
+        titleLabel.font = .preferredFont(forTextStyle: .body)
+        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.textColor = .label
+        titleLabel.numberOfLines = 1
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        dateLabel.font = .preferredFont(forTextStyle: .subheadline)
+        dateLabel.adjustsFontForContentSizeCategory = true
+        dateLabel.textColor = .secondaryLabel
+        dateLabel.numberOfLines = 1
+        dateLabel.lineBreakMode = .byTruncatingTail
+        dateLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        countTagLabel.font = .preferredFont(forTextStyle: .caption1)
+        countTagLabel.adjustsFontForContentSizeCategory = true
+        countTagLabel.textColor = .secondaryLabel
+        countTagLabel.textAlignment = .center
+        countTagLabel.backgroundColor = .tertiarySystemFill
+        countTagLabel.layer.cornerRadius = Metrics.tagCornerRadius
+        countTagLabel.layer.cornerCurve = .continuous
+        countTagLabel.clipsToBounds = true
+        countTagLabel.numberOfLines = 1
+        countTagLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        countTagLabel.setContentHuggingPriority(.required, for: .horizontal)
+
+        subtitleStackView.axis = .horizontal
+        subtitleStackView.alignment = .center
+        subtitleStackView.spacing = Metrics.subtitleSpacing
+        subtitleStackView.translatesAutoresizingMaskIntoConstraints = false
+        subtitleStackView.addArrangedSubview(dateLabel)
+        subtitleStackView.addArrangedSubview(countTagLabel)
+
+        stackView.axis = .vertical
+        stackView.alignment = .fill
+        stackView.spacing = Metrics.rowSpacing
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        stackView.addArrangedSubview(titleLabel)
+        stackView.addArrangedSubview(subtitleStackView)
+        contentView.addSubview(stackView)
+
+        NSLayoutConstraint.activate([
+            stackView.topAnchor.constraint(
+                equalTo: contentView.topAnchor,
+                constant: Metrics.verticalInset
+            ),
+            stackView.leadingAnchor.constraint(
+                equalTo: contentView.leadingAnchor,
+                constant: Metrics.horizontalInset
+            ),
+            stackView.trailingAnchor.constraint(
+                equalTo: contentView.trailingAnchor,
+                constant: -Metrics.horizontalInset
+            ),
+            stackView.bottomAnchor.constraint(
+                equalTo: contentView.bottomAnchor,
+                constant: -Metrics.verticalInset
+            )
+        ])
+    }
+}
+
+private final class MessageRevisionCountTagLabel: UILabel {
+    private let textInsets = UIEdgeInsets(top: 2.0, left: 7.0, bottom: 2.0, right: 7.0)
+
+    override func drawText(in rect: CGRect) {
+        super.drawText(in: rect.inset(by: textInsets))
+    }
+
+    override var intrinsicContentSize: CGSize {
+        let size = super.intrinsicContentSize
+        return CGSize(
+            width: size.width + textInsets.left + textInsets.right,
+            height: size.height + textInsets.top + textInsets.bottom
+        )
+    }
+
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        let fittingSize = super.sizeThatFits(
+            CGSize(
+                width: max(0.0, size.width - textInsets.left - textInsets.right),
+                height: max(0.0, size.height - textInsets.top - textInsets.bottom)
+            )
+        )
+        return CGSize(
+            width: fittingSize.width + textInsets.left + textInsets.right,
+            height: fittingSize.height + textInsets.top + textInsets.bottom
+        )
+    }
+}
+
+private extension ChatMessageRevision {
+    var historyTitle: String {
+        let title = userMessageText.singleLineHistoryTitle
+        guard !title.isEmpty else {
+            return firstAttachmentTitle ?? "Attachment"
+        }
+
+        return title
+    }
+
+    var historySubtitle: String {
+        Self.historyDateFormatter.string(from: archivedAt)
+    }
+
+    var followUpUserMessageCount: Int {
+        var hasSeenAnchorMessage = false
+        var count = 0
+        for event in events {
+            switch event.kind {
+            case .userMessage,
+                 .userMessageWithAttachments:
+                if hasSeenAnchorMessage {
+                    count += 1
+                } else {
+                    hasSeenAnchorMessage = true
+                }
+            case .assistantReasoning,
+                 .assistantContent,
+                 .assistantToolCalls,
+                 .toolEvent:
+                continue
+            }
+        }
+        return count
+    }
+
+    private var userMessageText: String {
+        for event in events {
+            switch event.kind {
+            case let .userMessage(text),
+                 let .userMessageWithAttachments(text, _):
+                return text
+            case .assistantReasoning,
+                 .assistantContent,
+                 .assistantToolCalls,
+                 .toolEvent:
+                continue
+            }
+        }
+        return ""
+    }
+
+    private var firstAttachmentTitle: String? {
+        for event in events {
+            guard case let .userMessageWithAttachments(_, attachments) = event.kind else {
+                continue
+            }
+
+            let filename = attachments.first?.filename
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return filename.isEmpty ? nil : filename
+        }
+
+        return nil
+    }
+
+    private static let historyDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+}
+
+private extension String {
+    var singleLineHistoryTitle: String {
+        components(separatedBy: .newlines)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

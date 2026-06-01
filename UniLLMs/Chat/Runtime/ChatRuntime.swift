@@ -12,6 +12,7 @@ enum ChatRuntimeError: LocalizedError, Equatable {
     case turnAlreadyInProgress
     case missingModelSelection
     case selectedProviderUnavailable
+    case userMessageNotFound
 
     var errorDescription: String? {
         switch self {
@@ -21,6 +22,8 @@ enum ChatRuntimeError: LocalizedError, Equatable {
             return "Select a model first."
         case .selectedProviderUnavailable:
             return "The selected provider is no longer available."
+        case .userMessageNotFound:
+            return "The message could not be edited."
         }
     }
 }
@@ -51,6 +54,12 @@ final class ChatRuntime {
         func finishedEvents() -> [ChatTimelineEvent] {
             timelineAccumulator.events
         }
+    }
+
+    private struct ArchivedCurrentBranch {
+        var prefixMainlineEvents: [ChatTimelineEvent]
+        var currentBranchEvents: [ChatTimelineEvent]
+        var retainedRevisionEvents: [ChatTimelineEvent]
     }
 
     private let providerStore: LLMsProviderStore
@@ -122,9 +131,54 @@ final class ChatRuntime {
         await historyPersistenceTask?.value
     }
 
+    func messageRevisions(for anchorUserMessageID: UUID) -> [ChatMessageRevision] {
+        ChatTimelineEvent.messageRevisions(from: conversationTimeline)[anchorUserMessageID] ?? []
+    }
+
+    func switchToMessageRevision(
+        anchorUserMessageID: UUID,
+        revisionID: UUID
+    ) throws -> [ChatTimelineEvent] {
+        guard activeTurnID == nil else {
+            throw ChatRuntimeError.turnAlreadyInProgress
+        }
+
+        guard let selectedRevision = messageRevisions(for: anchorUserMessageID).first(where: { $0.id == revisionID }) else {
+            throw ChatRuntimeError.userMessageNotFound
+        }
+
+        let switchedAt = clock.now
+        let archivedBranch = try archivedCurrentBranch(
+            anchoredAt: anchorUserMessageID,
+            excludingRevisionID: revisionID
+        )
+        let currentRevision = ChatMessageRevision(
+            anchorUserMessageID: anchorUserMessageID,
+            archivedAt: switchedAt,
+            events: archivedBranch.currentBranchEvents
+        )
+        var updatedTimeline = archivedBranch.prefixMainlineEvents + archivedBranch.retainedRevisionEvents
+        if !currentRevision.events.isEmpty {
+            updatedTimeline.append(
+                ChatTimelineEvent(
+                    timestamp: switchedAt,
+                    kind: .messageRevision(currentRevision)
+                )
+            )
+        }
+        updatedTimeline.append(contentsOf: selectedRevision.events.map(\.timelineEvent))
+
+        conversationTimeline = updatedTimeline
+        currentSession.updatedAt = switchedAt
+        persistCurrentHistorySnapshot()
+        return conversationTimeline
+    }
+
     func startTurn(
         prompt: String,
-        attachments: [ChatAttachment] = []
+        attachments: [ChatAttachment] = [],
+        userMessageID: UUID = UUID(),
+        replacingUserMessageID: UUID? = nil
     ) throws -> AsyncThrowingStream<ChatResponseDelta, Error> {
         guard activeTurnID == nil else {
             throw ChatRuntimeError.turnAlreadyInProgress
@@ -140,10 +194,30 @@ final class ChatRuntime {
 
         let turnID = UUID()
         let sentAt = clock.now
+        if let replacingUserMessageID {
+            let archivedBranch = try archivedCurrentBranch(anchoredAt: replacingUserMessageID)
+            let revision = ChatMessageRevision(
+                anchorUserMessageID: replacingUserMessageID,
+                archivedAt: sentAt,
+                events: archivedBranch.currentBranchEvents
+            )
+            conversationTimeline = archivedBranch.prefixMainlineEvents + archivedBranch.retainedRevisionEvents
+            if !revision.events.isEmpty {
+                conversationTimeline.append(
+                    ChatTimelineEvent(
+                        timestamp: sentAt,
+                        kind: .messageRevision(revision)
+                    )
+                )
+            }
+        }
+
         let turnSystemPrompt = resolvedSystemPromptForNextTurn()
-        if conversationTimeline.isEmpty {
+        if ChatTimelineEvent.messages(from: conversationTimeline).isEmpty {
             currentSession.title = Self.makeSessionTitle(from: prompt, attachments: attachments)
-            currentSession.createdAt = sentAt
+            if replacingUserMessageID == nil {
+                currentSession.createdAt = sentAt
+            }
         }
         currentSession.updatedAt = sentAt
 
@@ -151,6 +225,7 @@ final class ChatRuntime {
             ? .userMessage(text: prompt)
             : .userMessageWithAttachments(text: prompt, attachments: attachments)
         let userEvent = ChatTimelineEvent(
+            id: userMessageID,
             timestamp: sentAt,
             kind: userEventKind
         )
@@ -214,7 +289,7 @@ final class ChatRuntime {
                         id: turnID,
                         userEventID: userEvent.id,
                         progress: turnProgress,
-                        shouldKeepUserMessage: turnProgress.hasPersistableProgress
+                        shouldKeepUserMessage: replacingUserMessageID != nil || turnProgress.hasPersistableProgress
                     )
                     continuation.finish(throwing: error)
                 }
@@ -239,6 +314,38 @@ final class ChatRuntime {
         currentSession = session
         conversationTimeline = ChatTimelineEvent.sortedChronologically(events)
         discardUnavailableSystemPromptSelection(persistIfCleared: true)
+    }
+
+    private func archivedCurrentBranch(
+        anchoredAt anchorUserMessageID: UUID,
+        excludingRevisionID: UUID? = nil
+    ) throws -> ArchivedCurrentBranch {
+        let mainlineEvents = conversationTimeline.filter { event in
+            if case .messageRevision = event.kind {
+                return false
+            }
+
+            return true
+        }
+        guard let anchorIndex = mainlineEvents.firstIndex(where: { event in
+            event.id == anchorUserMessageID && event.isUserMessage
+        }) else {
+            throw ChatRuntimeError.userMessageNotFound
+        }
+
+        let retainedRevisionEvents = conversationTimeline.filter { event in
+            guard case let .messageRevision(revision) = event.kind else {
+                return false
+            }
+
+            return revision.id != excludingRevisionID
+        }
+
+        return ArchivedCurrentBranch(
+            prefixMainlineEvents: Array(mainlineEvents[..<anchorIndex]),
+            currentBranchEvents: Array(mainlineEvents[anchorIndex...]),
+            retainedRevisionEvents: retainedRevisionEvents
+        )
     }
 
     private func finishTurn(

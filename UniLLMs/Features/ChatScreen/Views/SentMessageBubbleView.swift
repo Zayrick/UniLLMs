@@ -27,6 +27,7 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
 
     private static let contextMenuIdentifier = "SentMessageBubbleView.message" as NSString
 
+    let messageID: UUID
     private let messageText: String
     private let attachments: [ChatAttachment]
     private let backgroundView = UIView()
@@ -34,16 +35,24 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
     private var attachmentRowStackView: UIStackView?
 
     var onPreviewAttachment: ((ChatAttachment) -> Void)?
+    var onEditAndResend: ((String, [ChatAttachment]) -> Void)?
+    var onShowHistory: (() -> Void)?
+    var editHistoryCount = 0
 
     var currentCornerRadius: CGFloat {
         (isSingleLineLayout && attachments.isEmpty) ? bounds.height * 0.5 : Metrics.multilineCornerRadius
     }
 
     convenience init(text: String) {
-        self.init(text: text, attachments: [])
+        self.init(messageID: UUID(), text: text, attachments: [])
     }
 
-    init(text: String, attachments: [ChatAttachment]) {
+    init(
+        messageID: UUID = UUID(),
+        text: String,
+        attachments: [ChatAttachment]
+    ) {
+        self.messageID = messageID
         messageText = text
         self.attachments = attachments
         super.init(frame: .zero)
@@ -51,6 +60,7 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
     }
 
     required init?(coder: NSCoder) {
+        messageID = UUID()
         messageText = ""
         attachments = []
         super.init(coder: coder)
@@ -326,15 +336,38 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
         UIContextMenuConfiguration(
             identifier: Self.contextMenuIdentifier,
             previewProvider: nil
-        ) { [messageText] _ in
+        ) { [weak self, messageText, attachments, editHistoryCount] _ in
+            var actions: [UIMenuElement] = []
+            let editAction = UIAction(
+                title: "Edit & Resend",
+                image: UIImage(systemName: "square.and.pencil")
+            ) { _ in
+                self?.onEditAndResend?(messageText, attachments)
+            }
+            actions.append(editAction)
+
+            if editHistoryCount > 0 {
+                let historyTitle = editHistoryCount == 1
+                    ? "History"
+                    : "History (\(editHistoryCount))"
+                let historyAction = UIAction(
+                    title: historyTitle,
+                    image: UIImage(systemName: "clock")
+                ) { _ in
+                    self?.onShowHistory?()
+                }
+                actions.append(historyAction)
+            }
+
             let copyAction = UIAction(
                 title: "Copy",
                 image: UIImage(systemName: "doc.on.doc")
             ) { _ in
                 UIPasteboard.general.string = messageText
             }
+            actions.append(copyAction)
 
-            return UIMenu(title: "", children: [copyAction])
+            return UIMenu(title: "", children: actions)
         }
     }
 

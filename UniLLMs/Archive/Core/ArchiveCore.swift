@@ -91,6 +91,35 @@ nonisolated private extension ChatTimelineEvent {
                 .joined(separator: " ")
         case let .toolEvent(event):
             return event.searchableText
+        case let .messageRevision(revision):
+            return revision.events
+                .map(\.searchableText)
+                .joined(separator: " ")
+        }
+    }
+}
+
+nonisolated private extension ChatTimelineRevisionEvent {
+    var searchableText: String {
+        switch kind {
+        case let .userMessage(text),
+             let .assistantReasoning(text):
+            return text
+        case let .userMessageWithAttachments(text, attachments):
+            let attachmentText = attachments
+                .map { [$0.filename, $0.contentType].joined(separator: " ") }
+                .joined(separator: " ")
+            return [text, attachmentText]
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+        case let .assistantContent(markdown):
+            return markdown
+        case let .assistantToolCalls(toolCalls):
+            return toolCalls
+                .map { [$0.toolID, $0.presentationName, $0.serializedArguments].joined(separator: " ") }
+                .joined(separator: " ")
+        case let .toolEvent(event):
+            return event.searchableText
         }
     }
 }

@@ -106,6 +106,132 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
         XCTAssertEqual(session.selectedSystemPromptID, secondPrompt.id)
     }
 
+    func testEditingPriorUserMessageResendsFromThatPointOnly() async throws {
+        let adapter = CapturingRuntimeProvider()
+        let (runtime, historyStore) = makeRuntime(
+            adapter: adapter,
+            systemPromptStore: InMemorySystemPromptStore(prompts: [])
+        )
+        let secondMessageID = UUID()
+
+        let firstTurn = try runtime.startTurn(prompt: "First")
+        for try await _ in firstTurn {}
+        let secondTurn = try runtime.startTurn(
+            prompt: "Second",
+            userMessageID: secondMessageID
+        )
+        for try await _ in secondTurn {}
+        let thirdTurn = try runtime.startTurn(prompt: "Third")
+        for try await _ in thirdTurn {}
+
+        let replacementTurn = try runtime.startTurn(
+            prompt: "Edited second",
+            userMessageID: secondMessageID,
+            replacingUserMessageID: secondMessageID
+        )
+        for try await _ in replacementTurn {}
+        await runtime.waitForPendingHistoryPersistence()
+
+        let replacementRequest = try XCTUnwrap(adapter.requests.last)
+        XCTAssertEqual(replacementRequest.messages.map(\.role), [.user, .assistant, .user])
+        XCTAssertEqual(replacementRequest.messages.map(\.content), ["First", "Done.", "Edited second"])
+
+        let events = try await historyStore.fetchEvents(sessionID: runtime.currentSessionID)
+        let messages = ChatTimelineEvent.messages(from: events)
+        XCTAssertEqual(messages.map(\.role), [.user, .assistant, .user, .assistant])
+        XCTAssertEqual(messages.map(\.content), ["First", "Done.", "Edited second", "Done."])
+        XCTAssertEqual(messages[2].id, secondMessageID)
+
+        let revisions = try XCTUnwrap(ChatTimelineEvent.messageRevisions(from: events)[secondMessageID])
+        XCTAssertEqual(revisions.count, 1)
+        XCTAssertEqual(revisions.first?.events.count, 4)
+        guard let archivedFirstEvent = revisions.first?.events.first,
+              case let .userMessage(archivedText) = archivedFirstEvent.kind else {
+            XCTFail("Expected the archived branch to start with the replaced user message.")
+            return
+        }
+        XCTAssertEqual(archivedText, "Second")
+    }
+
+    func testSwitchingToMessageRevisionArchivesCurrentBranch() async throws {
+        let adapter = CapturingRuntimeProvider()
+        let (runtime, historyStore) = makeRuntime(
+            adapter: adapter,
+            systemPromptStore: InMemorySystemPromptStore(prompts: [])
+        )
+        let secondMessageID = UUID()
+
+        let firstTurn = try runtime.startTurn(prompt: "First")
+        for try await _ in firstTurn {}
+        let secondTurn = try runtime.startTurn(
+            prompt: "Second",
+            userMessageID: secondMessageID
+        )
+        for try await _ in secondTurn {}
+        let thirdTurn = try runtime.startTurn(prompt: "Third")
+        for try await _ in thirdTurn {}
+        let replacementTurn = try runtime.startTurn(
+            prompt: "Edited second",
+            userMessageID: secondMessageID,
+            replacingUserMessageID: secondMessageID
+        )
+        for try await _ in replacementTurn {}
+
+        let archivedOriginal = try XCTUnwrap(runtime.messageRevisions(for: secondMessageID).first)
+        let restoredEvents = try runtime.switchToMessageRevision(
+            anchorUserMessageID: secondMessageID,
+            revisionID: archivedOriginal.id
+        )
+        await runtime.waitForPendingHistoryPersistence()
+
+        let restoredMessages = ChatTimelineEvent.messages(from: restoredEvents)
+        XCTAssertEqual(
+            restoredMessages.map(\.content),
+            ["First", "Done.", "Second", "Done.", "Third", "Done."]
+        )
+
+        let events = try await historyStore.fetchEvents(sessionID: runtime.currentSessionID)
+        let revisions = try XCTUnwrap(ChatTimelineEvent.messageRevisions(from: events)[secondMessageID])
+        XCTAssertEqual(revisions.count, 1)
+        guard let archivedCurrentFirstEvent = revisions.first?.events.first,
+              case let .userMessage(archivedText) = archivedCurrentFirstEvent.kind else {
+            XCTFail("Expected switching branches to archive the replaced current branch.")
+            return
+        }
+        XCTAssertEqual(archivedText, "Edited second")
+    }
+
+    func testMessageRevisionsStayInArchivedOrder() async throws {
+        let adapter = CapturingRuntimeProvider()
+        let (runtime, _) = makeRuntime(
+            adapter: adapter,
+            systemPromptStore: InMemorySystemPromptStore(prompts: [])
+        )
+        let messageID = UUID()
+
+        let originalTurn = try runtime.startTurn(
+            prompt: "Original",
+            userMessageID: messageID
+        )
+        for try await _ in originalTurn {}
+        let firstEditTurn = try runtime.startTurn(
+            prompt: "First edit",
+            userMessageID: messageID,
+            replacingUserMessageID: messageID
+        )
+        for try await _ in firstEditTurn {}
+        let secondEditTurn = try runtime.startTurn(
+            prompt: "Second edit",
+            userMessageID: messageID,
+            replacingUserMessageID: messageID
+        )
+        for try await _ in secondEditTurn {}
+
+        let revisions = runtime.messageRevisions(for: messageID)
+        XCTAssertEqual(revisions.count, 2)
+        XCTAssertEqual(revisions.compactMap(\.firstUserMessageText), ["Original", "First edit"])
+    }
+
     private func makeRuntime(
         adapter: any LLMsProviderAdapter,
         systemPromptStore: any SystemPromptStore
@@ -319,5 +445,24 @@ private enum RuntimeProviderError: LocalizedError {
         case .failedBeforeStreaming:
             return "Provider failed before streaming."
         }
+    }
+}
+
+private extension ChatMessageRevision {
+    var firstUserMessageText: String? {
+        for event in events {
+            switch event.kind {
+            case let .userMessage(text),
+                 let .userMessageWithAttachments(text, _):
+                return text
+            case .assistantReasoning,
+                 .assistantContent,
+                 .assistantToolCalls,
+                 .toolEvent:
+                continue
+            }
+        }
+
+        return nil
     }
 }

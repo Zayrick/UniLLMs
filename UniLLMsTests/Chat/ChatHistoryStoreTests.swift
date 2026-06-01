@@ -361,6 +361,43 @@ final class ChatHistoryStoreTests: XCTestCase {
         XCTAssertNil(attachmentStore.fileURL(for: attachment))
     }
 
+    func testSaveEventsKeepsAttachmentReferencedByMessageRevision() async throws {
+        let session = ChatSession(title: "Revision Attachment")
+        let messageID = UUID()
+        let attachment = try attachmentStore.store(
+            data: Data("archived attachment".utf8),
+            filename: "archived.txt",
+            kind: .file,
+            contentType: "text/plain",
+            preferredExtension: "txt"
+        )
+        let archivedMessage = ChatTimelineEvent(
+            id: messageID,
+            kind: .userMessageWithAttachments(text: "Original", attachments: [attachment])
+        )
+        let replacementMessage = ChatTimelineEvent(
+            id: messageID,
+            kind: .userMessage(text: "Edited")
+        )
+        let revisionEvent = ChatTimelineEvent(
+            kind: .messageRevision(
+                ChatMessageRevision(
+                    anchorUserMessageID: messageID,
+                    events: [archivedMessage]
+                )
+            )
+        )
+
+        try await store.saveSession(session)
+        try await store.saveEvents([revisionEvent, replacementMessage], sessionID: session.id)
+
+        XCTAssertNotNil(attachmentStore.fileURL(for: attachment))
+
+        try await store.saveEvents([replacementMessage], sessionID: session.id)
+
+        XCTAssertNil(attachmentStore.fileURL(for: attachment))
+    }
+
     func testDeleteSessionRemovesUnreferencedAttachmentFile() async throws {
         let session = ChatSession(title: "Attachment")
         let attachment = try attachmentStore.store(
