@@ -3,16 +3,15 @@
 //  UniLLMs
 //
 //  Built-in tools that let a model manage the user's saved memories.
-//  Created by Codex on 2026/6/1.
 //
 
 import Foundation
 
 nonisolated struct MemoryToolUserFacingItem: Equatable {
-    var id: String
-    var title: String
-    var subtitle: String
-    var symbolName: String
+    let id: String
+    let title: String
+    let subtitle: String
+    let symbolName: String
 }
 
 nonisolated enum MemoryToolCatalog {
@@ -55,9 +54,7 @@ nonisolated enum MemoryToolCatalog {
         )
     ]
 
-    static var toolIDs: [String] {
-        userFacingItems.map(\.id)
-    }
+    static let toolIDs = userFacingItems.map(\.id)
 
     static func containsTool(id: String) -> Bool {
         toolIDs.contains(id)
@@ -94,7 +91,7 @@ struct MemoryAddTool: Tool {
             try await memoryManager.saveMemory(memory)
             return ToolResult(
                 callID: call.id,
-                content: MemoryToolFormatter.encodedAdd(memory: memory)
+                content: try MemoryToolFormatter.encodedAdd(memory: memory)
             )
         } catch let error as MemoryToolInputError {
             return ToolResult(callID: call.id, content: error.localizedDescription, status: .error)
@@ -132,7 +129,7 @@ struct MemoryDeleteTool: Tool {
 
             return ToolResult(
                 callID: call.id,
-                content: MemoryToolFormatter.encodedDelete(id: id)
+                content: try MemoryToolFormatter.encodedDelete(id: id)
             )
         } catch let error as MemoryToolInputError {
             return ToolResult(callID: call.id, content: error.localizedDescription, status: .error)
@@ -158,7 +155,7 @@ struct MemoryListTool: Tool {
     func execute(call: ToolCall, context: ToolExecutionContext) async throws -> ToolResult {
         do {
             let arguments = MemoryToolArguments(call.arguments)
-            let limit = arguments.optionalClampedLimit(defaultValue: 20, maximum: 100)
+            let limit = try arguments.optionalLimit(defaultValue: 20, maximum: 100)
             let memories = try await memoryManager.searchMemories(
                 query: "",
                 scope: .user,
@@ -166,7 +163,7 @@ struct MemoryListTool: Tool {
             )
             return ToolResult(
                 callID: call.id,
-                content: MemoryToolFormatter.encodedList(memories: memories)
+                content: try MemoryToolFormatter.encodedList(memories: memories)
             )
         } catch let error as MemoryToolInputError {
             return ToolResult(callID: call.id, content: error.localizedDescription, status: .error)
@@ -193,7 +190,7 @@ struct MemorySearchTool: Tool {
         do {
             let arguments = MemoryToolArguments(call.arguments)
             let query = try arguments.requiredTrimmedString("query")
-            let limit = arguments.optionalClampedLimit(defaultValue: 20, maximum: 100)
+            let limit = try arguments.optionalLimit(defaultValue: 20, maximum: 100)
             let memories = try await memoryManager.searchMemories(
                 query: query,
                 scope: .user,
@@ -201,7 +198,7 @@ struct MemorySearchTool: Tool {
             )
             return ToolResult(
                 callID: call.id,
-                content: MemoryToolFormatter.encodedSearch(query: query, memories: memories)
+                content: try MemoryToolFormatter.encodedSearch(query: query, memories: memories)
             )
         } catch let error as MemoryToolInputError {
             return ToolResult(callID: call.id, content: error.localizedDescription, status: .error)
@@ -242,7 +239,7 @@ struct MemoryUpdateTool: Tool {
             try await memoryManager.saveMemory(memory)
             return ToolResult(
                 callID: call.id,
-                content: MemoryToolFormatter.encodedUpdate(memory: memory)
+                content: try MemoryToolFormatter.encodedUpdate(memory: memory)
             )
         } catch let error as MemoryToolInputError {
             return ToolResult(callID: call.id, content: error.localizedDescription, status: .error)
@@ -346,28 +343,35 @@ private struct MemoryToolArguments {
         return id
     }
 
-    func optionalClampedLimit(defaultValue: Int, maximum: Int) -> Int {
+    func optionalLimit(defaultValue: Int, maximum: Int) throws -> Int {
         guard let value = arguments["limit"] else {
             return defaultValue
         }
 
-        let limit: Int?
+        let limit: Int
         switch value {
         case let .int(intValue):
             limit = intValue
         case let .double(doubleValue):
+            guard doubleValue.rounded() == doubleValue,
+                  (1...Double(maximum)).contains(doubleValue) else {
+                throw MemoryToolInputError.invalidLimit("limit", maximum: maximum)
+            }
             limit = Int(doubleValue)
         case let .string(stringValue):
-            limit = Int(stringValue)
+            guard let intValue = Int(stringValue.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+                throw MemoryToolInputError.invalidLimit("limit", maximum: maximum)
+            }
+            limit = intValue
         default:
-            limit = nil
+            throw MemoryToolInputError.invalidLimit("limit", maximum: maximum)
         }
 
-        guard let limit else {
-            return defaultValue
+        guard (1...maximum).contains(limit) else {
+            throw MemoryToolInputError.invalidLimit("limit", maximum: maximum)
         }
 
-        return min(max(1, limit), maximum)
+        return limit
     }
 }
 
@@ -375,6 +379,7 @@ private enum MemoryToolInputError: LocalizedError {
     case missingArgument(String)
     case emptyArgument(String)
     case invalidUUID(String)
+    case invalidLimit(String, maximum: Int)
 
     var errorDescription: String? {
         switch self {
@@ -384,6 +389,8 @@ private enum MemoryToolInputError: LocalizedError {
             return "Argument cannot be empty: \(key)."
         case let .invalidUUID(key):
             return "Argument must be a valid UUID: \(key)."
+        case let .invalidLimit(key, maximum):
+            return "Argument must be an integer from 1 through \(maximum): \(key)."
         }
     }
 }
@@ -427,20 +434,20 @@ nonisolated private enum MemoryToolFormatter {
         var id: String?
     }
 
-    nonisolated static func encodedAdd(memory: MemoryRecord) -> String {
-        encoded(MutationPayload(status: "saved", memory: MemoryPayload(memory: memory), id: nil))
+    nonisolated static func encodedAdd(memory: MemoryRecord) throws -> String {
+        try encoded(MutationPayload(status: "saved", memory: MemoryPayload(memory: memory), id: nil))
     }
 
-    nonisolated static func encodedDelete(id: UUID) -> String {
-        encoded(MutationPayload(status: "deleted", memory: nil, id: id.uuidString))
+    nonisolated static func encodedDelete(id: UUID) throws -> String {
+        try encoded(MutationPayload(status: "deleted", memory: nil, id: id.uuidString))
     }
 
-    nonisolated static func encodedUpdate(memory: MemoryRecord) -> String {
-        encoded(MutationPayload(status: "updated", memory: MemoryPayload(memory: memory), id: nil))
+    nonisolated static func encodedUpdate(memory: MemoryRecord) throws -> String {
+        try encoded(MutationPayload(status: "updated", memory: MemoryPayload(memory: memory), id: nil))
     }
 
-    nonisolated static func encodedList(memories: [MemoryRecord]) -> String {
-        encoded(
+    nonisolated static func encodedList(memories: [MemoryRecord]) throws -> String {
+        try encoded(
             MemoryListPayload(
                 count: memories.count,
                 memories: memories.map(MemoryPayload.init(memory:))
@@ -448,8 +455,8 @@ nonisolated private enum MemoryToolFormatter {
         )
     }
 
-    nonisolated static func encodedSearch(query: String, memories: [MemoryRecord]) -> String {
-        encoded(
+    nonisolated static func encodedSearch(query: String, memories: [MemoryRecord]) throws -> String {
+        try encoded(
             MemorySearchPayload(
                 query: query,
                 count: memories.count,
@@ -458,14 +465,10 @@ nonisolated private enum MemoryToolFormatter {
         )
     }
 
-    nonisolated private static func encoded<Value: Encodable>(_ value: Value) -> String {
+    nonisolated private static func encoded<Value: Encodable>(_ value: Value) throws -> String {
         let encoder = JSONEncoder()
-        guard let data = try? encoder.encode(value),
-              let string = String(data: data, encoding: .utf8) else {
-            return "{}"
-        }
-
-        return string
+        let data = try encoder.encode(value)
+        return String(decoding: data, as: UTF8.self)
     }
 
     nonisolated private static func string(from date: Date) -> String {

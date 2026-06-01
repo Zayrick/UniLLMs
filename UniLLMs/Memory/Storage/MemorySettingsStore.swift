@@ -3,7 +3,6 @@
 //  UniLLMs
 //
 //  Persists memory injection settings.
-//  Created by Codex on 2026/6/1.
 //
 
 import Foundation

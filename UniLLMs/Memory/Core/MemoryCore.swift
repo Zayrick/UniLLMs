@@ -2,7 +2,7 @@
 //  MemoryCore.swift
 //  UniLLMs
 //
-//  Defines memory records, retrieval, writing, policy, and empty manager implementations; currently a protocol boundary for future long-term memory.
+//  Defines memory records, injection settings, retrieval/writing boundaries, and the manager used by chat and memory tools.
 //  Created by Zayrick on 2026/5/11.
 //
 
@@ -60,12 +60,6 @@ nonisolated struct MemoryCandidate: Codable, Equatable, Identifiable {
         self.id = id
         self.text = text
     }
-}
-
-nonisolated struct MemoryPolicy: Codable, Equatable {
-    var requiresUserConfirmation: Bool
-
-    static let `default` = MemoryPolicy(requiresUserConfirmation: true)
 }
 
 nonisolated enum MemoryInjectionTimeRange: String, Codable, CaseIterable, Equatable {
@@ -167,20 +161,35 @@ nonisolated struct MemoryInjectionSettings: Codable, Equatable {
         }
     }
 
-    var maximumMemoriesDescription: String {
-        guard let maximumMemories else {
-            return "No limit"
-        }
-
-        return maximumMemories == 1 ? "1 memory" : "\(maximumMemories) memories"
-    }
-
     static func clampedMaximumMemories(_ value: Int?) -> Int? {
         guard let value else {
             return nil
         }
 
         return min(max(1, value), maximumMemoryLimit)
+    }
+}
+
+nonisolated enum MemoryTextSearch {
+    static func filtered(_ memories: [MemoryRecord], matching query: String) -> [MemoryRecord] {
+        let terms = searchTerms(from: query)
+        guard !terms.isEmpty else {
+            return memories
+        }
+
+        return memories.filter { memory in
+            let searchableText = memory.text.lowercased()
+            return terms.allSatisfy {
+                searchableText.contains($0)
+            }
+        }
+    }
+
+    private static func searchTerms(from query: String) -> [String] {
+        query
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
     }
 }
 
@@ -193,7 +202,7 @@ protocol MemoryWriter {
 }
 
 struct EmptyMemoryRetriever: MemoryRetriever {
-    func retrieveRelevantMemories(for context: ChatContext) async throws -> [MemoryRecord] {
+    func retrieveRelevantMemories(for _: ChatContext) async throws -> [MemoryRecord] {
         []
     }
 }
@@ -216,7 +225,7 @@ struct StoreBackedMemoryRetriever: MemoryRetriever {
         self.settingsStore = settingsStore
     }
 
-    func retrieveRelevantMemories(for context: ChatContext) async throws -> [MemoryRecord] {
+    func retrieveRelevantMemories(for _: ChatContext) async throws -> [MemoryRecord] {
         let settings = settingsStore.loadInjectionSettings()
         guard settings.isEnabled else {
             return []
@@ -228,43 +237,12 @@ struct StoreBackedMemoryRetriever: MemoryRetriever {
             in: settings.timeRange,
             referenceDate: Date()
         )
-        let query = Self.retrievalQuery(from: context)
-        let matchingMemories = Self.filteredMemories(eligibleMemories, matching: query)
-        let candidates = matchingMemories.isEmpty ? eligibleMemories : matchingMemories
-        let sortedMemories = Self.sortedForPresentation(candidates)
+        let sortedMemories = Self.sortedForPresentation(eligibleMemories)
         guard let maximumMemories = settings.maximumMemories else {
             return sortedMemories
         }
 
         return Array(sortedMemories.prefix(maximumMemories))
-    }
-
-    private static func retrievalQuery(from context: ChatContext) -> String {
-        context.messages.last(where: { $0.role == .user })?.content ?? ""
-    }
-
-    private static func filteredMemories(
-        _ memories: [MemoryRecord],
-        matching query: String
-    ) -> [MemoryRecord] {
-        let terms = searchTerms(from: query)
-        guard !terms.isEmpty else {
-            return memories
-        }
-
-        return memories.filter { memory in
-            let searchableText = memory.text.lowercased()
-            return terms.allSatisfy {
-                searchableText.contains($0)
-            }
-        }
-    }
-
-    private static func searchTerms(from query: String) -> [String] {
-        query
-            .lowercased()
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
     }
 
     private static func memories(
@@ -308,14 +286,12 @@ final class MemoryManager {
     private let settingsStore: any MemorySettingsStore
     private let retriever: any MemoryRetriever
     private let writer: any MemoryWriter
-    private let policy: MemoryPolicy
 
     init(
         store: (any MemoryStore)? = nil,
         settingsStore: any MemorySettingsStore = UserDefaultsMemorySettingsStore.shared,
         retriever: (any MemoryRetriever)? = nil,
-        writer: any MemoryWriter = EmptyMemoryWriter(),
-        policy: MemoryPolicy = .default
+        writer: any MemoryWriter = EmptyMemoryWriter()
     ) {
         self.store = store
         self.settingsStore = settingsStore
@@ -330,7 +306,6 @@ final class MemoryManager {
             self.retriever = EmptyMemoryRetriever()
         }
         self.writer = writer
-        self.policy = policy
     }
 
     func retrieveRelevantMemories(for context: ChatContext) async throws -> [MemoryRecord] {
@@ -338,10 +313,6 @@ final class MemoryManager {
     }
 
     func extractCandidates(from session: ChatSession, messages: [ChatMessage]) async throws -> [MemoryCandidate] {
-        guard policy.requiresUserConfirmation else {
-            return try await writer.extractMemories(from: session, messages: messages)
-        }
-
         return try await writer.extractMemories(from: session, messages: messages)
     }
 
@@ -404,18 +375,7 @@ final class MemoryManager {
         limit: Int? = nil
     ) async throws -> [MemoryRecord] {
         let memories = try await savedMemories(scope: scope)
-        let terms = Self.searchTerms(from: query)
-        let matches: [MemoryRecord]
-        if terms.isEmpty {
-            matches = memories
-        } else {
-            matches = memories.filter { memory in
-                let searchableText = memory.text.lowercased()
-                return terms.allSatisfy {
-                    searchableText.contains($0)
-                }
-            }
-        }
+        let matches = MemoryTextSearch.filtered(memories, matching: query)
 
         guard let limit else {
             return matches
@@ -443,10 +403,4 @@ final class MemoryManager {
         }
     }
 
-    private static func searchTerms(from query: String) -> [String] {
-        query
-            .lowercased()
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
-    }
 }

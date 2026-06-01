@@ -3,7 +3,6 @@
 //  UniLLMs
 //
 //  Edits a saved long-term memory.
-//  Created by Codex on 2026/6/1.
 //
 
 import UIKit

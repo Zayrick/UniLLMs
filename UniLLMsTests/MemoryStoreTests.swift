@@ -158,6 +158,37 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
         XCTAssertTrue(memories.isEmpty)
     }
 
+    func testMemoryRetrieverDoesNotFilterInjectedMemoriesByPromptKeywords() async throws {
+        let store = UserDefaultsMemoryStore(
+            defaults: defaults,
+            storageKey: "keywordIndependentMemoryRetriever"
+        )
+        let settingsStore = UserDefaultsMemorySettingsStore(
+            defaults: defaults,
+            storageKey: "keywordIndependentMemoryRetrieverSettings"
+        )
+        settingsStore.saveInjectionSettings(
+            MemoryInjectionSettings(
+                isEnabled: true,
+                timeRange: .all,
+                maximumMemories: 1
+            )
+        )
+        let manager = MemoryManager(
+            store: store,
+            settingsStore: settingsStore
+        )
+        try await store.saveMemory(
+            MemoryRecord(scope: .user, text: "User prefers concise answers.")
+        )
+
+        let memories = try await manager.retrieveRelevantMemories(
+            for: ChatContext(messages: [ChatMessage(role: .user, content: "travel plans")])
+        )
+
+        XCTAssertEqual(memories.map(\.text), ["User prefers concise answers."])
+    }
+
     func testMemoryRetrieverSupportsUnlimitedInjectionCount() async throws {
         let store = UserDefaultsMemoryStore(
             defaults: defaults,

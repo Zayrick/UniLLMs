@@ -109,6 +109,30 @@ final class MemoryToolsTests: UserDefaultsBackedTestCase {
         XCTAssertTrue(memories.isEmpty)
     }
 
+    func testMemorySearchToolRejectsInvalidLimit() async throws {
+        let manager = MemoryManager(
+            store: UserDefaultsMemoryStore(
+                defaults: defaults,
+                storageKey: "invalidMemoryToolLimit"
+            )
+        )
+
+        let result = try await MemorySearchTool(memoryManager: manager).execute(
+            call: ToolCall(
+                id: "call_search",
+                toolID: "memory_search",
+                arguments: [
+                    "query": .string("concise"),
+                    "limit": .string("many")
+                ]
+            ),
+            context: ToolExecutionContext(session: nil)
+        )
+
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.content.contains("limit"))
+    }
+
     private func count(fromToolResult result: ToolResult) throws -> Int {
         let data = try XCTUnwrap(result.content.data(using: .utf8))
         let payload = try XCTUnwrap(

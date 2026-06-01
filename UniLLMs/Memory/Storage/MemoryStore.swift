@@ -2,7 +2,7 @@
 //  MemoryStore.swift
 //  UniLLMs
 //
-//  Declares memory storage protocols; currently an architectural placeholder for future memory persistence or indexed storage.
+//  Declares and implements lightweight saved-memory persistence.
 //  Created by Zayrick on 2026/5/11.
 //
 
@@ -60,24 +60,27 @@ final class UserDefaultsMemoryStore: MemoryStore {
 
     func saveMemory(_ memory: MemoryRecord) async throws {
         var state = loadState()
+        let previousState = state
         if let index = state.memories.firstIndex(where: { $0.id == memory.id }) {
             state.memories[index] = memory
         } else {
             state.memories.append(memory)
         }
-        saveState(state)
+        saveState(state, replacing: previousState)
     }
 
     func deleteMemory(id: UUID) async throws {
         var state = loadState()
+        let previousState = state
         state.memories.removeAll {
             $0.id == id
         }
-        saveState(state)
+        saveState(state, replacing: previousState)
     }
 
     func deleteMemories(scope: MemoryScope?) async throws {
         var state = loadState()
+        let previousState = state
         if let scope {
             state.memories.removeAll {
                 $0.scope == scope
@@ -85,14 +88,18 @@ final class UserDefaultsMemoryStore: MemoryStore {
         } else {
             state.memories = []
         }
-        saveState(state)
+        saveState(state, replacing: previousState)
     }
 
     private func loadState() -> PersistedState {
         store.load(PersistedState.self, forKey: storageKey) ?? PersistedState()
     }
 
-    private func saveState(_ state: PersistedState) {
+    private func saveState(_ state: PersistedState, replacing previousState: PersistedState) {
+        guard state != previousState else {
+            return
+        }
+
         store.save(state, forKey: storageKey)
         NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
     }

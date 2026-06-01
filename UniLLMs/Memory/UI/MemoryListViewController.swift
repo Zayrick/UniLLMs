@@ -3,7 +3,6 @@
 //  UniLLMs
 //
 //  Displays saved memories for review and editing.
-//  Created by Codex on 2026/6/1.
 //
 
 import UIKit
@@ -224,7 +223,7 @@ final class MemoryListViewController: UITableViewController {
 
     private func applySearchFilter() {
         let query = searchController.searchBar.text ?? ""
-        visibleMemories = Self.filteredMemories(memories, matching: query)
+        visibleMemories = MemoryTextSearch.filtered(memories, matching: query)
         tableView.reloadData()
         setNeedsUpdateContentUnavailableConfiguration()
     }
@@ -235,26 +234,6 @@ final class MemoryListViewController: UITableViewController {
             .filter { !$0.isEmpty }
             .joined(separator: " ")
         return text.isEmpty ? "Untitled Memory" : text
-    }
-
-    private static func filteredMemories(
-        _ memories: [MemoryRecord],
-        matching query: String
-    ) -> [MemoryRecord] {
-        let terms = query
-            .lowercased()
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
-        guard !terms.isEmpty else {
-            return memories
-        }
-
-        return memories.filter { memory in
-            let searchableText = memory.text.lowercased()
-            return terms.allSatisfy {
-                searchableText.contains($0)
-            }
-        }
     }
 }
 

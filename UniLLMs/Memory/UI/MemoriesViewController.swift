@@ -3,7 +3,6 @@
 //  UniLLMs
 //
 //  Shows memory settings and saved-memory actions.
-//  Created by Codex on 2026/6/1.
 //
 
 import UIKit
@@ -152,19 +151,23 @@ final class MemoriesViewController: UITableViewController {
                 return
             }
 
-            let count = (try? await self.dependencies.memoryManager.savedMemories(scope: .user).count) ?? 0
-            guard !Task.isCancelled else {
+            do {
+                let count = try await self.dependencies.memoryManager.savedMemories(scope: .user).count
+                guard !Task.isCancelled else {
+                    return
+                }
+
+                self.memoryCount = count
+                self.tableView.reloadSections(
+                    IndexSet([
+                        Section.savedMemories.rawValue,
+                        Section.clear.rawValue
+                    ]),
+                    with: .automatic
+                )
+            } catch {
                 return
             }
-
-            self.memoryCount = count
-            self.tableView.reloadSections(
-                IndexSet([
-                    Section.savedMemories.rawValue,
-                    Section.clear.rawValue
-                ]),
-                with: .automatic
-            )
         }
     }
 
@@ -434,6 +437,14 @@ final class MemoriesViewController: UITableViewController {
 
         let item = memoryToolItems[sender.tag]
         dependencies.toolSettingsManager.setBuiltInTool(id: item.id, isEnabled: sender.isOn)
+        let indexPath = IndexPath(row: sender.tag, section: Section.assistantAccess.rawValue)
+        if let cell = tableView.cellForRow(at: indexPath) {
+            configureMemoryToolCellContent(
+                cell,
+                item: item,
+                isEnabled: sender.isOn
+            )
+        }
     }
 
     private func menuButton(
