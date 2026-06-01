@@ -20,6 +20,7 @@ final class AppDependencyContainer {
     let toolManager: ToolManager
     let systemPromptManager: SystemPromptManager
     let memoryStore: any MemoryStore
+    let memorySettingsStore: any MemorySettingsStore
     let memoryManager: MemoryManager
     let chatHistoryStore: UserDefaultsChatStore
     let chatRuntime: ChatRuntime
@@ -30,11 +31,13 @@ final class AppDependencyContainer {
         coreDataStack: CoreDataStack = CoreDataStack(),
         providerStore: LLMsProviderStore = .shared,
         systemPromptStore: any SystemPromptStore = UserDefaultsSystemPromptStore.shared,
-        memoryStore: any MemoryStore = UserDefaultsMemoryStore.shared
+        memoryStore: any MemoryStore = UserDefaultsMemoryStore.shared,
+        memorySettingsStore: any MemorySettingsStore = UserDefaultsMemorySettingsStore.shared
     ) {
         self.coreDataStack = coreDataStack
         self.providerStore = providerStore
         self.memoryStore = memoryStore
+        self.memorySettingsStore = memorySettingsStore
 
         providerRegistry = LLMsProviderCatalog.makeRegistry()
         providerManager = LLMsProviderManager(
@@ -43,7 +46,10 @@ final class AppDependencyContainer {
         )
 
         systemPromptManager = SystemPromptManager(store: systemPromptStore)
-        memoryManager = MemoryManager(store: memoryStore)
+        memoryManager = MemoryManager(
+            store: memoryStore,
+            settingsStore: memorySettingsStore
+        )
 
         let toolRegistry = BuiltInToolCatalog.makeRegistry(memoryManager: memoryManager)
         self.toolRegistry = toolRegistry

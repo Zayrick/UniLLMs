@@ -78,6 +78,117 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
         XCTAssertEqual(matches.map(\.text), ["User prefers concise Chinese responses."])
     }
 
+    func testMemoryRetrieverAppliesInjectionSettingsIntersection() async throws {
+        let store = UserDefaultsMemoryStore(
+            defaults: defaults,
+            storageKey: "memoryRetriever"
+        )
+        let settingsStore = UserDefaultsMemorySettingsStore(
+            defaults: defaults,
+            storageKey: "memoryRetrieverSettings"
+        )
+        settingsStore.saveInjectionSettings(
+            MemoryInjectionSettings(
+                isEnabled: true,
+                timeRange: .last7Days,
+                maximumMemories: 1
+            )
+        )
+        let manager = MemoryManager(
+            store: store,
+            settingsStore: settingsStore
+        )
+        let now = Date()
+        try await store.saveMemory(
+            MemoryRecord(
+                scope: .user,
+                text: "Most recent memory",
+                createdAt: now.addingTimeInterval(-1 * 24 * 60 * 60),
+                updatedAt: now.addingTimeInterval(-1 * 24 * 60 * 60)
+            )
+        )
+        try await store.saveMemory(
+            MemoryRecord(
+                scope: .user,
+                text: "Older in range memory",
+                createdAt: now.addingTimeInterval(-2 * 24 * 60 * 60),
+                updatedAt: now.addingTimeInterval(-2 * 24 * 60 * 60)
+            )
+        )
+        try await store.saveMemory(
+            MemoryRecord(
+                scope: .user,
+                text: "Outside range memory",
+                createdAt: now.addingTimeInterval(-10 * 24 * 60 * 60),
+                updatedAt: now.addingTimeInterval(-10 * 24 * 60 * 60)
+            )
+        )
+
+        let memories = try await manager.retrieveRelevantMemories(
+            for: ChatContext(messages: [ChatMessage(role: .user, content: "")])
+        )
+
+        XCTAssertEqual(memories.map(\.text), ["Most recent memory"])
+    }
+
+    func testMemoryRetrieverReturnsNoMemoriesWhenInjectionIsDisabled() async throws {
+        let store = UserDefaultsMemoryStore(
+            defaults: defaults,
+            storageKey: "disabledMemoryRetriever"
+        )
+        let settingsStore = UserDefaultsMemorySettingsStore(
+            defaults: defaults,
+            storageKey: "disabledMemoryRetrieverSettings"
+        )
+        settingsStore.saveInjectionSettings(
+            MemoryInjectionSettings(isEnabled: false)
+        )
+        let manager = MemoryManager(
+            store: store,
+            settingsStore: settingsStore
+        )
+        try await store.saveMemory(
+            MemoryRecord(scope: .user, text: "User likes concise answers.")
+        )
+
+        let memories = try await manager.retrieveRelevantMemories(
+            for: ChatContext(messages: [ChatMessage(role: .user, content: "answers")])
+        )
+
+        XCTAssertTrue(memories.isEmpty)
+    }
+
+    func testMemoryRetrieverSupportsUnlimitedInjectionCount() async throws {
+        let store = UserDefaultsMemoryStore(
+            defaults: defaults,
+            storageKey: "unlimitedMemoryRetriever"
+        )
+        let settingsStore = UserDefaultsMemorySettingsStore(
+            defaults: defaults,
+            storageKey: "unlimitedMemoryRetrieverSettings"
+        )
+        settingsStore.saveInjectionSettings(
+            MemoryInjectionSettings(
+                isEnabled: true,
+                timeRange: .all,
+                maximumMemories: nil
+            )
+        )
+        let manager = MemoryManager(
+            store: store,
+            settingsStore: settingsStore
+        )
+        try await store.saveMemory(MemoryRecord(scope: .user, text: "First memory"))
+        try await store.saveMemory(MemoryRecord(scope: .user, text: "Second memory"))
+
+        let memories = try await manager.retrieveRelevantMemories(
+            for: ChatContext(messages: [ChatMessage(role: .user, content: "")])
+        )
+
+        XCTAssertEqual(memories.count, 2)
+        XCTAssertNil(settingsStore.loadInjectionSettings().maximumMemories)
+    }
+
     func testMemoryManagerDeletesAllMemoriesInScope() async throws {
         let store = UserDefaultsMemoryStore(
             defaults: defaults,

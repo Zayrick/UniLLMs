@@ -68,6 +68,122 @@ nonisolated struct MemoryPolicy: Codable, Equatable {
     static let `default` = MemoryPolicy(requiresUserConfirmation: true)
 }
 
+nonisolated enum MemoryInjectionTimeRange: String, Codable, CaseIterable, Equatable {
+    case all
+    case last24Hours
+    case last7Days
+    case last30Days
+    case last90Days
+    case lastYear
+
+    var title: String {
+        switch self {
+        case .all:
+            return "All Time"
+        case .last24Hours:
+            return "Last 24 Hours"
+        case .last7Days:
+            return "Last 7 Days"
+        case .last30Days:
+            return "Last 30 Days"
+        case .last90Days:
+            return "Last 90 Days"
+        case .lastYear:
+            return "Last Year"
+        }
+    }
+
+    fileprivate var timeInterval: TimeInterval? {
+        switch self {
+        case .all:
+            return nil
+        case .last24Hours:
+            return 24 * 60 * 60
+        case .last7Days:
+            return 7 * 24 * 60 * 60
+        case .last30Days:
+            return 30 * 24 * 60 * 60
+        case .last90Days:
+            return 90 * 24 * 60 * 60
+        case .lastYear:
+            return 365 * 24 * 60 * 60
+        }
+    }
+}
+
+nonisolated struct MemoryInjectionSettings: Codable, Equatable {
+    static let defaultMaximumMemories = 8
+    static let maximumMemoryLimit = 50
+    static let selectableMaximumMemories = [3, 5, 8, 12, 20]
+
+    var isEnabled: Bool
+    var timeRange: MemoryInjectionTimeRange
+    var maximumMemories: Int?
+
+    init(
+        isEnabled: Bool = true,
+        timeRange: MemoryInjectionTimeRange = .all,
+        maximumMemories: Int? = Self.defaultMaximumMemories
+    ) {
+        self.isEnabled = isEnabled
+        self.timeRange = timeRange
+        self.maximumMemories = Self.clampedMaximumMemories(maximumMemories)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case isEnabled
+        case timeRange
+        case maximumMemories
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        timeRange = try container.decodeIfPresent(
+            MemoryInjectionTimeRange.self,
+            forKey: .timeRange
+        ) ?? .all
+        if container.contains(.maximumMemories) {
+            if try container.decodeNil(forKey: .maximumMemories) {
+                maximumMemories = nil
+            } else {
+                maximumMemories = Self.clampedMaximumMemories(
+                    try container.decode(Int.self, forKey: .maximumMemories)
+                )
+            }
+        } else {
+            maximumMemories = Self.defaultMaximumMemories
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(isEnabled, forKey: .isEnabled)
+        try container.encode(timeRange, forKey: .timeRange)
+        if let maximumMemories {
+            try container.encode(maximumMemories, forKey: .maximumMemories)
+        } else {
+            try container.encodeNil(forKey: .maximumMemories)
+        }
+    }
+
+    var maximumMemoriesDescription: String {
+        guard let maximumMemories else {
+            return "No limit"
+        }
+
+        return maximumMemories == 1 ? "1 memory" : "\(maximumMemories) memories"
+    }
+
+    static func clampedMaximumMemories(_ value: Int?) -> Int? {
+        guard let value else {
+            return nil
+        }
+
+        return min(max(1, value), maximumMemoryLimit)
+    }
+}
+
 protocol MemoryRetriever {
     func retrieveRelevantMemories(for context: ChatContext) async throws -> [MemoryRecord]
 }
@@ -89,22 +205,38 @@ struct EmptyMemoryWriter: MemoryWriter {
 }
 
 struct StoreBackedMemoryRetriever: MemoryRetriever {
-    private enum Defaults {
-        static let maximumRetrievedMemories = 8
-    }
-
     private let store: any MemoryStore
+    private let settingsStore: any MemorySettingsStore
 
-    init(store: any MemoryStore) {
+    init(
+        store: any MemoryStore,
+        settingsStore: any MemorySettingsStore = UserDefaultsMemorySettingsStore.shared
+    ) {
         self.store = store
+        self.settingsStore = settingsStore
     }
 
     func retrieveRelevantMemories(for context: ChatContext) async throws -> [MemoryRecord] {
+        let settings = settingsStore.loadInjectionSettings()
+        guard settings.isEnabled else {
+            return []
+        }
+
         let memories = try await store.fetchMemories(scope: .user)
+        let eligibleMemories = Self.memories(
+            memories,
+            in: settings.timeRange,
+            referenceDate: Date()
+        )
         let query = Self.retrievalQuery(from: context)
-        let matchingMemories = Self.filteredMemories(memories, matching: query)
-        let candidates = matchingMemories.isEmpty ? memories : matchingMemories
-        return Array(Self.sortedForPresentation(candidates).prefix(Defaults.maximumRetrievedMemories))
+        let matchingMemories = Self.filteredMemories(eligibleMemories, matching: query)
+        let candidates = matchingMemories.isEmpty ? eligibleMemories : matchingMemories
+        let sortedMemories = Self.sortedForPresentation(candidates)
+        guard let maximumMemories = settings.maximumMemories else {
+            return sortedMemories
+        }
+
+        return Array(sortedMemories.prefix(maximumMemories))
     }
 
     private static func retrievalQuery(from context: ChatContext) -> String {
@@ -135,6 +267,21 @@ struct StoreBackedMemoryRetriever: MemoryRetriever {
             .filter { !$0.isEmpty }
     }
 
+    private static func memories(
+        _ memories: [MemoryRecord],
+        in timeRange: MemoryInjectionTimeRange,
+        referenceDate: Date
+    ) -> [MemoryRecord] {
+        guard let timeInterval = timeRange.timeInterval else {
+            return memories
+        }
+
+        let cutoffDate = referenceDate.addingTimeInterval(-timeInterval)
+        return memories.filter {
+            $0.updatedAt >= cutoffDate
+        }
+    }
+
     private static func sortedForPresentation(_ memories: [MemoryRecord]) -> [MemoryRecord] {
         memories.sorted {
             if $0.updatedAt != $1.updatedAt {
@@ -158,21 +305,27 @@ enum MemoryManagerError: LocalizedError, Equatable {
 
 final class MemoryManager {
     private let store: (any MemoryStore)?
+    private let settingsStore: any MemorySettingsStore
     private let retriever: any MemoryRetriever
     private let writer: any MemoryWriter
     private let policy: MemoryPolicy
 
     init(
         store: (any MemoryStore)? = nil,
+        settingsStore: any MemorySettingsStore = UserDefaultsMemorySettingsStore.shared,
         retriever: (any MemoryRetriever)? = nil,
         writer: any MemoryWriter = EmptyMemoryWriter(),
         policy: MemoryPolicy = .default
     ) {
         self.store = store
+        self.settingsStore = settingsStore
         if let retriever {
             self.retriever = retriever
         } else if let store {
-            self.retriever = StoreBackedMemoryRetriever(store: store)
+            self.retriever = StoreBackedMemoryRetriever(
+                store: store,
+                settingsStore: settingsStore
+            )
         } else {
             self.retriever = EmptyMemoryRetriever()
         }
@@ -207,6 +360,14 @@ final class MemoryManager {
 
     func makeMemoryDraft() -> MemoryRecord {
         MemoryRecord(scope: .user, text: "")
+    }
+
+    func memoryInjectionSettings() -> MemoryInjectionSettings {
+        settingsStore.loadInjectionSettings()
+    }
+
+    func saveMemoryInjectionSettings(_ settings: MemoryInjectionSettings) {
+        settingsStore.saveInjectionSettings(settings)
     }
 
     func saveMemory(_ memory: MemoryRecord) async throws {
