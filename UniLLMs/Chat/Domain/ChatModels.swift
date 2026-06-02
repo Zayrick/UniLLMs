@@ -158,7 +158,7 @@ nonisolated enum ChatToolCallError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case let .invalidArguments(toolID):
-            return "Unable to serialize tool arguments for \(toolID)."
+            return String(localized: .runtimeErrorSerializeToolArgumentsFormat(toolID))
         }
     }
 }
@@ -314,7 +314,7 @@ nonisolated extension ChatToolEvent {
         case let .completed(_, result):
             return result
         case let .failed(_, message):
-            return "Tool execution failed: \(message)"
+            return String(localized: .runtimeErrorToolExecutionFailedFormat(message))
         }
     }
 }

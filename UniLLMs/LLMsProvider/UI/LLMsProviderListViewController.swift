@@ -29,7 +29,7 @@ final class LLMsProviderViewController: UITableViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        title = "LLM Providers"
+        title = String(localized: .settingsRowProvidersTitle)
 
         configureAddButton()
         configureProviderReordering()
@@ -68,7 +68,7 @@ final class LLMsProviderViewController: UITableViewController {
             }
         }
 
-        return UIMenu(title: "Add Provider", children: actions)
+        return UIMenu(title: String(localized: .providersAddProvider), children: actions)
     }
 
     private func presentNewProvider(kind: LLMsProviderKind) {
@@ -103,8 +103,8 @@ final class LLMsProviderViewController: UITableViewController {
 
         var configuration = UIContentUnavailableConfiguration.empty()
         configuration.image = UIImage(systemName: "globe")
-        configuration.text = "No LLM Providers"
-        configuration.secondaryText = "Add a provider to start chatting."
+        configuration.text = String(localized: .providersNoProviders)
+        configuration.secondaryText = String(localized: .providersNoProvidersDetail)
         configuration.button = addProviderButtonConfiguration()
         configuration.buttonProperties.menu = providerMenu()
         contentUnavailableConfiguration = configuration
@@ -112,7 +112,7 @@ final class LLMsProviderViewController: UITableViewController {
 
     private func addProviderButtonConfiguration() -> UIButton.Configuration {
         var configuration = UIButton.Configuration.filled()
-        configuration.title = "Add Provider"
+        configuration.title = String(localized: .providersAddProvider)
         configuration.image = UIImage(systemName: "plus")
         configuration.imagePadding = 6
         return configuration
@@ -127,7 +127,7 @@ final class LLMsProviderViewController: UITableViewController {
     }
 
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        "Providers"
+        String(localized: .providersSectionProviders)
     }
 
     override func tableView(
@@ -187,7 +187,7 @@ final class LLMsProviderViewController: UITableViewController {
         _ tableView: UITableView,
         trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath
     ) -> UISwipeActionsConfiguration? {
-        let deleteAction = UIContextualAction(style: .destructive, title: "Delete") { [weak self] _, _, completion in
+        let deleteAction = UIContextualAction(style: .destructive, title: String(localized: .generalDelete)) { [weak self] _, _, completion in
             guard let self,
                   indexPath.row < providers.count else {
                 completion(false)
@@ -266,11 +266,11 @@ final class LLMsProviderViewController: UITableViewController {
 
     private func presentProviderError(_ error: Error) {
         let alertController = UIAlertController(
-            title: "Unable to Add Provider",
+            title: String(localized: .providersErrorUnableToAdd),
             message: error.localizedDescription,
             preferredStyle: .alert
         )
-        alertController.addAction(UIAlertAction(title: "OK", style: .default))
+        alertController.addAction(UIAlertAction(title: String(localized: .generalOk), style: .default))
         present(alertController, animated: true)
     }
 }

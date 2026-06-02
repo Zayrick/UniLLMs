@@ -303,9 +303,9 @@ enum LLMsProviderManagerError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .noRegisteredProviders:
-            return "No LLM providers are registered."
+            return String(localized: .providersErrorNoRegistered)
         case let .unsupportedProvider(kind):
-            return "Unsupported LLM provider: \(kind.rawValue)"
+            return String(localized: .providersErrorUnsupportedFormat(kind.rawValue))
         }
     }
 }

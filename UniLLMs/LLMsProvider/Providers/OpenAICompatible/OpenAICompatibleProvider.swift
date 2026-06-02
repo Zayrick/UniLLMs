@@ -14,7 +14,9 @@ nonisolated extension LLMsProviderKind {
 
 struct OpenAICompatibleProvider: LLMsProviderAdapter {
     private enum Metadata {
-        static let displayName = "OpenAI Compatible"
+        static var displayName: String {
+            String(localized: .providersOpenaiCompatibleDisplayName)
+        }
     }
 
     enum ConfigurationKey {
@@ -57,14 +59,14 @@ struct OpenAICompatibleProvider: LLMsProviderAdapter {
         [
             LLMsProviderConfigurationField(
                 id: "name",
-                title: "Name",
+                title: String(localized: .providerFieldName),
                 placeholder: displayName,
                 binding: .providerName,
                 inputKind: .plain
             ),
             LLMsProviderConfigurationField(
                 id: ConfigurationKey.apiBase,
-                title: "API Base",
+                title: String(localized: .providerFieldApiBase),
                 placeholder: "https://api.openai.com/v1",
                 binding: .configurationValue(ConfigurationKey.apiBase),
                 inputKind: .url,
@@ -72,14 +74,14 @@ struct OpenAICompatibleProvider: LLMsProviderAdapter {
             ),
             LLMsProviderConfigurationField(
                 id: ConfigurationKey.apiKey,
-                title: "Key",
-                placeholder: "OpenAI API Key",
+                title: String(localized: .providerFieldKey),
+                placeholder: String(localized: .providerFieldApiKeyPlaceholderFormat("OpenAI")),
                 binding: .configurationValue(ConfigurationKey.apiKey),
                 inputKind: .secret
             ),
             LLMsProviderConfigurationField(
                 id: ConfigurationKey.toolsEnabled,
-                title: "Tools",
+                title: String(localized: .providerFieldTools),
                 placeholder: "",
                 binding: .configurationValue(ConfigurationKey.toolsEnabled),
                 inputKind: .toggle
@@ -192,11 +194,11 @@ enum OpenAICompatibleProviderError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case let .missingAPIBase(displayName):
-            return "Add an API base for \(displayName) in Settings first."
+            return String(localized: .providersErrorMissingApiBaseFormat(displayName))
         case let .unsupportedFileAttachments(displayName):
-            return "File attachments are not supported by \(displayName)."
+            return String(localized: .providersErrorUnsupportedFileAttachmentsFormat(displayName))
         case let .missingAttachmentData(filename):
-            return "Unable to load attachment data for \(filename)."
+            return String(localized: .providersErrorMissingAttachmentDataFormat(filename))
         }
     }
 }

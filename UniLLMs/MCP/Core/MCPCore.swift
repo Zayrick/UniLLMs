@@ -37,7 +37,7 @@ nonisolated struct MCPServerRecord: Codable, Equatable, Identifiable {
             return host
         }
 
-        return "MCP Server"
+        return String(localized: .mcpServer)
     }
 }
 

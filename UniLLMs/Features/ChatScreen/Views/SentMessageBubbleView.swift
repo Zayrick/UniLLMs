@@ -237,7 +237,7 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
         container.backgroundColor = UIColor.white.withAlphaComponent(0.18)
         container.isAccessibilityElement = true
         container.accessibilityLabel = attachment.filename
-        container.accessibilityHint = "Opens a preview"
+        container.accessibilityHint = String(localized: .generalOpensPreview)
         container.accessibilityTraits = .button
 
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(attachmentChipTapped(_:)))
@@ -316,7 +316,7 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
         container.clipsToBounds = true
         container.backgroundColor = UIColor.white.withAlphaComponent(0.18)
         container.isAccessibilityElement = true
-        container.accessibilityLabel = "\(hiddenAttachmentCount) more attachments"
+        container.accessibilityLabel = String(localized: .chatAttachmentMoreCountFormat(hiddenAttachmentCount))
 
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -457,7 +457,7 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
             var actions: [UIMenuElement] = []
 
             let copyAction = UIAction(
-                title: "Copy",
+                title: String(localized: .chatCopy),
                 image: UIImage(systemName: "doc.on.doc")
             ) { _ in
                 UIPasteboard.general.string = messageText
@@ -465,7 +465,7 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
             actions.append(copyAction)
 
             let resendAction = UIAction(
-                title: "Resend",
+                title: String(localized: .chatResend),
                 image: UIImage(systemName: "arrow.clockwise")
             ) { _ in
                 self?.performAfterContextMenuDismissal { [weak self] in
@@ -475,7 +475,7 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
             actions.append(resendAction)
 
             let editAction = UIAction(
-                title: "Edit & Resend",
+                title: String(localized: .chatEditAndResend),
                 image: UIImage(systemName: "square.and.pencil")
             ) { _ in
                 self?.performAfterContextMenuDismissal { [weak self] in
@@ -486,8 +486,8 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
 
             if editHistoryCount > 0 {
                 let historyTitle = editHistoryCount == 1
-                    ? "History"
-                    : "History (\(editHistoryCount))"
+                    ? String(localized: .generalHistory)
+                    : String(localized: .chatHistoryCountFormat(editHistoryCount))
                 let historyAction = UIAction(
                     title: historyTitle,
                     image: UIImage(systemName: "clock")

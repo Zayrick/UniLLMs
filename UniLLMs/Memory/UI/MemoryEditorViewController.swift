@@ -12,7 +12,7 @@ final class MemoryEditorViewController: UITableViewController {
         case memory
 
         var headerTitle: String? {
-            "Memory"
+            String(localized: .memoriesMemory)
         }
 
         var footerTitle: String? {
@@ -118,7 +118,7 @@ final class MemoryEditorViewController: UITableViewController {
 
         cell.configure(
             text: memoryText,
-            placeholder: "I prefer concise answers."
+            placeholder: String(localized: .memoriesMemoryPlaceholder)
         )
         cell.onTextChange = { [weak self] text in
             self?.memoryText = text
@@ -171,7 +171,7 @@ final class MemoryEditorViewController: UITableViewController {
     }
 
     private var navigationTitle: String {
-        isNewMemory ? "New Memory" : "Memory"
+        isNewMemory ? String(localized: .memoriesNewMemory) : String(localized: .memoriesMemory)
     }
 
     private var canSaveMemory: Bool {
@@ -245,7 +245,7 @@ private final class MemoryTextViewCell: UITableViewCell {
         textView.backgroundColor = .clear
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
-        textView.accessibilityLabel = "Memory"
+        textView.accessibilityLabel = String(localized: .memoriesMemory)
         textView.translatesAutoresizingMaskIntoConstraints = false
 
         placeholderLabel.font = .preferredFont(forTextStyle: .body)

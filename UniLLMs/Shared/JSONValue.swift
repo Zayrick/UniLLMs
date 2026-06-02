@@ -44,7 +44,7 @@ nonisolated indirect enum JSONValue: Codable, Equatable {
         } else {
             throw DecodingError.dataCorruptedError(
                 in: container,
-                debugDescription: "Unsupported JSON value."
+                debugDescription: String(localized: .jsonErrorUnsupportedValue)
             )
         }
     }

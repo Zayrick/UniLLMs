@@ -61,21 +61,21 @@ struct PollinationsProvider: LLMsProviderAdapter {
         [
             LLMsProviderConfigurationField(
                 id: "name",
-                title: "Name",
+                title: String(localized: .providerFieldName),
                 placeholder: displayName,
                 binding: .providerName,
                 inputKind: .plain
             ),
             LLMsProviderConfigurationField(
                 id: ConfigurationKey.apiKey,
-                title: "Key",
-                placeholder: "Pollinations API Key",
+                title: String(localized: .providerFieldKey),
+                placeholder: String(localized: .providerFieldApiKeyPlaceholderFormat(displayName)),
                 binding: .configurationValue(ConfigurationKey.apiKey),
                 inputKind: .secret
             ),
             LLMsProviderConfigurationField(
                 id: ConfigurationKey.apiBase,
-                title: "API Base",
+                title: String(localized: .providerFieldApiBase),
                 placeholder: Metadata.defaultAPIBase,
                 binding: .configurationValue(ConfigurationKey.apiBase),
                 inputKind: .url
@@ -90,7 +90,7 @@ struct PollinationsProvider: LLMsProviderAdapter {
     func configurationSummary(for configuration: LLMsProviderConfiguration) -> String? {
         let apiKey = configuration[ConfigurationKey.apiKey].trimmingCharacters(in: .whitespacesAndNewlines)
         guard !apiKey.isEmpty else {
-            return "Free anonymous tier"
+            return String(localized: .providersSummaryFreeAnonymousTier)
         }
         return configuration[ConfigurationKey.apiBase]
     }
@@ -177,11 +177,11 @@ enum PollinationsProviderError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case let .missingAPIBase(displayName):
-            return "Add an API base for \(displayName) in Settings first."
+            return String(localized: .providersErrorMissingApiBaseFormat(displayName))
         case let .unsupportedFileAttachments(displayName):
-            return "File attachments are not supported by \(displayName)."
+            return String(localized: .providersErrorUnsupportedFileAttachmentsFormat(displayName))
         case let .missingAttachmentData(filename):
-            return "Unable to load attachment data for \(filename)."
+            return String(localized: .providersErrorMissingAttachmentDataFormat(filename))
         }
     }
 }
@@ -220,7 +220,7 @@ nonisolated enum PollinationsMessageContent: Codable, Equatable {
         }
         throw DecodingError.dataCorruptedError(
             in: container,
-            debugDescription: "Unsupported message content payload."
+            debugDescription: String(localized: .jsonErrorUnsupportedMessageContentPayload)
         )
     }
 
@@ -262,7 +262,7 @@ nonisolated enum PollinationsContentPart: Codable, Equatable {
             throw DecodingError.dataCorruptedError(
                 forKey: .type,
                 in: container,
-                debugDescription: "Unsupported content part type: \(type)"
+                debugDescription: String(localized: .jsonErrorUnsupportedContentPartTypeFormat(type))
             )
         }
     }
@@ -450,9 +450,9 @@ nonisolated struct PollinationsAPIClient {
         var errorDescription: String? {
             switch self {
             case let .invalidAPIBase(apiBase):
-                return "Invalid API Base: \(apiBase)"
+                return String(localized: .providersErrorInvalidApiBaseFormat(apiBase))
             case let .invalidResponse(serviceName):
-                return "\(serviceName) returned an invalid response."
+                return String(localized: .providersErrorInvalidResponseFormat(serviceName))
             case let .serverStatus(serviceName, statusCode, message):
                 return Self.serverStatusDescription(
                     serviceName: serviceName,
@@ -470,17 +470,27 @@ nonisolated struct PollinationsAPIClient {
             message: String?
         ) -> String {
             let trimmedMessage = message?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let suffix = trimmedMessage.isEmpty ? "" : ": \(trimmedMessage)"
-
             switch statusCode {
             case 401:
-                return "\(serviceName) returned HTTP 401\(suffix). Add a Pollinations API key or use a model/endpoint that allows anonymous access."
+                guard !trimmedMessage.isEmpty else {
+                    return String(localized: .providersErrorPollinationsUnauthorized(serviceName))
+                }
+                return String(localized: .providersErrorPollinationsUnauthorizedMessageFormat(serviceName, trimmedMessage))
             case 402:
-                return "\(serviceName) returned HTTP 402\(suffix). Pollen balance or API key budget is exhausted."
+                guard !trimmedMessage.isEmpty else {
+                    return String(localized: .providersErrorPollinationsPaymentRequired(serviceName))
+                }
+                return String(localized: .providersErrorPollinationsPaymentRequiredMessageFormat(serviceName, trimmedMessage))
             case 429:
-                return "\(serviceName) returned HTTP 429\(suffix). Rate limit exceeded."
+                guard !trimmedMessage.isEmpty else {
+                    return String(localized: .providersErrorPollinationsRateLimited(serviceName))
+                }
+                return String(localized: .providersErrorPollinationsRateLimitedMessageFormat(serviceName, trimmedMessage))
             default:
-                return "\(serviceName) returned HTTP \(statusCode)\(suffix)."
+                guard !trimmedMessage.isEmpty else {
+                    return String(localized: .providersErrorHttpStatusFormat(serviceName, statusCode))
+                }
+                return String(localized: .providersErrorHttpStatusMessageFormat(serviceName, statusCode, trimmedMessage))
             }
         }
     }

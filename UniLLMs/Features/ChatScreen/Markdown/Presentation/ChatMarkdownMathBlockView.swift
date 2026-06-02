@@ -48,7 +48,7 @@ final class ChatMarkdownMathBlockView: UIView {
 
         configure()
         imageView.image = renderedImage?.image
-        accessibilityLabel = "Formula: \(mathBlock.latex)"
+        accessibilityLabel = String(localized: .markdownFormulaFormat(mathBlock.latex))
     }
 
     required init?(coder: NSCoder) {

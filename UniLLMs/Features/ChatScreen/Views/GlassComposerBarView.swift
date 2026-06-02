@@ -262,7 +262,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
             ),
             for: .normal
         )
-        plusButton.accessibilityLabel = "Add"
+        plusButton.accessibilityLabel = String(localized: .generalAdd)
         plusButton.translatesAutoresizingMaskIntoConstraints = false
         plusButton.addTarget(self, action: #selector(plusButtonPressed), for: .touchUpInside)
         plusGlassView.contentView.addSubview(plusButton)
@@ -284,7 +284,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
             ),
             for: .normal
         )
-        waveformButton.accessibilityLabel = "Waveform"
+        waveformButton.accessibilityLabel = String(localized: .composerWaveform)
         waveformButton.translatesAutoresizingMaskIntoConstraints = false
         waveformButton.addTarget(self, action: #selector(waveformButtonPressed), for: .touchUpInside)
         waveformGlassView.contentView.addSubview(waveformButton)
@@ -420,7 +420,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         removeConfig.contentInsets = .zero
         systemPromptRemoveButton.configuration = removeConfig
         systemPromptRemoveButton.translatesAutoresizingMaskIntoConstraints = false
-        systemPromptRemoveButton.accessibilityLabel = "Remove system prompt"
+        systemPromptRemoveButton.accessibilityLabel = String(localized: .composerRemoveSystemPrompt)
         systemPromptRemoveButton.setContentHuggingPriority(.required, for: .horizontal)
         systemPromptRemoveButton.setContentCompressionResistancePriority(.required, for: .horizontal)
         systemPromptRemoveButton.addTarget(
@@ -511,7 +511,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         textView.setContentHuggingPriority(.defaultLow, for: .horizontal)
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        placeholderLabel.text = "Message"
+        placeholderLabel.text = String(localized: .composerMessagePlaceholder)
         placeholderLabel.font = textView.font
         placeholderLabel.adjustsFontForContentSizeCategory = true
         placeholderLabel.textColor = .placeholderText
@@ -536,7 +536,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         configuration.cornerStyle = .capsule
         configuration.contentInsets = .zero
         sendButton.configuration = configuration
-        sendButton.accessibilityLabel = "Send"
+        sendButton.accessibilityLabel = String(localized: .generalSend)
         sendButton.addTarget(self, action: #selector(sendButtonPressed), for: .touchUpInside)
     }
 
@@ -675,7 +675,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
                 ),
                 for: .normal
             )
-            waveformButton.accessibilityLabel = "Stop generating"
+            waveformButton.accessibilityLabel = String(localized: .composerStopGenerating)
         } else {
             waveformButton.configuration = nil
             waveformGlassView.effect = GlassComposerBarView.makeGlassEffect()
@@ -687,7 +687,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
                 ),
                 for: .normal
             )
-            waveformButton.accessibilityLabel = "Waveform"
+            waveformButton.accessibilityLabel = String(localized: .composerWaveform)
         }
     }
 
@@ -834,7 +834,7 @@ private final class ComposerAttachmentChipView: UIView {
         backgroundView.isUserInteractionEnabled = true
         backgroundView.isAccessibilityElement = true
         backgroundView.accessibilityLabel = item.filename
-        backgroundView.accessibilityHint = "Opens a preview"
+        backgroundView.accessibilityHint = String(localized: .generalOpensPreview)
         backgroundView.accessibilityTraits = .button
         backgroundView.addGestureRecognizer(
             UITapGestureRecognizer(target: self, action: #selector(previewTapped))
@@ -881,7 +881,7 @@ private final class ComposerAttachmentChipView: UIView {
         removeConfig.contentInsets = .zero
         removeButton.configuration = removeConfig
         removeButton.translatesAutoresizingMaskIntoConstraints = false
-        removeButton.accessibilityLabel = "Remove attachment"
+        removeButton.accessibilityLabel = String(localized: .composerRemoveAttachment)
         removeButton.addAction(
             UIAction { [weak self] _ in
                 guard let self else { return }

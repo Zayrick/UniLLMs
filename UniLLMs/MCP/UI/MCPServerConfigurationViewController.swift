@@ -108,7 +108,7 @@ final class MCPServerConfigurationViewController: UITableViewController {
         case .metadata:
             return nil
         case .connection:
-            return "Connection"
+            return String(localized: .mcpConnection)
         }
     }
 
@@ -148,7 +148,7 @@ final class MCPServerConfigurationViewController: UITableViewController {
     private func enabledCell() -> UITableViewCell {
         let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
         var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = "Enable Server"
+        contentConfiguration.text = String(localized: .mcpEnableServer)
         contentConfiguration.image = UIImage(systemName: "power")
         cell.contentConfiguration = contentConfiguration
 
@@ -168,7 +168,7 @@ final class MCPServerConfigurationViewController: UITableViewController {
         switch row {
         case .endpoint:
             return textFieldCell(
-                title: "Endpoint",
+                title: String(localized: .mcpEndpoint),
                 text: endpointText,
                 placeholder: "https://example.com/mcp",
                 keyboardType: .URL,
@@ -179,7 +179,7 @@ final class MCPServerConfigurationViewController: UITableViewController {
             }
         case .headers:
             return textFieldCell(
-                title: "Headers",
+                title: String(localized: .mcpHeaders),
                 text: headersText,
                 placeholder: #"{"Authorization":"Bearer token"}"#,
                 keyboardType: .asciiCapable,
@@ -190,7 +190,7 @@ final class MCPServerConfigurationViewController: UITableViewController {
             }
         case .timeout:
             return textFieldCell(
-                title: "Timeout",
+                title: String(localized: .mcpTimeout),
                 text: timeoutText,
                 placeholder: "60",
                 keyboardType: .decimalPad,
@@ -210,9 +210,9 @@ final class MCPServerConfigurationViewController: UITableViewController {
         switch row {
         case .name:
             return textFieldCell(
-                title: "Name",
+                title: String(localized: .mcpName),
                 text: nameText,
-                placeholder: "MCP Server",
+                placeholder: String(localized: .mcpServer),
                 keyboardType: .default,
                 textContentType: .name
             ) { [weak self] text in

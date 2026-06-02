@@ -118,7 +118,7 @@ enum ToolManagerError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case let .missingTool(id):
-            return "Tool is not available: \(id)"
+            return String(localized: .toolsErrorMissingToolFormat(id))
         }
     }
 }

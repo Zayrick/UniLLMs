@@ -245,7 +245,7 @@ enum ToolExecutionLoopError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .invalidArguments:
-            return "The model produced invalid tool arguments."
+            return String(localized: .runtimeErrorInvalidToolArguments)
         }
     }
 }

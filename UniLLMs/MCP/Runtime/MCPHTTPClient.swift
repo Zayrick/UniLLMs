@@ -133,7 +133,7 @@ final class MCPHTTPClient: MCPClient {
         let description = object["description"]?.stringValue
         let summary = [
             description ?? title ?? originalName,
-            "Server: \(server.displayName)"
+            String(localized: .mcpServerSummaryFormat(server.displayName))
         ].joined(separator: "\n")
 
         let inputSchema = object["inputSchema"] ?? JSONValue.emptyObjectSchema
@@ -330,8 +330,8 @@ final class MCPHTTPClient: MCPClient {
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
         let fallback = isError
-            ? "Tool execution failed with no output."
-            : "Tool executed successfully with no output."
+            ? String(localized: .mcpToolFailedNoOutput)
+            : String(localized: .mcpToolSucceededNoOutput)
         return MCPToolResult(
             content: text.isEmpty ? fallback : text,
             isError: isError
@@ -387,16 +387,16 @@ enum MCPHTTPClientError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case let .invalidEndpoint(endpoint):
-            return "Invalid MCP endpoint: \(endpoint)"
+            return String(localized: .mcpErrorInvalidEndpointFormat(endpoint))
         case let .invalidResponse(serverName):
-            return "\(serverName) returned an invalid MCP response."
+            return String(localized: .mcpErrorInvalidResponseFormat(serverName))
         case let .httpStatus(serverName, statusCode, body):
             if let body, !body.isEmpty {
-                return "\(serverName) returned HTTP \(statusCode): \(body)"
+                return String(localized: .mcpErrorHttpStatusMessageFormat(serverName, statusCode, body))
             }
-            return "\(serverName) returned HTTP \(statusCode)."
+            return String(localized: .mcpErrorHttpStatusFormat(serverName, statusCode))
         case let .rpcError(message, code):
-            return "MCP JSON-RPC \(code): \(message)"
+            return String(localized: .mcpErrorRpcFormat(code, message))
         }
     }
 }

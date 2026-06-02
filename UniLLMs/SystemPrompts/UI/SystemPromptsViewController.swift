@@ -51,7 +51,7 @@ final class SystemPromptsViewController: UITableViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        title = isSelectingPrompt ? "Choose Prompt" : "System Prompts"
+        title = isSelectingPrompt ? String(localized: .systemPromptsChoosePrompt) : String(localized: .settingsRowSystemPromptsTitle)
         configureCancelButtonIfNeeded()
         configureAddButton()
         configureClearButtonIfNeeded()
@@ -84,7 +84,7 @@ final class SystemPromptsViewController: UITableViewController {
         }
 
         navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: "Clear",
+            title: String(localized: .generalClear),
             style: .plain,
             target: self,
             action: #selector(clearSelection)
@@ -156,10 +156,10 @@ final class SystemPromptsViewController: UITableViewController {
 
         var configuration = UIContentUnavailableConfiguration.empty()
         configuration.image = UIImage(systemName: "text.quote")
-        configuration.text = "No System Prompts"
+        configuration.text = String(localized: .systemPromptsEmptyTitle)
         configuration.secondaryText = isSelectingPrompt
-            ? "Create prompts from Settings."
-            : "Create a prompt to reuse in chats."
+            ? String(localized: .systemPromptsEmptySelectDetail)
+            : String(localized: .systemPromptsEmptyManageDetail)
         if !isSelectingPrompt {
             configuration.button = addPromptButtonConfiguration()
             configuration.buttonProperties.primaryAction = UIAction { [weak self] _ in
@@ -171,7 +171,7 @@ final class SystemPromptsViewController: UITableViewController {
 
     private func addPromptButtonConfiguration() -> UIButton.Configuration {
         var configuration = UIButton.Configuration.filled()
-        configuration.title = "Add Prompt"
+        configuration.title = String(localized: .systemPromptsAddPrompt)
         configuration.image = UIImage(systemName: "plus")
         configuration.imagePadding = 6
         return configuration
@@ -218,7 +218,7 @@ final class SystemPromptsViewController: UITableViewController {
             return nil
         }
 
-        let deleteAction = UIContextualAction(style: .destructive, title: "Delete") { [weak self] _, _, completion in
+        let deleteAction = UIContextualAction(style: .destructive, title: String(localized: .generalDelete)) { [weak self] _, _, completion in
             guard let self,
                   prompts.indices.contains(indexPath.row) else {
                 completion(false)

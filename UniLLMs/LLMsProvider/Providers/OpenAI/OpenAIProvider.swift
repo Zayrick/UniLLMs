@@ -56,22 +56,22 @@ struct OpenAIProvider: LLMsProviderAdapter {
         [
             LLMsProviderConfigurationField(
                 id: "name",
-                title: "Name",
+                title: String(localized: .providerFieldName),
                 placeholder: displayName,
                 binding: .providerName,
                 inputKind: .plain
             ),
             LLMsProviderConfigurationField(
                 id: ConfigurationKey.apiKey,
-                title: "Key",
-                placeholder: "OpenAI API Key",
+                title: String(localized: .providerFieldKey),
+                placeholder: String(localized: .providerFieldApiKeyPlaceholderFormat(displayName)),
                 binding: .configurationValue(ConfigurationKey.apiKey),
                 inputKind: .secret,
                 isRequired: true
             ),
             LLMsProviderConfigurationField(
                 id: ConfigurationKey.apiBase,
-                title: "API Base",
+                title: String(localized: .providerFieldApiBase),
                 placeholder: Metadata.defaultAPIBase,
                 binding: .configurationValue(ConfigurationKey.apiBase),
                 inputKind: .url,
@@ -174,11 +174,11 @@ enum OpenAIProviderError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case let .missingAPIKey(displayName):
-            return "Add an API key for \(displayName) in Settings first."
+            return String(localized: .providersErrorMissingApiKeyFormat(displayName))
         case let .unsupportedFileAttachments(displayName):
-            return "File attachments are not supported by \(displayName)."
+            return String(localized: .providersErrorUnsupportedFileAttachmentsFormat(displayName))
         case let .missingAttachmentData(filename):
-            return "Unable to load attachment data for \(filename)."
+            return String(localized: .providersErrorMissingAttachmentDataFormat(filename))
         }
     }
 }
@@ -233,7 +233,7 @@ nonisolated enum OpenAIMessageContent: Codable, Equatable {
         }
         throw DecodingError.dataCorruptedError(
             in: container,
-            debugDescription: "Unsupported message content payload."
+            debugDescription: String(localized: .jsonErrorUnsupportedMessageContentPayload)
         )
     }
 
@@ -275,7 +275,7 @@ nonisolated enum OpenAIContentPart: Codable, Equatable {
             throw DecodingError.dataCorruptedError(
                 forKey: .type,
                 in: container,
-                debugDescription: "Unsupported content part type: \(type)"
+                debugDescription: String(localized: .jsonErrorUnsupportedContentPartTypeFormat(type))
             )
         }
     }
@@ -464,14 +464,14 @@ nonisolated struct OpenAIAPIClient {
         var errorDescription: String? {
             switch self {
             case let .invalidAPIBase(apiBase):
-                return "Invalid API Base: \(apiBase)"
+                return String(localized: .providersErrorInvalidApiBaseFormat(apiBase))
             case let .invalidResponse(serviceName):
-                return "\(serviceName) returned an invalid response."
+                return String(localized: .providersErrorInvalidResponseFormat(serviceName))
             case let .serverStatus(serviceName, statusCode, message):
                 if let message, !message.isEmpty {
-                    return "\(serviceName) returned HTTP \(statusCode): \(message)"
+                    return String(localized: .providersErrorHttpStatusMessageFormat(serviceName, statusCode, message))
                 }
-                return "\(serviceName) returned HTTP \(statusCode)."
+                return String(localized: .providersErrorHttpStatusFormat(serviceName, statusCode))
             case let .streamError(message):
                 return message
             }

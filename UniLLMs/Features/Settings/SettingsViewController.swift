@@ -18,13 +18,13 @@ final class SettingsViewController: UITableViewController {
         var title: String {
             switch self {
             case .providers:
-                return "LLM Providers"
+                return String(localized: .settingsRowProvidersTitle)
             case .memories:
-                return "Memories"
+                return String(localized: .settingsRowMemoriesTitle)
             case .tools:
-                return "Tools"
+                return String(localized: .settingsRowToolsTitle)
             case .systemPrompts:
-                return "System Prompts"
+                return String(localized: .settingsRowSystemPromptsTitle)
             }
         }
 
@@ -70,7 +70,7 @@ final class SettingsViewController: UITableViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        title = "Settings"
+        title = String(localized: .generalSettings)
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             barButtonSystemItem: .close,
             target: self,

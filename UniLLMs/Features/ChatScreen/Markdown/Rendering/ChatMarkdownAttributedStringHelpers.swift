@@ -20,7 +20,7 @@ enum ChatMarkdownCheckboxRenderer {
         font: UIFont,
         attributes: [NSAttributedString.Key: Any]
     ) -> NSAttributedString {
-        let accessibilityText = isChecked ? "Checked" : "Unchecked"
+        let accessibilityText = isChecked ? String(localized: .markdownTaskChecked) : String(localized: .markdownTaskUnchecked)
         var resolvedAttributes = attributes
         resolvedAttributes[.chatAccessibilityText] = accessibilityText
 
@@ -210,7 +210,7 @@ extension ChatMarkdownRenderingContext {
     }
 
     func imageDisplayText(source: String?, altText: String) -> String {
-        let label = altText.isEmpty ? "Image" : altText
+        let label = altText.isEmpty ? String(localized: .markdownImage) : altText
         guard let source,
               !source.isEmpty else {
             return "[\(label)]"

@@ -27,7 +27,7 @@ struct ChatMarkdownCodeBlock: Equatable {
     var displayLanguage: String {
         guard let language = language?.trimmingCharacters(in: .whitespacesAndNewlines),
               !language.isEmpty else {
-            return "Code"
+            return String(localized: .markdownCode)
         }
 
         return language

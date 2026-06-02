@@ -17,13 +17,13 @@ enum ChatRuntimeError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .turnAlreadyInProgress:
-            return "Wait for the current response to finish."
+            return String(localized: .chatResponseInProgress)
         case .missingModelSelection:
-            return "Select a model first."
+            return String(localized: .runtimeErrorModelRequired)
         case .selectedProviderUnavailable:
-            return "The selected provider is no longer available."
+            return String(localized: .runtimeErrorSelectedProviderUnavailable)
         case .userMessageNotFound:
-            return "The message could not be edited."
+            return String(localized: .runtimeErrorMessageCouldNotBeEdited)
         }
     }
 }
@@ -69,7 +69,7 @@ final class ChatRuntime {
     private let turnRunner: ChatTurnRunner
     private let historyStore: (any ChatHistoryStore)?
     private let clock: any AppClock
-    private var currentSession = ChatSession(title: "New Chat")
+    private var currentSession = ChatSession(title: String(localized: .chatNewChat))
     private var conversationTimeline: [ChatTimelineEvent] = []
     private var activeTurnID: UUID?
     private var historyPersistenceTask: Task<Void, Never>?
@@ -303,7 +303,7 @@ final class ChatRuntime {
 
     func resetConversation() {
         conversationTimeline = []
-        currentSession = ChatSession(title: "New Chat")
+        currentSession = ChatSession(title: String(localized: .chatNewChat))
     }
 
     func loadConversation(session: ChatSession, events: [ChatTimelineEvent]) {
@@ -461,10 +461,10 @@ final class ChatRuntime {
         }
 
         if let first = attachments.first {
-            return first.filename.isEmpty ? "Attachment" : first.filename
+            return first.filename.isEmpty ? String(localized: .chatAttachment) : first.filename
         }
 
-        return "New Chat"
+        return String(localized: .chatNewChat)
     }
 
 }

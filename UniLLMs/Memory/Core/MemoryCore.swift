@@ -74,19 +74,19 @@ nonisolated enum MemoryInjectionFilter: String, Codable, CaseIterable, Equatable
     var title: String {
         switch self {
         case .smart:
-            return "Smart"
+            return String(localized: .memoriesFilterSmart)
         case .all:
-            return "All Time"
+            return String(localized: .memoriesFilterAllTime)
         case .last24Hours:
-            return "Last 24 Hours"
+            return String(localized: .memoriesFilterLast24Hours)
         case .last7Days:
-            return "Last 7 Days"
+            return String(localized: .memoriesFilterLast7Days)
         case .last30Days:
-            return "Last 30 Days"
+            return String(localized: .memoriesFilterLast30Days)
         case .last90Days:
-            return "Last 90 Days"
+            return String(localized: .memoriesFilterLast90Days)
         case .lastYear:
-            return "Last Year"
+            return String(localized: .memoriesFilterLastYear)
         }
     }
 
@@ -437,7 +437,7 @@ enum MemoryManagerError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .storageUnavailable:
-            return "Memory storage is not available."
+            return String(localized: .memoriesErrorStorageUnavailable)
         }
     }
 }

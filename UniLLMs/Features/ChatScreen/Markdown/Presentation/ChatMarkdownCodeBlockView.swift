@@ -264,7 +264,7 @@ final class ChatMarkdownCodeBlockView: UIView {
         codeContentView.accessibilityLabel = codeAccessibilityText
         codeContentView.accessibilityCustomActions = [
             UIAccessibilityCustomAction(
-                name: "Copy Code",
+                name: String(localized: .markdownCopyCode),
                 target: self,
                 selector: #selector(copyCodeFromAccessibilityAction(_:))
             )
@@ -282,11 +282,16 @@ final class ChatMarkdownCodeBlockView: UIView {
     }
 
     private func updateCodeAccessibilityLabel() {
-        let label = isStreaming
-            ? "\(displayLanguage) code, streaming"
-            : "\(displayLanguage) code"
+        let label: String
+        if displayLanguage == String(localized: .markdownCode) {
+            label = isStreaming ? String(localized: .markdownStreamingCodeBlock) : String(localized: .markdownCodeBlock)
+        } else {
+            label = isStreaming
+                ? String(localized: .markdownCodeStreamingLabelFormat(displayLanguage))
+                : String(localized: .markdownCodeLabelFormat(displayLanguage))
+        }
         scrollView.accessibilityLabel = label
-        codeContentView.accessibilityValue = isStreaming ? "Streaming" : nil
+        codeContentView.accessibilityValue = isStreaming ? String(localized: .markdownStreaming) : nil
         codeContentView.accessibilityHint = nil
     }
 
@@ -376,7 +381,7 @@ final class ChatMarkdownCodeBlockView: UIView {
     }
 
     private var codeAccessibilityText: String {
-        codeText.isEmpty ? "Empty code block" : codeText
+        codeText.isEmpty ? String(localized: .markdownEmptyCodeBlock) : codeText
     }
 
     private static func codeLines(in code: String) -> [String] {

@@ -13,7 +13,7 @@ import UniformTypeIdentifiers
 
 final class ChatViewController: UIViewController {
     private enum HeaderLayout {
-        static let defaultModuleSelectionTitle = "Select Model"
+        static var defaultModuleSelectionTitle: String { String(localized: .chatSelectModel) }
         static let emptyConversationButtonSystemName = "app.dashed"
         static let newConversationButtonSystemName = "plus.message"
         static let buttonSize: CGFloat = 44.0
@@ -81,14 +81,14 @@ final class ChatViewController: UIViewController {
     private let moduleSelectionPillGlassView = UIVisualEffectView(effect: ChatViewController.makeHeaderGlassEffect())
     private let leftHeaderButton = ChatViewController.makeHeaderContentButton(
         systemName: "list.bullet",
-        accessibilityLabel: "Menu"
+        accessibilityLabel: String(localized: .chatMenu)
     )
     private let moduleSelectionPillButton = ChatViewController.makeHeaderPill(
         title: HeaderLayout.defaultModuleSelectionTitle
     )
     private let rightHeaderButton = ChatViewController.makeHeaderButton(
         systemName: HeaderLayout.emptyConversationButtonSystemName,
-        accessibilityLabel: "Layout"
+        accessibilityLabel: String(localized: .chatLayout)
     )
     private let messagesScrollView = UIScrollView()
     private lazy var messagesScrollCoordinator = MessagesScrollCoordinator(
@@ -810,7 +810,7 @@ final class ChatViewController: UIViewController {
 
     private func presentCameraPicker() {
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
-            presentAttachmentError("Camera is not available on this device.")
+            presentAttachmentError(String(localized: .chatAttachmentCameraUnavailable))
             return
         }
 
@@ -845,7 +845,7 @@ final class ChatViewController: UIViewController {
 
     private func presentAttachmentError(_ message: String) {
         let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        alert.addAction(UIAlertAction(title: String(localized: .generalOk), style: .default))
         present(alert, animated: true)
     }
 
@@ -893,13 +893,13 @@ final class ChatViewController: UIViewController {
         }
 
         guard let url = attachmentStore.fileURL(for: attachment) else {
-            presentAttachmentError("The attachment file is missing.")
+            presentAttachmentError(String(localized: .chatAttachmentFileMissing))
             return
         }
 
         let previewItem = AttachmentPreviewItem(url: url, title: attachment.filename)
         guard QLPreviewController.canPreview(previewItem) else {
-            presentAttachmentError("This file type cannot be previewed.")
+            presentAttachmentError(String(localized: .chatAttachmentPreviewUnavailable))
             return
         }
 
@@ -919,7 +919,7 @@ final class ChatViewController: UIViewController {
         attachments: [ChatAttachment]
     ) {
         guard activeResponseTask == nil else {
-            presentAttachmentError("Wait for the current response to finish.")
+            presentAttachmentError(String(localized: .chatResponseInProgress))
             return
         }
 
@@ -928,7 +928,7 @@ final class ChatViewController: UIViewController {
         }
 
         guard containsSentMessage(withID: messageID) else {
-            presentAttachmentError("The message is no longer available.")
+            presentAttachmentError(String(localized: .chatMessageUnavailable))
             return
         }
 
@@ -963,7 +963,7 @@ final class ChatViewController: UIViewController {
         }
 
         guard containsSentMessage(withID: messageID) else {
-            presentAttachmentError("The message is no longer available.")
+            presentAttachmentError(String(localized: .chatMessageUnavailable))
             return
         }
 
@@ -997,7 +997,7 @@ final class ChatViewController: UIViewController {
         revisionID: UUID
     ) {
         guard activeResponseTask == nil else {
-            presentAttachmentError("Wait for the current response to finish.")
+            presentAttachmentError(String(localized: .chatResponseInProgress))
             return
         }
 
@@ -1034,7 +1034,7 @@ final class ChatViewController: UIViewController {
         attachments: [ChatAttachment]
     ) {
         guard activeResponseTask == nil else {
-            presentAttachmentError("Wait for the current response to finish.")
+            presentAttachmentError(String(localized: .chatResponseInProgress))
             return
         }
 
@@ -1046,7 +1046,7 @@ final class ChatViewController: UIViewController {
         let existingMessageFrames = visibleMessageFrames()
 
         guard let firstRemovedIndex = indexOfSentMessage(withID: messageID) else {
-            presentAttachmentError("The message is no longer available.")
+            presentAttachmentError(String(localized: .chatMessageUnavailable))
             return
         }
 
@@ -1358,7 +1358,7 @@ final class ChatViewController: UIViewController {
         responseView: AssistantResponseTextView
     ) {
         guard activeResponseTask == nil else {
-            setAssistantResponseError("Wait for the current response to finish.", in: responseView)
+            setAssistantResponseError(String(localized: .chatResponseInProgress), in: responseView)
             updateRightHeaderButtonState(animated: true)
             return
         }
@@ -1798,8 +1798,8 @@ final class ChatViewController: UIViewController {
             ? HeaderLayout.newConversationButtonSystemName
             : HeaderLayout.emptyConversationButtonSystemName
         let accessibilityLabel = isGeneratingResponse
-            ? "Generating response"
-            : (hasChatContent ? "New Chat" : "Layout")
+            ? String(localized: .chatGeneratingResponse)
+            : (hasChatContent ? String(localized: .chatNewChat) : String(localized: .chatLayout))
         let image = isGeneratingResponse
             ? nil
             : UIImage(
@@ -2215,11 +2215,12 @@ extension ChatViewController: UIImagePickerControllerDelegate, UINavigationContr
 
     private func importCapturedImage(_ image: UIImage) {
         guard let data = image.jpegData(compressionQuality: 0.9) else {
-            presentAttachmentError("Could not encode the captured photo.")
+            presentAttachmentError(String(localized: .chatAttachmentPhotoEncodingFailed))
             return
         }
 
-        let filename = "Photo-\(Self.timestampFilenameFormatter.string(from: Date())).jpg"
+        let timestamp = Self.timestampFilenameFormatter.string(from: Date())
+        let filename = "\(String(localized: .chatAttachmentPhotoFilenameFormat(timestamp))).jpg"
         do {
             let attachment = try attachmentStore.store(
                 data: data,
@@ -2272,7 +2273,7 @@ extension ChatViewController: PHPickerViewControllerDelegate {
                 let suggestedName = provider.suggestedName.flatMap { name -> String? in
                     let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
                     return trimmed.isEmpty ? nil : "\(trimmed).jpg"
-                } ?? "Image-\(index + 1).jpg"
+                } ?? "\(String(localized: .chatAttachmentImageFilenameFormat(index + 1))).jpg"
 
                 if let attachment = try? self.attachmentStore.store(
                     data: data,
@@ -2377,14 +2378,14 @@ private final class MessageEditViewController: UIViewController, UITextViewDeleg
     }
 
     private func configureNavigationItem() {
-        title = "Edit Message"
+        title = String(localized: .chatEditMessage)
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             barButtonSystemItem: .cancel,
             target: self,
             action: #selector(cancelButtonPressed)
         )
         let sendItem = UIBarButtonItem(
-            title: "Send",
+            title: String(localized: .generalSend),
             style: .prominent,
             target: self,
             action: #selector(sendButtonPressed)
@@ -2480,7 +2481,7 @@ private final class MessageRevisionHistoryViewController: UITableViewController 
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        title = "History"
+        title = String(localized: .generalHistory)
         view.backgroundColor = .clear
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             barButtonSystemItem: .done,
@@ -2662,7 +2663,7 @@ private extension ChatMessageRevision {
     var historyTitle: String {
         let title = userMessageText.singleLineHistoryTitle
         guard !title.isEmpty else {
-            return firstAttachmentTitle ?? "Attachment"
+            return firstAttachmentTitle ?? String(localized: .chatAttachment)
         }
 
         return title

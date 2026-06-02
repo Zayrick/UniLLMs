@@ -196,7 +196,7 @@ final class SideMenuView: UIView {
         historyTableView.translatesAutoresizingMaskIntoConstraints = false
         insertSubview(historyTableView, at: 0)
 
-        emptyHistoryLabel.text = "No Chats"
+        emptyHistoryLabel.text = String(localized: .chatNoChats)
         emptyHistoryLabel.font = .preferredFont(forTextStyle: .callout)
         emptyHistoryLabel.adjustsFontForContentSizeCategory = true
         emptyHistoryLabel.textColor = .secondaryLabel
@@ -296,7 +296,7 @@ final class SideMenuView: UIView {
         searchIconView.contentMode = .scaleAspectFit
         searchIconView.setContentHuggingPriority(.required, for: .horizontal)
 
-        searchTextField.placeholder = "Search"
+        searchTextField.placeholder = String(localized: .generalSearch)
         searchTextField.borderStyle = .none
         searchTextField.backgroundColor = .clear
         searchTextField.clearButtonMode = .whileEditing
@@ -305,7 +305,7 @@ final class SideMenuView: UIView {
         searchTextField.tintColor = .systemBlue
         searchTextField.font = .preferredFont(forTextStyle: .body)
         searchTextField.adjustsFontForContentSizeCategory = true
-        searchTextField.accessibilityLabel = "Search"
+        searchTextField.accessibilityLabel = String(localized: .generalSearch)
         searchTextField.addTarget(self, action: #selector(searchTextDidChange), for: .editingChanged)
 
         searchRowView.addArrangedSubview(searchIconView)
@@ -344,7 +344,7 @@ final class SideMenuView: UIView {
             ),
             for: .normal
         )
-        settingsButton.accessibilityLabel = "Settings"
+        settingsButton.accessibilityLabel = String(localized: .generalSettings)
         settingsButton.translatesAutoresizingMaskIntoConstraints = false
         settingsGlassView.contentView.addSubview(settingsButton)
 
@@ -516,7 +516,7 @@ private final class HistoryCell: UITableViewCell {
 
     func configure(with session: ChatSession) {
         let trimmed = session.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        titleLabel.text = trimmed.isEmpty ? "New Chat" : trimmed
+        titleLabel.text = trimmed.isEmpty ? String(localized: .chatNewChat) : trimmed
         setNeedsUpdateConfiguration()
     }
 
@@ -616,7 +616,7 @@ extension SideMenuView: UITableViewDataSource, UITableViewDelegate {
         let session = historySections[indexPath.section].sessions[indexPath.row]
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
             let deleteAction = UIAction(
-                title: "Delete",
+                title: String(localized: .generalDelete),
                 image: UIImage(systemName: "trash"),
                 attributes: .destructive
             ) { [weak self] _ in

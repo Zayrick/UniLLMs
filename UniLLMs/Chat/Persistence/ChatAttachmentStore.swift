@@ -18,7 +18,7 @@ nonisolated enum ChatAttachmentStoreError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .fileNotFound:
-            return "The attachment file is missing on disk."
+            return String(localized: .chatAttachmentFileMissingOnDisk)
         }
     }
 }

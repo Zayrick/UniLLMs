@@ -14,7 +14,7 @@ final class SystemPromptEditorViewController: UITableViewController {
         case prompt
 
         var headerTitle: String? {
-            self == .prompt ? "Prompt" : nil
+            self == .prompt ? String(localized: .systemPromptsPrompt) : nil
         }
 
         var footerTitle: String? {
@@ -22,7 +22,7 @@ final class SystemPromptEditorViewController: UITableViewController {
             case .name:
                 return nil
             case .prompt:
-                return "Applies to chats that use this prompt."
+                return String(localized: .systemPromptsPromptFooter)
             }
         }
     }
@@ -136,9 +136,9 @@ final class SystemPromptEditorViewController: UITableViewController {
         }
 
         cell.configure(
-            title: "Name",
+            title: String(localized: .providerFieldName),
             text: nameText,
-            placeholder: "Translation Assistant",
+            placeholder: String(localized: .systemPromptsNamePlaceholder),
             isSecureTextEntry: false,
             keyboardType: .default,
             textContentType: nil
@@ -159,7 +159,7 @@ final class SystemPromptEditorViewController: UITableViewController {
 
         cell.configure(
             text: promptText,
-            placeholder: "You are a concise assistant."
+            placeholder: String(localized: .systemPromptsPromptPlaceholder)
         )
         cell.onTextChange = { [weak self] text in
             self?.promptText = text
@@ -200,7 +200,7 @@ final class SystemPromptEditorViewController: UITableViewController {
             return trimmedName
         }
 
-        return isNewPrompt ? "New System Prompt" : savedPrompt.displayTitle
+        return isNewPrompt ? String(localized: .systemPromptsNewPrompt) : savedPrompt.displayTitle
     }
 
     private var canSavePrompt: Bool {
@@ -276,7 +276,7 @@ private final class SystemPromptTextViewCell: UITableViewCell {
         textView.backgroundColor = .clear
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
-        textView.accessibilityLabel = "Prompt"
+        textView.accessibilityLabel = String(localized: .systemPromptsPrompt)
         textView.translatesAutoresizingMaskIntoConstraints = false
 
         placeholderLabel.font = .preferredFont(forTextStyle: .body)

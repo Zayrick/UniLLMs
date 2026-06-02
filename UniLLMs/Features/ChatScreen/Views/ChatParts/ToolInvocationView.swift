@@ -193,7 +193,7 @@ final class ToolInvocationView: UIView {
     private func applyState() {
         switch state {
         case .running:
-            titleLabel.text = "Using \(displayName)"
+            titleLabel.text = String(localized: .assistantToolUsingFormat(displayName))
             titleLabel.baseColor = .secondaryLabel
             titleLabel.isShimmering = true
             chevronImageView.alpha = bodyTextView.text?.isEmpty == false ? 1.0 : 0.0
@@ -203,7 +203,7 @@ final class ToolInvocationView: UIView {
             titleLabel.isShimmering = false
             chevronImageView.alpha = bodyTextView.text?.isEmpty == false ? 1.0 : 0.0
         case let .failed(message):
-            titleLabel.text = "\(displayName) failed"
+            titleLabel.text = String(localized: .assistantToolFailedFormat(displayName))
             titleLabel.baseColor = .systemRed
             titleLabel.isShimmering = false
             if (bodyTextView.text ?? "").isEmpty {
@@ -233,9 +233,9 @@ final class ToolInvocationView: UIView {
     private func updateAccessibility() {
         headerButton.accessibilityLabel = titleLabel.text
         headerButton.accessibilityValue = hasBody
-            ? (isExpanded ? "Expanded" : "Collapsed")
+            ? (isExpanded ? String(localized: .generalExpanded) : String(localized: .generalCollapsed))
             : nil
-        headerButton.accessibilityHint = hasBody ? "Shows tool details" : nil
+        headerButton.accessibilityHint = hasBody ? String(localized: .assistantToolShowsDetails) : nil
         headerButton.accessibilityTraits = hasBody ? .button : .staticText
     }
 }

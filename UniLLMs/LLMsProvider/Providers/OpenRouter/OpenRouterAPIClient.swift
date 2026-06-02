@@ -24,7 +24,7 @@ nonisolated enum OpenRouterMessageContent: Codable, Equatable {
         }
         throw DecodingError.dataCorruptedError(
             in: container,
-            debugDescription: "Unsupported message content payload."
+            debugDescription: String(localized: .jsonErrorUnsupportedMessageContentPayload)
         )
     }
 
@@ -81,7 +81,7 @@ nonisolated enum OpenRouterContentPart: Codable, Equatable {
             throw DecodingError.dataCorruptedError(
                 forKey: .type,
                 in: container,
-                debugDescription: "Unsupported content part type: \(type)"
+                debugDescription: String(localized: .jsonErrorUnsupportedContentPartTypeFormat(type))
             )
         }
     }
@@ -198,14 +198,14 @@ nonisolated struct OpenRouterAPIClient {
         var errorDescription: String? {
             switch self {
             case let .invalidAPIBase(apiBase):
-                return "Invalid API Base: \(apiBase)"
+                return String(localized: .providersErrorInvalidApiBaseFormat(apiBase))
             case let .invalidResponse(serviceName):
-                return "\(serviceName) returned an invalid response."
+                return String(localized: .providersErrorInvalidResponseFormat(serviceName))
             case let .serverStatus(serviceName, statusCode, message):
                 if let message, !message.isEmpty {
-                    return "\(serviceName) returned HTTP \(statusCode): \(message)"
+                    return String(localized: .providersErrorHttpStatusMessageFormat(serviceName, statusCode, message))
                 }
-                return "\(serviceName) returned HTTP \(statusCode)."
+                return String(localized: .providersErrorHttpStatusFormat(serviceName, statusCode))
             case let .streamError(message):
                 return message
             }

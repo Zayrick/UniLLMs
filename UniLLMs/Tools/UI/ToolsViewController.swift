@@ -49,7 +49,7 @@ final class ToolsViewController: UITableViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        title = "Tools"
+        title = String(localized: .settingsRowToolsTitle)
         configureAddButton()
         configureServerReordering()
         installStoreObservers()
@@ -160,7 +160,7 @@ final class ToolsViewController: UITableViewController {
         case .masterSwitch:
             return nil
         case .builtInTools:
-            return "Built-In"
+            return String(localized: .toolsSectionBuiltIn)
         case .mcpServers:
             return "MCP"
         }
@@ -173,11 +173,11 @@ final class ToolsViewController: UITableViewController {
 
         switch section {
         case .masterSwitch:
-            return "Applies to built-in and MCP tools."
+            return String(localized: .toolsFooterMaster)
         case .builtInTools:
-            return builtInToolRows.isEmpty ? "No built-in tools." : nil
+            return builtInToolRows.isEmpty ? String(localized: .toolsFooterNoBuiltIn) : nil
         case .mcpServers:
-            return servers.isEmpty ? "No MCP servers." : nil
+            return servers.isEmpty ? String(localized: .toolsFooterNoMcpServers) : nil
         }
     }
 
@@ -251,7 +251,7 @@ final class ToolsViewController: UITableViewController {
             return nil
         }
 
-        let deleteAction = UIContextualAction(style: .destructive, title: "Delete") { [weak self] _, _, completion in
+        let deleteAction = UIContextualAction(style: .destructive, title: String(localized: .generalDelete)) { [weak self] _, _, completion in
             guard let self,
                   servers.indices.contains(indexPath.row) else {
                 completion(false)
@@ -272,7 +272,7 @@ final class ToolsViewController: UITableViewController {
     private func masterSwitchCell() -> UITableViewCell {
         let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
         var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = "Enable Tools"
+        contentConfiguration.text = String(localized: .toolsEnableTools)
         contentConfiguration.image = UIImage(systemName: "hammer")
         cell.contentConfiguration = contentConfiguration
 
@@ -341,8 +341,8 @@ final class ToolsViewController: UITableViewController {
         totalCount: Int
     ) {
         var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = "Memory Tools"
-        contentConfiguration.secondaryText = "\(enabledCount)/\(totalCount) enabled"
+        contentConfiguration.text = String(localized: .toolsMemoryTools)
+        contentConfiguration.secondaryText = String(localized: .toolsEnabledCountFormat(enabledCount, totalCount))
         contentConfiguration.image = UIImage(systemName: "brain.head.profile")
         contentConfiguration.imageProperties.tintColor = enabledCount > 0 ? .systemGreen : .secondaryLabel
         cell.contentConfiguration = contentConfiguration

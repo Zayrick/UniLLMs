@@ -276,7 +276,7 @@ final class ThinkingSectionView: UIView {
             return
         }
         isCollapsed = collapsed
-        headerButton.accessibilityValue = collapsed ? "Collapsed" : "Expanded"
+        headerButton.accessibilityValue = collapsed ? String(localized: .generalCollapsed) : String(localized: .generalExpanded)
         if !collapsed {
             bodyContainer.isHidden = false
             bodyContainer.alpha = 0.0
@@ -347,8 +347,8 @@ final class ThinkingSectionView: UIView {
         headerButton.addTarget(self, action: #selector(toggleCollapsed), for: .touchUpInside)
         headerButton.isAccessibilityElement = true
         headerButton.accessibilityTraits = .button
-        headerButton.accessibilityLabel = "Processing"
-        headerButton.accessibilityValue = "Expanded"
+        headerButton.accessibilityLabel = String(localized: .assistantProcessing)
+        headerButton.accessibilityValue = String(localized: .generalExpanded)
         containerStack.addArrangedSubview(headerButton)
 
         chevronImageView.translatesAutoresizingMaskIntoConstraints = false
@@ -363,7 +363,7 @@ final class ThinkingSectionView: UIView {
         headerButton.addSubview(chevronImageView)
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.text = "Processing"
+        titleLabel.text = String(localized: .assistantProcessing)
         titleLabel.font = .preferredFont(forTextStyle: .footnote)
         titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.numberOfLines = 1
@@ -448,7 +448,7 @@ final class ThinkingSectionView: UIView {
     private func applyProcessingHeader() {
         isHidden = false
         accessibilityElementsHidden = false
-        applyHeaderTitle("Processing", isShimmering: true)
+        applyHeaderTitle(String(localized: .assistantProcessing), isShimmering: true)
     }
 
     private func applyFinishedHeader() {
@@ -469,11 +469,11 @@ final class ThinkingSectionView: UIView {
     }
 
     private static func reasoningStepLabel(for count: Int) -> String {
-        count == 1 ? "reasoning step" : "reasoning steps"
+        count == 1 ? String(localized: .assistantReasoningStepSingular) : String(localized: .assistantReasoningStepPlural)
     }
 
     private static func toolCallLabel(for count: Int) -> String {
-        count == 1 ? "tool call" : "tool calls"
+        count == 1 ? String(localized: .assistantToolCallSingular) : String(localized: .assistantToolCallPlural)
     }
 
     // MARK: - Item helpers

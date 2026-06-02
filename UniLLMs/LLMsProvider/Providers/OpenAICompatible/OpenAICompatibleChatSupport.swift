@@ -42,7 +42,7 @@ nonisolated enum OpenAICompatibleMessageContent: Codable, Equatable {
         }
         throw DecodingError.dataCorruptedError(
             in: container,
-            debugDescription: "Unsupported message content payload."
+            debugDescription: String(localized: .jsonErrorUnsupportedMessageContentPayload)
         )
     }
 
@@ -84,7 +84,7 @@ nonisolated enum OpenAICompatibleContentPart: Codable, Equatable {
             throw DecodingError.dataCorruptedError(
                 forKey: .type,
                 in: container,
-                debugDescription: "Unsupported content part type: \(type)"
+                debugDescription: String(localized: .jsonErrorUnsupportedContentPartTypeFormat(type))
             )
         }
     }
@@ -210,7 +210,7 @@ nonisolated struct OpenAICompatibleChatMessage: Codable, Equatable {
 
     private static func contentPart(for attachment: ChatAttachment) throws -> OpenAICompatibleContentPart {
         guard attachment.kind == .image else {
-            throw OpenAICompatibleProviderError.unsupportedFileAttachments("OpenAI Compatible")
+            throw OpenAICompatibleProviderError.unsupportedFileAttachments(String(localized: .providersOpenaiCompatibleDisplayName))
         }
         guard let data = try? ChatAttachmentStore.shared.loadData(for: attachment),
               !data.isEmpty else {
@@ -272,14 +272,14 @@ nonisolated struct OpenAICompatibleAPIClient {
         var errorDescription: String? {
             switch self {
             case let .invalidAPIBase(apiBase):
-                return "Invalid API Base: \(apiBase)"
+                return String(localized: .providersErrorInvalidApiBaseFormat(apiBase))
             case let .invalidResponse(serviceName):
-                return "\(serviceName) returned an invalid response."
+                return String(localized: .providersErrorInvalidResponseFormat(serviceName))
             case let .serverStatus(serviceName, statusCode, message):
                 if let message, !message.isEmpty {
-                    return "\(serviceName) returned HTTP \(statusCode): \(message)"
+                    return String(localized: .providersErrorHttpStatusMessageFormat(serviceName, statusCode, message))
                 }
-                return "\(serviceName) returned HTTP \(statusCode)."
+                return String(localized: .providersErrorHttpStatusFormat(serviceName, statusCode))
             case let .streamError(message):
                 return message
             }
@@ -332,7 +332,7 @@ nonisolated struct OpenAICompatibleAPIClient {
     }
 
     var session: URLSession = .shared
-    var serviceName: String = "OpenAI Compatible"
+    var serviceName: String = String(localized: .providersOpenaiCompatibleDisplayName)
     var defaultAPIBase: String = ""
 
     func streamChatCompletion(
@@ -402,7 +402,7 @@ nonisolated struct OpenAICompatibleAPIClient {
 
     nonisolated static func streamDelta(
         fromServerSentEventLine line: String,
-        serviceName: String = "OpenAI Compatible"
+        serviceName: String = String(localized: .providersOpenaiCompatibleDisplayName)
     ) throws -> OpenAICompatibleChatStreamDelta? {
         let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedLine.isEmpty,

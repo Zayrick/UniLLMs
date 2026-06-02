@@ -17,11 +17,11 @@ final class MemoriesViewController: UITableViewController {
         var headerTitle: String? {
             switch self {
             case .injection:
-                return "Memory Injection"
+                return String(localized: .memoriesSectionInjection)
             case .assistantAccess:
-                return "Assistant Access"
+                return String(localized: .memoriesSectionAssistantAccess)
             case .savedMemories:
-                return "Saved Memories"
+                return String(localized: .memoriesSavedMemories)
             case .clear:
                 return nil
             }
@@ -32,7 +32,7 @@ final class MemoriesViewController: UITableViewController {
             case .injection:
                 return nil
             case .assistantAccess:
-                return "Requires Tools."
+                return String(localized: .memoriesFooterRequiresTools)
             case .savedMemories:
                 return nil
             case .clear:
@@ -90,7 +90,7 @@ final class MemoriesViewController: UITableViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        title = "Memories"
+        title = String(localized: .settingsRowMemoriesTitle)
         installStoreObservers()
         reloadContent()
     }
@@ -298,7 +298,7 @@ final class MemoriesViewController: UITableViewController {
 
     private func configureInjectionEnabledCellContent(_ cell: UITableViewCell) {
         var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = "Inject Memories"
+        contentConfiguration.text = String(localized: .memoriesInjectMemories)
         contentConfiguration.image = UIImage(systemName: "arrow.down.doc")
         contentConfiguration.imageProperties.tintColor = injectionSettings.isEnabled ? .systemGreen : .secondaryLabel
         cell.contentConfiguration = contentConfiguration
@@ -308,14 +308,14 @@ final class MemoriesViewController: UITableViewController {
         let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.settingCell)
             ?? UITableViewCell(style: .default, reuseIdentifier: ReuseIdentifier.settingCell)
         var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = "Memory Filter"
+        contentConfiguration.text = String(localized: .memoriesMemoryFilter)
         contentConfiguration.image = UIImage(systemName: "line.3.horizontal.decrease.circle")
         contentConfiguration.imageProperties.tintColor = .systemTeal
         cell.contentConfiguration = contentConfiguration
         cell.accessoryView = menuButton(
             title: injectionSettings.filter.title,
             menu: filterMenu(),
-            accessibilityLabel: "Memory injection filter"
+            accessibilityLabel: String(localized: .memoriesAccessibilityInjectionFilter)
         )
         cell.accessoryType = .none
         cell.selectionStyle = .none
@@ -327,7 +327,7 @@ final class MemoriesViewController: UITableViewController {
             button,
             title: injectionSettings.filter.title,
             menu: filterMenu(),
-            accessibilityLabel: "Memory injection filter"
+            accessibilityLabel: String(localized: .memoriesAccessibilityInjectionFilter)
         )
     }
 
@@ -335,14 +335,14 @@ final class MemoriesViewController: UITableViewController {
         let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.settingCell)
             ?? UITableViewCell(style: .default, reuseIdentifier: ReuseIdentifier.settingCell)
         var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = "Memory Limit"
+        contentConfiguration.text = String(localized: .memoriesMemoryLimit)
         contentConfiguration.image = UIImage(systemName: "number.circle")
         contentConfiguration.imageProperties.tintColor = .systemTeal
         cell.contentConfiguration = contentConfiguration
         cell.accessoryView = menuButton(
             title: memoryLimitMenuTitle,
             menu: maximumMemoriesMenu(),
-            accessibilityLabel: "Memory injection limit"
+            accessibilityLabel: String(localized: .memoriesAccessibilityInjectionLimit)
         )
         cell.accessoryType = .none
         cell.selectionStyle = .none
@@ -354,7 +354,7 @@ final class MemoriesViewController: UITableViewController {
             button,
             title: memoryLimitMenuTitle,
             menu: maximumMemoriesMenu(),
-            accessibilityLabel: "Memory injection limit"
+            accessibilityLabel: String(localized: .memoriesAccessibilityInjectionLimit)
         )
     }
 
@@ -395,7 +395,7 @@ final class MemoriesViewController: UITableViewController {
         let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.actionCell)
             ?? UITableViewCell(style: .subtitle, reuseIdentifier: ReuseIdentifier.actionCell)
         var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = "Saved Memories"
+        contentConfiguration.text = String(localized: .memoriesSavedMemories)
         contentConfiguration.secondaryText = memoryCountDescription
         contentConfiguration.image = UIImage(systemName: "brain.head.profile")
         contentConfiguration.imageProperties.tintColor = .systemTeal
@@ -409,7 +409,7 @@ final class MemoriesViewController: UITableViewController {
     private func clearAllCell() -> UITableViewCell {
         let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
         var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = "Clear All Memories"
+        contentConfiguration.text = String(localized: .memoriesClearAll)
         contentConfiguration.image = UIImage(systemName: "trash")
         contentConfiguration.textProperties.color = memoryCount > 0 ? .systemRed : .secondaryLabel
         contentConfiguration.imageProperties.tintColor = memoryCount > 0 ? .systemRed : .secondaryLabel
@@ -525,16 +525,16 @@ final class MemoriesViewController: UITableViewController {
 
     private func presentClearAllConfirmation() {
         let message = memoryCount == 1
-            ? "This deletes the saved memory from this device."
-            : "This deletes all \(memoryCount) saved memories from this device."
+            ? String(localized: .memoriesClearAllConfirmationOneMessage)
+            : String(localized: .memoriesClearAllConfirmationCountMessageFormat(memoryCount))
         let alertController = UIAlertController(
-            title: "Clear All Memories?",
+            title: String(localized: .memoriesClearAllConfirmationTitle),
             message: message,
             preferredStyle: .alert
         )
-        alertController.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alertController.addAction(UIAlertAction(title: String(localized: .generalCancel), style: .cancel))
         alertController.addAction(
-            UIAlertAction(title: "Clear Memories", style: .destructive) { [weak self] _ in
+            UIAlertAction(title: String(localized: .memoriesClearMemories), style: .destructive) { [weak self] _ in
                 self?.clearAllMemories()
             }
         )
@@ -642,7 +642,7 @@ final class MemoriesViewController: UITableViewController {
 
     private func menuTitle(forMaximumMemories maximumMemories: Int?) -> String {
         guard let maximumMemories else {
-            return "No Limit"
+            return String(localized: .memoriesNoLimit)
         }
 
         return "\(maximumMemories)"
@@ -651,11 +651,11 @@ final class MemoriesViewController: UITableViewController {
     private var memoryCountDescription: String {
         switch memoryCount {
         case 0:
-            return "No saved memories"
+            return String(localized: .memoriesCountNone)
         case 1:
-            return "1 saved memory"
+            return String(localized: .memoriesCountOne)
         default:
-            return "\(memoryCount) saved memories"
+            return String(localized: .memoriesCountFormat(memoryCount))
         }
     }
 }

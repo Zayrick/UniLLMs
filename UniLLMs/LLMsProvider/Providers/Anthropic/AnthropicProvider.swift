@@ -65,22 +65,22 @@ struct AnthropicProvider: LLMsProviderAdapter {
         [
             LLMsProviderConfigurationField(
                 id: "name",
-                title: "Name",
+                title: String(localized: .providerFieldName),
                 placeholder: displayName,
                 binding: .providerName,
                 inputKind: .plain
             ),
             LLMsProviderConfigurationField(
                 id: ConfigurationKey.apiKey,
-                title: "Key",
-                placeholder: "Anthropic API Key",
+                title: String(localized: .providerFieldKey),
+                placeholder: String(localized: .providerFieldApiKeyPlaceholderFormat(displayName)),
                 binding: .configurationValue(ConfigurationKey.apiKey),
                 inputKind: .secret,
                 isRequired: true
             ),
             LLMsProviderConfigurationField(
                 id: ConfigurationKey.apiBase,
-                title: "API Base",
+                title: String(localized: .providerFieldApiBase),
                 placeholder: Metadata.defaultAPIBase,
                 binding: .configurationValue(ConfigurationKey.apiBase),
                 inputKind: .url,
@@ -88,7 +88,7 @@ struct AnthropicProvider: LLMsProviderAdapter {
             ),
             LLMsProviderConfigurationField(
                 id: ConfigurationKey.apiVersion,
-                title: "API Version",
+                title: String(localized: .providerFieldApiVersion),
                 placeholder: Metadata.defaultAPIVersion,
                 binding: .configurationValue(ConfigurationKey.apiVersion),
                 inputKind: .plain,
@@ -96,7 +96,7 @@ struct AnthropicProvider: LLMsProviderAdapter {
             ),
             LLMsProviderConfigurationField(
                 id: ConfigurationKey.maxTokens,
-                title: "Max Tokens",
+                title: String(localized: .providerFieldMaxTokens),
                 placeholder: Metadata.defaultMaxTokens,
                 binding: .configurationValue(ConfigurationKey.maxTokens),
                 inputKind: .plain,
@@ -214,13 +214,13 @@ enum AnthropicProviderError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case let .missingAPIKey(displayName):
-            return "Add an API key for \(displayName) in Settings first."
+            return String(localized: .providersErrorMissingApiKeyFormat(displayName))
         case .invalidMaxTokens:
-            return "Max Tokens must be a positive integer."
+            return String(localized: .providersErrorInvalidMaxTokens)
         case let .unsupportedFileAttachments(displayName):
-            return "File attachments are not supported by \(displayName)."
+            return String(localized: .providersErrorUnsupportedFileAttachmentsFormat(displayName))
         case let .missingAttachmentData(filename):
-            return "Unable to load attachment data for \(filename)."
+            return String(localized: .providersErrorMissingAttachmentDataFormat(filename))
         }
     }
 }
@@ -426,14 +426,14 @@ nonisolated struct AnthropicAPIClient {
         var errorDescription: String? {
             switch self {
             case let .invalidAPIBase(apiBase):
-                return "Invalid API Base: \(apiBase)"
+                return String(localized: .providersErrorInvalidApiBaseFormat(apiBase))
             case let .invalidResponse(serviceName):
-                return "\(serviceName) returned an invalid response."
+                return String(localized: .providersErrorInvalidResponseFormat(serviceName))
             case let .serverStatus(serviceName, statusCode, message):
                 if let message, !message.isEmpty {
-                    return "\(serviceName) returned HTTP \(statusCode): \(message)"
+                    return String(localized: .providersErrorHttpStatusMessageFormat(serviceName, statusCode, message))
                 }
-                return "\(serviceName) returned HTTP \(statusCode)."
+                return String(localized: .providersErrorHttpStatusFormat(serviceName, statusCode))
             case let .streamError(message):
                 return message
             }

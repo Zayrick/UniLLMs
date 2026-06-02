@@ -31,6 +31,6 @@ nonisolated struct SystemPromptRecord: Codable, Equatable, Identifiable {
 
     var displayTitle: String {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedTitle.isEmpty ? "Untitled Prompt" : trimmedTitle
+        return trimmedTitle.isEmpty ? String(localized: .systemPromptsUntitledPrompt) : trimmedTitle
     }
 }

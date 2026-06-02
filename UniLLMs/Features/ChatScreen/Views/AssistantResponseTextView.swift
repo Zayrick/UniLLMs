@@ -178,7 +178,7 @@ final class AssistantResponseTextView: UIView {
         loadingView.alignment = .center
         loadingView.spacing = Metrics.loadingSpacing
         loadingView.isAccessibilityElement = true
-        loadingView.accessibilityLabel = "Generating response"
+        loadingView.accessibilityLabel = String(localized: .chatGeneratingResponse)
         loadingView.accessibilityTraits = .updatesFrequently
         loadingView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -188,7 +188,7 @@ final class AssistantResponseTextView: UIView {
         loadingIndicatorView.setContentHuggingPriority(.required, for: .horizontal)
         loadingIndicatorView.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-        loadingLabel.text = "Generating response"
+        loadingLabel.text = String(localized: .chatGeneratingResponse)
         configureLabel(loadingLabel, textStyle: .callout, color: .secondaryLabel)
         loadingLabel.isAccessibilityElement = false
 
@@ -594,7 +594,7 @@ final class AssistantResponseTextView: UIView {
 
             isShowingFeedback = true
             isUserInteractionEnabled = false
-            accessibilityLabel = "Copied"
+            accessibilityLabel = String(localized: .generalCopied)
 
             setSymbol(named: SymbolName.copied, animated: true) { [weak self] in
                 guard let self else {
@@ -602,7 +602,7 @@ final class AssistantResponseTextView: UIView {
                 }
 
                 self.setSymbol(named: SymbolName.copy, animated: true) { [weak self] in
-                    self?.accessibilityLabel = "Copy Markdown"
+                    self?.accessibilityLabel = String(localized: .assistantCopyMarkdown)
                     self?.isUserInteractionEnabled = true
                     self?.isShowingFeedback = false
                 }
@@ -625,7 +625,7 @@ final class AssistantResponseTextView: UIView {
         private func configure() {
             backgroundColor = .clear
             isOpaque = false
-            accessibilityLabel = "Copy Markdown"
+            accessibilityLabel = String(localized: .assistantCopyMarkdown)
             tintColor = .tertiaryLabel
 
             setSymbol(named: SymbolName.copy, animated: false)

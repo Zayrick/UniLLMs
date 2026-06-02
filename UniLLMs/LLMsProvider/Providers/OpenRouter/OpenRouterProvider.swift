@@ -59,22 +59,22 @@ struct OpenRouterProvider: LLMsProviderAdapter {
         [
             LLMsProviderConfigurationField(
                 id: "name",
-                title: "Name",
+                title: String(localized: .providerFieldName),
                 placeholder: displayName,
                 binding: .providerName,
                 inputKind: .plain
             ),
             LLMsProviderConfigurationField(
                 id: ConfigurationKey.apiKey,
-                title: "Key",
-                placeholder: "OpenRouter API Key",
+                title: String(localized: .providerFieldKey),
+                placeholder: String(localized: .providerFieldApiKeyPlaceholderFormat(displayName)),
                 binding: .configurationValue(ConfigurationKey.apiKey),
                 inputKind: .secret,
                 isRequired: true
             ),
             LLMsProviderConfigurationField(
                 id: ConfigurationKey.apiBase,
-                title: "API Base",
+                title: String(localized: .providerFieldApiBase),
                 placeholder: Metadata.defaultAPIBase,
                 binding: .configurationValue(ConfigurationKey.apiBase),
                 inputKind: .url,
@@ -163,11 +163,11 @@ enum OpenRouterProviderError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case let .missingAPIKey(displayName):
-            return "Add an API key for \(displayName) in Settings first."
+            return String(localized: .providersErrorMissingApiKeyFormat(displayName))
         case let .unsupportedFileAttachments(displayName):
-            return "File attachments are not supported by \(displayName)."
+            return String(localized: .providersErrorUnsupportedFileAttachmentsFormat(displayName))
         case let .missingAttachmentData(filename):
-            return "Unable to load attachment data for \(filename)."
+            return String(localized: .providersErrorMissingAttachmentDataFormat(filename))
         }
     }
 }

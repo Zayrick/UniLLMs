@@ -266,7 +266,7 @@ final class ChatMarkdownInlineRenderer {
                     attachment: ChatMarkdownMathTextAttachment(renderedImage: renderedImage)
                 )
                 var attributes = mode.attributes()
-                attributes[.chatAccessibilityText] = "Formula: \(span.latex)"
+                attributes[.chatAccessibilityText] = String(localized: .markdownFormulaFormat(span.latex))
                 attachment.addAttributes(
                     attributes,
                     range: NSRange(location: 0, length: attachment.length)

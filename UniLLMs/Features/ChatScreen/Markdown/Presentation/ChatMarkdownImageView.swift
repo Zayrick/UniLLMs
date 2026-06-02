@@ -263,14 +263,14 @@ final class ChatMarkdownImageView: UIView {
     }
 
     private var placeholderText: String {
-        imageBlock.altText.isEmpty ? "Loading image" : imageBlock.altText
+        imageBlock.altText.isEmpty ? String(localized: .markdownLoadingImage) : imageBlock.altText
     }
 
     private var unavailableText: String {
-        imageBlock.altText.isEmpty ? "Image unavailable" : imageBlock.altText
+        imageBlock.altText.isEmpty ? String(localized: .markdownImageUnavailable) : imageBlock.altText
     }
 
     private var accessibilityText: String {
-        imageBlock.altText.isEmpty ? "Image" : "Image, \(imageBlock.altText)"
+        imageBlock.altText.isEmpty ? String(localized: .markdownImage) : String(localized: .markdownImageWithAltFormat(imageBlock.altText))
     }
 }

@@ -188,7 +188,7 @@ final class ChatMarkdownDetailsView: UIView {
             trailing: 0.0
         )
         summaryButton.configuration = configuration
-        summaryButton.accessibilityValue = isExpanded ? "Expanded" : "Collapsed"
+        summaryButton.accessibilityValue = isExpanded ? String(localized: .generalExpanded) : String(localized: .generalCollapsed)
     }
 
     private func fittingHeight(for width: CGFloat) -> CGFloat {

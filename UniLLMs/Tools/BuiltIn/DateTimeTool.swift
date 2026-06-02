@@ -11,8 +11,8 @@ import Foundation
 struct DateTimeTool: Tool {
     let definition = ToolDefinition(
         name: "current_datetime",
-        displayName: "Current Date and Time",
-        summary: "Returns the current local date and time.",
+        displayName: String(localized: .toolsCurrentDatetimeName),
+        summary: String(localized: .toolsCurrentDatetimeSummary),
         symbolName: "clock"
     )
 

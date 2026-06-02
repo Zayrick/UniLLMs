@@ -15,8 +15,8 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
     }
 
     private enum ModelRows {
-        static let addTitle = "Add Model"
-        static let modelIDTitle = "Model ID"
+        static var addTitle: String { String(localized: .providerConfigurationAddModel) }
+        static var modelIDTitle: String { String(localized: .providerConfigurationModelId) }
         static let modelIDPlaceholder = "gpt-4.1-mini"
     }
 
@@ -137,13 +137,13 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
 
         switch section {
         case .configuration:
-            return "Configuration"
+            return String(localized: .providerConfigurationSectionConfiguration)
         case .models:
             guard modelSource != .remote else {
                 return nil
             }
 
-            return "Models"
+            return String(localized: .providerConfigurationSectionModels)
         }
     }
 
@@ -170,7 +170,7 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
             return nil
         }
 
-        headerView.configure(title: "Models", isLoading: isLoadingModels)
+        headerView.configure(title: String(localized: .providerConfigurationSectionModels), isLoading: isLoadingModels)
         headerView.onRefresh = { [weak self] in
             self?.refreshModels()
         }
@@ -226,7 +226,7 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
         }
 
         let modelIndex = indexPath.row - 1
-        let deleteAction = UIContextualAction(style: .destructive, title: "Delete") { [weak self] _, _, completion in
+        let deleteAction = UIContextualAction(style: .destructive, title: String(localized: .generalDelete)) { [weak self] _, _, completion in
             guard let self,
                   provider.models.indices.contains(modelIndex) else {
                 completion(false)
@@ -389,7 +389,7 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
             return nil
         }
 
-        return "Updated \(updatedDateFormatter.string(from: updatedAt))"
+        return String(localized: .generalUpdatedFormat(updatedDateFormatter.string(from: updatedAt)))
     }
 
     private var manualModelsDetailText: String? {
@@ -398,7 +398,9 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
             return nil
         }
 
-        return modelCount == 1 ? "1 Model" : "\(modelCount) Models"
+        return modelCount == 1
+            ? String(localized: .providerConfigurationModelCountOne)
+            : String(localized: .providerConfigurationModelCountFormat(modelCount))
     }
 
     private var manualModelCount: Int {
@@ -519,11 +521,11 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
         }
 
         let alertController = UIAlertController(
-            title: "Unable to Refresh Models",
+            title: String(localized: .providerConfigurationErrorUnableToRefreshModels),
             message: error.localizedDescription,
             preferredStyle: .alert
         )
-        alertController.addAction(UIAlertAction(title: "OK", style: .default))
+        alertController.addAction(UIAlertAction(title: String(localized: .generalOk), style: .default))
         present(alertController, animated: true)
     }
 
@@ -687,11 +689,11 @@ private final class ModelsSectionHeaderView: UITableViewHeaderFooterView {
 
     private let refreshButton: UIButton = {
         var configuration = UIButton.Configuration.plain()
-        configuration.title = "Refresh"
+        configuration.title = String(localized: .providerConfigurationRefresh)
         configuration.buttonSize = .mini
 
         let button = UIButton(configuration: configuration)
-        button.accessibilityLabel = "Refresh Models"
+        button.accessibilityLabel = String(localized: .providerConfigurationRefreshModels)
         return button
     }()
 
@@ -720,13 +722,15 @@ private final class ModelsSectionHeaderView: UITableViewHeaderFooterView {
         titleContentView.configuration = titleConfiguration
 
         var buttonConfiguration = refreshButton.configuration ?? .plain()
-        buttonConfiguration.title = isLoading ? "Refreshing" : "Refresh"
+        buttonConfiguration.title = isLoading
+            ? String(localized: .providerConfigurationRefreshing)
+            : String(localized: .providerConfigurationRefresh)
         buttonConfiguration.image = nil
         buttonConfiguration.buttonSize = .mini
         buttonConfiguration.showsActivityIndicator = false
         refreshButton.configuration = buttonConfiguration
         refreshButton.isEnabled = !isLoading
-        refreshButton.accessibilityValue = isLoading ? "Refreshing" : nil
+        refreshButton.accessibilityValue = isLoading ? String(localized: .providerConfigurationRefreshing) : nil
     }
 
     private func configureLayout() {

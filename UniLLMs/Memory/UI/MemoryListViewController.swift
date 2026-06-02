@@ -39,7 +39,7 @@ final class MemoryListViewController: UITableViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        title = "Saved Memories"
+        title = String(localized: .memoriesSavedMemories)
         configureAddButton()
         configureSearch()
         installStoreObserver()
@@ -63,7 +63,7 @@ final class MemoryListViewController: UITableViewController {
     private func configureSearch() {
         searchController.searchResultsUpdater = self
         searchController.obscuresBackgroundDuringPresentation = false
-        searchController.searchBar.placeholder = "Search saved memories"
+        searchController.searchBar.placeholder = String(localized: .memoriesSearchSavedMemories)
         navigationItem.searchController = searchController
         navigationItem.hidesSearchBarWhenScrolling = false
         definesPresentationContext = true
@@ -133,22 +133,22 @@ final class MemoryListViewController: UITableViewController {
         var configuration = UIContentUnavailableConfiguration.empty()
         configuration.image = UIImage(systemName: "brain.head.profile")
         if memories.isEmpty {
-            configuration.text = "No Saved Memories"
-            configuration.secondaryText = "Add a memory when needed."
+            configuration.text = String(localized: .memoriesEmptyNoSavedTitle)
+            configuration.secondaryText = String(localized: .memoriesEmptyNoSavedDetail)
             configuration.button = addMemoryButtonConfiguration()
             configuration.buttonProperties.primaryAction = UIAction { [weak self] _ in
                 self?.addMemory()
             }
         } else {
-            configuration.text = "No Matching Memories"
-            configuration.secondaryText = "Try another word or phrase."
+            configuration.text = String(localized: .memoriesEmptyNoMatchingTitle)
+            configuration.secondaryText = String(localized: .memoriesEmptyNoMatchingDetail)
         }
         contentUnavailableConfiguration = configuration
     }
 
     private func addMemoryButtonConfiguration() -> UIButton.Configuration {
         var configuration = UIButton.Configuration.filled()
-        configuration.title = "Add Memory"
+        configuration.title = String(localized: .memoriesAddMemory)
         configuration.image = UIImage(systemName: "plus")
         configuration.imagePadding = 6
         return configuration
@@ -185,7 +185,7 @@ final class MemoryListViewController: UITableViewController {
         }
 
         let memoryID = visibleMemories[indexPath.row].id
-        let deleteAction = UIContextualAction(style: .destructive, title: "Delete") { [weak self] _, _, completion in
+        let deleteAction = UIContextualAction(style: .destructive, title: String(localized: .generalDelete)) { [weak self] _, _, completion in
             guard let self else {
                 completion(false)
                 return
@@ -213,7 +213,7 @@ final class MemoryListViewController: UITableViewController {
         let memory = visibleMemories[indexPath.row]
         var contentConfiguration = cell.defaultContentConfiguration()
         contentConfiguration.text = displayText(for: memory)
-        contentConfiguration.secondaryText = "Updated \(memory.updatedAt.formatted(date: .abbreviated, time: .shortened))"
+        contentConfiguration.secondaryText = String(localized: .generalUpdatedFormat(memory.updatedAt.formatted(date: .abbreviated, time: .shortened)))
         contentConfiguration.secondaryTextProperties.numberOfLines = 1
         contentConfiguration.image = UIImage(systemName: "brain.head.profile")
         cell.contentConfiguration = contentConfiguration
@@ -233,7 +233,7 @@ final class MemoryListViewController: UITableViewController {
             .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
             .joined(separator: " ")
-        return text.isEmpty ? "Untitled Memory" : text
+        return text.isEmpty ? String(localized: .memoriesUntitledMemory) : text
     }
 }
 

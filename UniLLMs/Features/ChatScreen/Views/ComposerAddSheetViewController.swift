@@ -40,26 +40,26 @@ final class ComposerAddSheetViewController: UITableViewController {
         var title: String {
             switch self {
             case .systemPrompt:
-                return "System Prompt"
+                return String(localized: .composerAddSystemPrompt)
             case .camera:
-                return "Camera"
+                return String(localized: .composerAddCamera)
             case .photoLibrary:
-                return "Photos"
+                return String(localized: .composerAddPhotos)
             case .files:
-                return "Files"
+                return String(localized: .composerAddFiles)
             }
         }
 
         var description: String {
             switch self {
             case .systemPrompt:
-                return "Choose reusable instructions."
+                return String(localized: .composerAddSystemPromptDescription)
             case .camera:
-                return "Take a new photo."
+                return String(localized: .composerAddCameraDescription)
             case .photoLibrary:
-                return "Choose photos."
+                return String(localized: .composerAddPhotosDescription)
             case .files:
-                return "Attach files."
+                return String(localized: .composerAddFilesDescription)
             }
         }
 
@@ -92,7 +92,7 @@ final class ComposerAddSheetViewController: UITableViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        title = "Add"
+        title = String(localized: .generalAdd)
         // Required for the sheet transition; without this, the background overpaints during presentation.
         view.backgroundColor = .clear
         tableView.separatorStyle = .none

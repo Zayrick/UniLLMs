@@ -14,9 +14,18 @@ nonisolated extension LLMsProviderKind {
 
 struct FakeLLMsProvider: LLMsProviderAdapter {
     private enum Metadata {
-        static let displayName = "Fake"
-        static let staticResponse = "This is a fake static response returned after a short delay."
-        static let streamResponse = "This is a fake streaming response. It arrives gradually so the streaming UI can be checked without a real provider."
+        static var displayName: String {
+            String(localized: .providersFakeDisplayName)
+        }
+
+        static var staticResponse: String {
+            String(localized: .providersFakeStaticResponse)
+        }
+
+        static var streamResponse: String {
+            String(localized: .providersFakeStreamResponse)
+        }
+
         static let markdownResponse = #"""
 # UniLLMs Markdown Torture Fixture
 
@@ -592,10 +601,10 @@ The fixture ends with trailing punctuation, a final inline code span `done`, and
 
     var staticModels: [LLMsProviderModel] {
         [
-            LLMsProviderModel(id: ModelID.staticResponse, name: "Static"),
-            LLMsProviderModel(id: ModelID.stream, name: "Stream"),
-            LLMsProviderModel(id: ModelID.markdownStatic, name: "Markdown Static"),
-            LLMsProviderModel(id: ModelID.markdownStream, name: "Markdown Stream")
+            LLMsProviderModel(id: ModelID.staticResponse, name: String(localized: .providersFakeModelStatic)),
+            LLMsProviderModel(id: ModelID.stream, name: String(localized: .providersFakeModelStream)),
+            LLMsProviderModel(id: ModelID.markdownStatic, name: String(localized: .providersFakeModelMarkdownStatic)),
+            LLMsProviderModel(id: ModelID.markdownStream, name: String(localized: .providersFakeModelMarkdownStream))
         ]
     }
 
@@ -696,7 +705,7 @@ enum FakeLLMsProviderError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case let .unsupportedModel(modelID):
-            return "Fake provider does not support model: \(modelID)"
+            return String(localized: .providersErrorFakeUnsupportedModelFormat(modelID))
         }
     }
 }

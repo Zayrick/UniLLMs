@@ -95,7 +95,7 @@ final class ChatMarkdownTableView: UIView {
         scrollView.delaysContentTouches = false
         scrollView.canCancelContentTouches = true
         scrollView.isDirectionalLockEnabled = true
-        scrollView.accessibilityLabel = "Markdown table"
+        scrollView.accessibilityLabel = String(localized: .markdownTable)
 
         addSubview(scrollView)
         scrollView.addSubview(tableView)
@@ -222,9 +222,9 @@ private final class ChatMarkdownTableContentView: UIView {
         rowIndex: Int,
         columnIndex: Int
     ) -> String {
-        let role = cell.isHeader ? "Header" : "Cell"
-        let text = cell.accessibilityText.isEmpty ? "Empty" : cell.accessibilityText
-        return "\(role), row \(rowIndex + 1), column \(columnIndex + 1), \(text)"
+        let role = cell.isHeader ? String(localized: .markdownTableHeader) : String(localized: .markdownTableCell)
+        let text = cell.accessibilityText.isEmpty ? String(localized: .markdownEmpty) : cell.accessibilityText
+        return String(localized: .markdownTableCellAccessibilityFormat(role, rowIndex + 1, columnIndex + 1, text))
     }
 
     private func layoutCellTextViews() {

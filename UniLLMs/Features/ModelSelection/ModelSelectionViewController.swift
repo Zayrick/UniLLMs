@@ -41,7 +41,7 @@ final class ModelSelectionViewController: UITableViewController, UISearchResults
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        title = "Select Model"
+        title = String(localized: .chatSelectModel)
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             barButtonSystemItem: .close,
             target: self,
@@ -69,8 +69,8 @@ final class ModelSelectionViewController: UITableViewController, UISearchResults
         searchController.searchResultsUpdater = self
         searchController.obscuresBackgroundDuringPresentation = false
         searchController.hidesNavigationBarDuringPresentation = false
-        searchController.searchBar.placeholder = "Search Models"
-        searchController.searchBar.accessibilityLabel = "Search Models"
+        searchController.searchBar.placeholder = String(localized: .modelSelectionSearchModels)
+        searchController.searchBar.accessibilityLabel = String(localized: .modelSelectionSearchModels)
         navigationItem.searchController = searchController
         navigationItem.preferredSearchBarPlacement = .integratedButton
         navigationItem.hidesSearchBarWhenScrolling = false
@@ -180,16 +180,16 @@ final class ModelSelectionViewController: UITableViewController, UISearchResults
 
         if isFilteringModels && !allProviders.isEmpty {
             var configuration = UIContentUnavailableConfiguration.search()
-            configuration.text = "No Matches"
-            configuration.secondaryText = "Try another model name, model ID, or provider."
+            configuration.text = String(localized: .modelSelectionNoMatches)
+            configuration.secondaryText = String(localized: .modelSelectionNoMatchesDetail)
             contentUnavailableConfiguration = configuration
             return
         }
 
         var configuration = UIContentUnavailableConfiguration.empty()
         configuration.image = UIImage(systemName: "cpu")
-        configuration.text = "No LLM Providers"
-        configuration.secondaryText = "Add a provider in Settings before selecting a model."
+        configuration.text = String(localized: .modelSelectionNoProviders)
+        configuration.secondaryText = String(localized: .modelSelectionNoProvidersDetail)
         contentUnavailableConfiguration = configuration
     }
 
@@ -205,13 +205,13 @@ final class ModelSelectionViewController: UITableViewController, UISearchResults
     private func noModelsDetail(for provider: LLMsProviderRecord) -> String {
         switch dependencies.providerManager.modelSource(for: provider.kind) {
         case .some(.remote):
-            return "Refresh the model list for this provider in Settings."
+            return String(localized: .modelSelectionNoModelsRemoteDetail)
         case .some(.manual):
-            return "Add models for this provider in Settings."
+            return String(localized: .modelSelectionNoModelsManualDetail)
         case .some(.`static`):
-            return "This provider does not include static models."
+            return String(localized: .modelSelectionNoModelsStaticDetail)
         case nil:
-            return "Add provider models in Settings."
+            return String(localized: .modelSelectionNoModelsUnknownDetail)
         }
     }
 

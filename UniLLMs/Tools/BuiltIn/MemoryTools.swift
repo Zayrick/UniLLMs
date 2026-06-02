@@ -23,27 +23,27 @@ nonisolated enum MemoryToolCatalog {
     static let userFacingItems = [
         MemoryToolUserFacingItem(
             id: addID,
-            title: "Save memories",
+            title: String(localized: .toolsMemorySaveAction),
             symbolName: "plus.circle"
         ),
         MemoryToolUserFacingItem(
             id: searchID,
-            title: "Find memories",
+            title: String(localized: .toolsMemoryFindAction),
             symbolName: "magnifyingglass"
         ),
         MemoryToolUserFacingItem(
             id: listID,
-            title: "View memories",
+            title: String(localized: .toolsMemoryViewAction),
             symbolName: "list.bullet"
         ),
         MemoryToolUserFacingItem(
             id: updateID,
-            title: "Update memories",
+            title: String(localized: .toolsMemoryUpdateAction),
             symbolName: "pencil"
         ),
         MemoryToolUserFacingItem(
             id: deleteID,
-            title: "Delete memories",
+            title: String(localized: .toolsMemoryDeleteAction),
             symbolName: "trash"
         )
     ]
@@ -58,8 +58,8 @@ nonisolated enum MemoryToolCatalog {
 struct MemoryAddTool: Tool {
     let definition = ToolDefinition(
         name: MemoryToolCatalog.addID,
-        displayName: "Save Memory",
-        summary: "Save a detail the user wants the assistant to remember.",
+        displayName: String(localized: .toolsMemorySaveName),
+        summary: String(localized: .toolsMemorySaveSummary),
         symbolName: "plus.circle",
         parameters: MemoryToolSchemas.addMemory
     )
@@ -96,8 +96,8 @@ struct MemoryAddTool: Tool {
 struct MemoryDeleteTool: Tool {
     let definition = ToolDefinition(
         name: MemoryToolCatalog.deleteID,
-        displayName: "Delete Memory",
-        summary: "Delete a saved memory when the user asks.",
+        displayName: String(localized: .toolsMemoryDeleteName),
+        summary: String(localized: .toolsMemoryDeleteSummary),
         symbolName: "trash",
         parameters: MemoryToolSchemas.deleteMemory
     )
@@ -116,7 +116,7 @@ struct MemoryDeleteTool: Tool {
             guard didDelete else {
                 return ToolResult(
                     callID: call.id,
-                    content: "No memory exists for id \(id.uuidString).",
+                    content: String(localized: .memoriesErrorMissingMemoryFormat(id.uuidString)),
                     status: .error
                 )
             }
@@ -134,8 +134,8 @@ struct MemoryDeleteTool: Tool {
 struct MemoryListTool: Tool {
     let definition = ToolDefinition(
         name: MemoryToolCatalog.listID,
-        displayName: "View Memories",
-        summary: "Show saved memories so the assistant can use or manage them.",
+        displayName: String(localized: .toolsMemoryViewName),
+        summary: String(localized: .toolsMemoryViewSummary),
         symbolName: "list.bullet",
         parameters: MemoryToolSchemas.listMemories
     )
@@ -168,8 +168,8 @@ struct MemoryListTool: Tool {
 struct MemorySearchTool: Tool {
     let definition = ToolDefinition(
         name: MemoryToolCatalog.searchID,
-        displayName: "Find Memories",
-        summary: "Find saved memories that may help answer the user.",
+        displayName: String(localized: .toolsMemoryFindName),
+        summary: String(localized: .toolsMemoryFindSummary),
         symbolName: "magnifyingglass",
         parameters: MemoryToolSchemas.searchMemories
     )
@@ -203,8 +203,8 @@ struct MemorySearchTool: Tool {
 struct MemoryUpdateTool: Tool {
     let definition = ToolDefinition(
         name: MemoryToolCatalog.updateID,
-        displayName: "Update Memory",
-        summary: "Update a saved memory when the user asks.",
+        displayName: String(localized: .toolsMemoryUpdateName),
+        summary: String(localized: .toolsMemoryUpdateSummary),
         symbolName: "pencil",
         parameters: MemoryToolSchemas.updateMemory
     )
@@ -223,7 +223,7 @@ struct MemoryUpdateTool: Tool {
             guard var memory = try await memoryManager.memory(id: id) else {
                 return ToolResult(
                     callID: call.id,
-                    content: "No memory exists for id \(id.uuidString).",
+                    content: String(localized: .memoriesErrorMissingMemoryFormat(id.uuidString)),
                     status: .error
                 )
             }
@@ -378,13 +378,13 @@ private enum MemoryToolInputError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case let .missingArgument(key):
-            return "Missing required argument: \(key)."
+            return String(localized: .memoriesErrorMissingArgumentFormat(key))
         case let .emptyArgument(key):
-            return "Argument cannot be empty: \(key)."
+            return String(localized: .memoriesErrorEmptyArgumentFormat(key))
         case let .invalidUUID(key):
-            return "Argument must be a valid UUID: \(key)."
+            return String(localized: .memoriesErrorInvalidUuidFormat(key))
         case let .invalidLimit(key, maximum):
-            return "Argument must be an integer from 1 through \(maximum): \(key)."
+            return String(localized: .memoriesErrorInvalidLimitFormat(maximum, key))
         }
     }
 }
