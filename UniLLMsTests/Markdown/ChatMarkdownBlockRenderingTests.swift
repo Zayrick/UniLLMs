@@ -123,8 +123,7 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
     func testMarkdownTaskListUsesSymbolAttachmentWithReadableAccessibilityText() throws {
         let rendered = renderMarkdownText("- [ ] Todo")
 
-        let attachment = rendered.attribute(.attachment, at: 0, effectiveRange: nil) as? NSTextAttachment
-        XCTAssertNotNil(attachment)
+        XCTAssertTrue(rendered.hasAttachment(at: 0))
         XCTAssertTrue(rendered.chatAccessibilityString.contains("Unchecked"))
         XCTAssertFalse(rendered.chatAccessibilityString.contains("\u{fffc}"))
     }
@@ -134,7 +133,7 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
         let rendered = renderMarkdownText("Visit https://example.com/docs now")
         let linkRange = (rendered.string as NSString).range(of: "https://example.com/docs")
 
-        let url = rendered.attribute(.link, at: linkRange.location, effectiveRange: nil) as? URL
+        let url = rendered.link(at: linkRange.location)
 
         XCTAssertEqual(url?.absoluteString, "https://example.com/docs")
     }
@@ -182,11 +181,7 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
 
         XCTAssertEqual(codeCell.accessibilityText, "id")
         XCTAssertNotNil(
-            codeCell.attributedText.attribute(
-                .chatInlineCodeBackgroundColor,
-                at: codeRange.location,
-                effectiveRange: nil
-            ) as? UIColor
+            codeCell.attributedText.inlineCodeCornerRadius(at: codeRange.location)
         )
     }
 
@@ -207,8 +202,9 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
             return
         }
 
-        let font = try XCTUnwrap(tableData.rows[1][0].attributedText.font(containing: "Cell"))
-        let traits = font.fontDescriptor.symbolicTraits
+        let traits = try XCTUnwrap(
+            tableData.rows[1][0].attributedText.fontSymbolicTraits(containing: "Cell")
+        )
 
         XCTAssertTrue(traits.contains(.traitBold))
         XCTAssertTrue(traits.contains(.traitItalic))
@@ -217,30 +213,28 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
     @MainActor
     func testMarkdownBlockQuoteNestedInlineStylesCompose() throws {
         let attributedText = renderMarkdownText("> ***Quoted*** `id`")
-        let quoteFont = try XCTUnwrap(attributedText.font(containing: "Quoted"))
-        let quoteTraits = quoteFont.fontDescriptor.symbolicTraits
+        let quoteTraits = try XCTUnwrap(attributedText.fontSymbolicTraits(containing: "Quoted"))
         let codeRange = try XCTUnwrap(attributedText.range(of: "id"))
-        let paragraphStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Quoted"))
+        let paragraphMetrics = try XCTUnwrap(attributedText.paragraphMetrics(containing: "Quoted"))
+        let positions = try XCTUnwrap(attributedText.blockQuoteBarPositions(containing: "Quoted"))
 
         XCTAssertTrue(quoteTraits.contains(.traitBold))
         XCTAssertTrue(quoteTraits.contains(.traitItalic))
-        XCTAssertGreaterThan(paragraphStyle.headIndent, 0.0)
+        XCTAssertGreaterThan(paragraphMetrics.headIndent, 0.0)
+        XCTAssertEqual(positions, [ChatMarkdownBlockQuoteStyle.barLeading])
         XCTAssertNotNil(
-            attributedText.attribute(
-                .chatInlineCodeBackgroundColor,
-                at: codeRange.location,
-                effectiveRange: nil
-            ) as? UIColor
+            attributedText.inlineCodeCornerRadius(at: codeRange.location)
         )
+        XCTAssertFalse(attributedText.hasStandardBackgroundColor(at: codeRange.location))
     }
 
     @MainActor
     func testMarkdownNestedListRendersIncreasingIndents() throws {
         let attributedText = renderMarkdownText("- Parent\n  - Child\n    - Grandchild")
 
-        let parentStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Parent"))
-        let childStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Child"))
-        let grandchildStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Grandchild"))
+        let parentStyle = try XCTUnwrap(attributedText.paragraphMetrics(containing: "Parent"))
+        let childStyle = try XCTUnwrap(attributedText.paragraphMetrics(containing: "Child"))
+        let grandchildStyle = try XCTUnwrap(attributedText.paragraphMetrics(containing: "Grandchild"))
 
         XCTAssertGreaterThan(childStyle.firstLineHeadIndent, parentStyle.firstLineHeadIndent)
         XCTAssertGreaterThan(grandchildStyle.firstLineHeadIndent, childStyle.firstLineHeadIndent)
@@ -252,22 +246,28 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
     func testMarkdownBlockQuotePreservesNestedListIndents() throws {
         let attributedText = renderMarkdownText("> - Parent\n>   - Child\n>     - Grandchild")
 
-        let parentStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Parent"))
-        let childStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Child"))
-        let grandchildStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Grandchild"))
+        let parentStyle = try XCTUnwrap(attributedText.paragraphMetrics(containing: "Parent"))
+        let childStyle = try XCTUnwrap(attributedText.paragraphMetrics(containing: "Child"))
+        let grandchildStyle = try XCTUnwrap(attributedText.paragraphMetrics(containing: "Grandchild"))
+        let parentPositions = try XCTUnwrap(attributedText.blockQuoteBarPositions(containing: "Parent"))
+        let childPositions = try XCTUnwrap(attributedText.blockQuoteBarPositions(containing: "Child"))
+        let grandchildPositions = try XCTUnwrap(attributedText.blockQuoteBarPositions(containing: "Grandchild"))
 
         XCTAssertGreaterThan(childStyle.firstLineHeadIndent, parentStyle.firstLineHeadIndent)
         XCTAssertGreaterThan(grandchildStyle.firstLineHeadIndent, childStyle.firstLineHeadIndent)
         XCTAssertGreaterThan(childStyle.headIndent, parentStyle.headIndent)
         XCTAssertGreaterThan(grandchildStyle.headIndent, childStyle.headIndent)
+        XCTAssertEqual(parentPositions, [ChatMarkdownBlockQuoteStyle.barLeading])
+        XCTAssertEqual(childPositions, [ChatMarkdownBlockQuoteStyle.barLeading])
+        XCTAssertEqual(grandchildPositions, [ChatMarkdownBlockQuoteStyle.barLeading])
     }
 
     @MainActor
     func testMarkdownNestedBlockQuoteRendersIncreasingIndents() throws {
         let attributedText = renderMarkdownText("> Outer\n>\n> > Inner")
 
-        let outerStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Outer"))
-        let innerStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Inner"))
+        let outerStyle = try XCTUnwrap(attributedText.paragraphMetrics(containing: "Outer"))
+        let innerStyle = try XCTUnwrap(attributedText.paragraphMetrics(containing: "Inner"))
 
         XCTAssertGreaterThan(innerStyle.firstLineHeadIndent, outerStyle.firstLineHeadIndent)
         XCTAssertGreaterThan(innerStyle.headIndent, outerStyle.headIndent)
@@ -300,8 +300,8 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
     func testMarkdownListContinuationPreservesNestedBlockQuoteIndent() throws {
         let attributedText = renderMarkdownText("- Item\n  > Quote")
 
-        let itemStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Item"))
-        let quoteStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Quote"))
+        let itemStyle = try XCTUnwrap(attributedText.paragraphMetrics(containing: "Item"))
+        let quoteStyle = try XCTUnwrap(attributedText.paragraphMetrics(containing: "Quote"))
 
         XCTAssertGreaterThan(quoteStyle.firstLineHeadIndent, itemStyle.headIndent)
         XCTAssertGreaterThan(quoteStyle.headIndent, itemStyle.headIndent)
@@ -311,7 +311,7 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
     func testMarkdownListContinuationOffsetsNestedBlockQuoteBarPosition() throws {
         let attributedText = renderMarkdownText("- Item\n  > Quote")
 
-        let itemStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Item"))
+        let itemStyle = try XCTUnwrap(attributedText.paragraphMetrics(containing: "Item"))
         let positions = try XCTUnwrap(attributedText.blockQuoteBarPositions(containing: "Quote"))
 
         XCTAssertEqual(positions.count, 1)
@@ -326,7 +326,7 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
     func testMarkdownBlockQuoteKeepsOuterBarBeforeNestedListMarker() throws {
         let attributedText = renderMarkdownText("> - Item")
 
-        let itemStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Item"))
+        let itemStyle = try XCTUnwrap(attributedText.paragraphMetrics(containing: "Item"))
         let positions = try XCTUnwrap(attributedText.blockQuoteBarPositions(containing: "Item"))
 
         XCTAssertEqual(positions.count, 1)
@@ -335,11 +335,40 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
     }
 
     @MainActor
+    func testMarkdownBlockQuoteNestedListContinuationPreservesOuterAndInnerBars() throws {
+        let attributedText = renderMarkdownText(
+            """
+            > - Parent
+            >   > **Inner** `code`
+            """
+        )
+
+        let parentStyle = try XCTUnwrap(attributedText.paragraphMetrics(containing: "Parent"))
+        let innerStyle = try XCTUnwrap(attributedText.paragraphMetrics(containing: "Inner"))
+        let innerTraits = try XCTUnwrap(attributedText.fontSymbolicTraits(containing: "Inner"))
+        let codeRange = try XCTUnwrap(attributedText.range(of: "code"))
+        let parentPositions = try XCTUnwrap(attributedText.blockQuoteBarPositions(containing: "Parent"))
+        let innerPositions = try XCTUnwrap(attributedText.blockQuoteBarPositions(containing: "Inner"))
+
+        XCTAssertEqual(parentPositions, [ChatMarkdownBlockQuoteStyle.barLeading])
+        XCTAssertEqual(innerPositions.count, 2)
+        XCTAssertEqual(innerPositions[0], ChatMarkdownBlockQuoteStyle.barLeading, accuracy: 0.001)
+        XCTAssertEqual(
+            innerPositions[1],
+            parentStyle.headIndent + ChatMarkdownBlockQuoteStyle.barLeading,
+            accuracy: 0.001
+        )
+        XCTAssertGreaterThan(innerStyle.headIndent, parentStyle.headIndent)
+        XCTAssertTrue(innerTraits.contains(.traitBold))
+        XCTAssertNotNil(attributedText.inlineCodeCornerRadius(at: codeRange.location))
+    }
+
+    @MainActor
     func testMarkdownOrderedListUsesStableContentIndentAcrossDigitWidths() throws {
         let attributedText = renderMarkdownText("9. Nine\n10. Ten")
 
-        let nineStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Nine"))
-        let tenStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Ten"))
+        let nineStyle = try XCTUnwrap(attributedText.paragraphMetrics(containing: "Nine"))
+        let tenStyle = try XCTUnwrap(attributedText.paragraphMetrics(containing: "Ten"))
 
         XCTAssertEqual(nineStyle.headIndent, tenStyle.headIndent)
     }

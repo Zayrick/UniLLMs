@@ -20,6 +20,7 @@ final class AssistantResponseTextView: UIView {
         static let copyAppearTranslationY: CGFloat = -8.0
         static let copyAppearAnimationDuration: TimeInterval = 0.46
         static let copyAppearAnimationDampingRatio: CGFloat = 0.88
+        static let copyFeedbackDuration: TimeInterval = 0.85
     }
 
     private enum TimelineSegmentKind {
@@ -465,7 +466,7 @@ final class AssistantResponseTextView: UIView {
         copyMarkdownButton.playAppearAnimation()
 
         guard window != nil,
-              !AccessibilityPreferences.isReduceMotionEnabled else {
+              MotionPreferences.allowsNonessentialMotion else {
             copyButtonContainerView.alpha = 1.0
             copyButtonContainerView.transform = .identity
             return
@@ -596,12 +597,13 @@ final class AssistantResponseTextView: UIView {
             isUserInteractionEnabled = false
             accessibilityLabel = String(localized: .generalCopied)
 
-            setSymbol(named: SymbolName.copied, animated: true) { [weak self] in
+            setSymbol(named: SymbolName.copied, animated: MotionPreferences.allowsNonessentialMotion)
+            DispatchQueue.main.asyncAfter(deadline: .now() + Metrics.copyFeedbackDuration) { [weak self] in
                 guard let self else {
                     return
                 }
 
-                self.setSymbol(named: SymbolName.copy, animated: true) { [weak self] in
+                self.setSymbol(named: SymbolName.copy, animated: MotionPreferences.allowsNonessentialMotion) { [weak self] in
                     self?.accessibilityLabel = String(localized: .assistantCopyMarkdown)
                     self?.isUserInteractionEnabled = true
                     self?.isShowingFeedback = false
@@ -611,7 +613,7 @@ final class AssistantResponseTextView: UIView {
 
         func playAppearAnimation() {
             guard window != nil,
-                  !AccessibilityPreferences.isReduceMotionEnabled else {
+                  MotionPreferences.allowsNonessentialMotion else {
                 return
             }
 
@@ -644,7 +646,7 @@ final class AssistantResponseTextView: UIView {
             guard animated,
                   window != nil,
                   let imageView,
-                  !AccessibilityPreferences.isReduceMotionEnabled else {
+                  MotionPreferences.allowsNonessentialMotion else {
                 setButtonImage(image)
                 completion?()
                 return

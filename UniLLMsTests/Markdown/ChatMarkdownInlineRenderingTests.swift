@@ -16,27 +16,13 @@ final class ChatMarkdownInlineRenderingTests: ChatMarkdownRenderingTestCase {
 
         XCTAssertEqual(attributedText.string, "Use let value = 1 now")
         XCTAssertNotNil(
-            attributedText.attribute(
-                .chatInlineCodeBackgroundColor,
-                at: codeRange.location,
-                effectiveRange: nil
-            ) as? UIColor
+            attributedText.inlineCodeCornerRadius(at: codeRange.location)
         )
         let cornerRadius = try XCTUnwrap(
-            attributedText.attribute(
-                .chatInlineCodeCornerRadius,
-                at: codeRange.location,
-                effectiveRange: nil
-            ) as? CGFloat
+            attributedText.inlineCodeCornerRadius(at: codeRange.location)
         )
         XCTAssertEqual(cornerRadius, ChatMarkdownInlineCodeStyle.cornerRadius)
-        XCTAssertNil(
-            attributedText.attribute(
-                .backgroundColor,
-                at: codeRange.location,
-                effectiveRange: nil
-            )
-        )
+        XCTAssertFalse(attributedText.hasStandardBackgroundColor(at: codeRange.location))
     }
 
     @MainActor
@@ -49,8 +35,7 @@ final class ChatMarkdownInlineRenderingTests: ChatMarkdownRenderingTestCase {
     @MainActor
     func testMarkdownNestedStrongEmphasisCombinesFontTraits() throws {
         let attributedText = renderMarkdownText("***Bold italic***")
-        let font = try XCTUnwrap(attributedText.font(containing: "Bold italic"))
-        let traits = font.fontDescriptor.symbolicTraits
+        let traits = try XCTUnwrap(attributedText.fontSymbolicTraits(containing: "Bold italic"))
 
         XCTAssertTrue(traits.contains(.traitBold))
         XCTAssertTrue(traits.contains(.traitItalic))
@@ -60,21 +45,17 @@ final class ChatMarkdownInlineRenderingTests: ChatMarkdownRenderingTestCase {
     func testMarkdownNestedInlineCodePreservesOuterModes() throws {
         let attributedText = renderMarkdownText("[**`id`**](https://example.com)")
         let codeRange = try XCTUnwrap(attributedText.range(of: "id"))
-        let font = try XCTUnwrap(
-            attributedText.attribute(.font, at: codeRange.location, effectiveRange: nil) as? UIFont
+        let traits = try XCTUnwrap(
+            attributedText.fontSymbolicTraits(at: codeRange.location)
         )
 
-        XCTAssertTrue(font.fontDescriptor.symbolicTraits.contains(.traitBold))
+        XCTAssertTrue(traits.contains(.traitBold))
         XCTAssertEqual(
-            attributedText.attribute(.link, at: codeRange.location, effectiveRange: nil) as? URL,
+            attributedText.link(at: codeRange.location),
             URL(string: "https://example.com")
         )
         XCTAssertNotNil(
-            attributedText.attribute(
-                .chatInlineCodeBackgroundColor,
-                at: codeRange.location,
-                effectiveRange: nil
-            ) as? UIColor
+            attributedText.inlineCodeCornerRadius(at: codeRange.location)
         )
     }
 }

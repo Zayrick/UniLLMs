@@ -149,14 +149,26 @@ final class ChatMarkdownTableRenderer {
             return
         }
 
-        let fullRange = NSRange(location: 0, length: attributedString.length)
-        attributedString.enumerateAttribute(.font, in: fullRange) { value, range, _ in
-            let font = (value as? UIFont) ?? context.currentBodyFont()
-            attributedString.addAttribute(
+        var location = 0
+        while location < attributedString.length {
+            var effectiveRange = NSRange(location: 0, length: 0)
+            let existingFont = attributedString.attribute(
                 .font,
-                value: ChatMarkdownFontTraits.adding(.traitBold, to: font),
-                range: range
+                at: location,
+                effectiveRange: &effectiveRange
+            ) as? UIFont
+            let font = ChatMarkdownFontTraits.adding(
+                .traitBold,
+                to: existingFont ?? context.currentBodyFont()
             )
+            attributedString.addAttributes(
+                [
+                    .font: font,
+                    .chatFontSymbolicTraits: font.fontDescriptor.symbolicTraits.rawValue
+                ],
+                range: effectiveRange
+            )
+            location = effectiveRange.location + max(effectiveRange.length, 1)
         }
     }
 

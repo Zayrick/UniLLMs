@@ -173,7 +173,7 @@ final class ToolInvocationView: UIView {
             self.superview?.setNeedsLayout()
         }
 
-        guard animated, window != nil, !AccessibilityPreferences.isReduceMotionEnabled else {
+        guard animated, window != nil, MotionPreferences.allowsNonessentialMotion else {
             updates()
             completion()
             return

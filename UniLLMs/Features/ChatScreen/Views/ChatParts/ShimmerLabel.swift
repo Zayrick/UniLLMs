@@ -75,10 +75,6 @@ final class ShimmerLabel: UILabel {
         configure()
     }
 
-    deinit {
-        NotificationCenter.default.removeObserver(self)
-    }
-
     override func layoutSubviews() {
         super.layoutSubviews()
         gradientMask.frame = shineLabel.bounds
@@ -114,17 +110,10 @@ final class ShimmerLabel: UILabel {
         gradientMask.startPoint = CGPoint(x: -1.0, y: 0.5)
         gradientMask.endPoint = CGPoint(x: 0.0, y: 0.5)
         shineLabel.layer.mask = gradientMask
-
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(reduceMotionStatusDidChange),
-            name: AccessibilityPreferences.reduceMotionStatusDidChangeNotification,
-            object: nil
-        )
     }
 
     private func updateAnimationState() {
-        if isShimmering, window != nil, !AccessibilityPreferences.isReduceMotionEnabled {
+        if isShimmering, window != nil, MotionPreferences.allowsNonessentialMotion {
             startShimmering()
         } else {
             stopShimmering()
@@ -167,7 +156,4 @@ final class ShimmerLabel: UILabel {
         gradientMask.removeAnimation(forKey: Constants.animationKey)
     }
 
-    @objc private func reduceMotionStatusDidChange() {
-        updateAnimationState()
-    }
 }

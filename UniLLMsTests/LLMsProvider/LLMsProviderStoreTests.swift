@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import Synchronization
 import UIKit
 import XCTest
 @testable import UniLLMs
@@ -328,24 +329,28 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
 }
 
 private final class SelectedModelSelectionObserver {
+    private let counter: SelectedModelSelectionCounter
     private var token: NSObjectProtocol?
-    private let observedStore: LLMProviderStore
-    private(set) var notificationCount = 0
+    var notificationCount: Int {
+        counter.value
+    }
 
     @MainActor
     init(store: LLMProviderStore) {
-        observedStore = store
+        let counter = SelectedModelSelectionCounter()
+        self.counter = counter
+        let observedStoreID = ObjectIdentifier(store)
         token = NotificationCenter.default.addObserver(
             forName: LLMProviderStore.selectedModelSelectionDidChangeNotification,
             object: store,
             queue: nil
-        ) { [weak self] notification in
-            guard let self,
-                  notification.object as AnyObject === observedStore else {
+        ) { [counter, observedStoreID] notification in
+            guard let object = notification.object as AnyObject?,
+                  ObjectIdentifier(object) == observedStoreID else {
                 return
             }
 
-            notificationCount += 1
+            counter.increment()
         }
     }
 
@@ -358,5 +363,21 @@ private final class SelectedModelSelectionObserver {
 
     deinit {
         invalidate()
+    }
+}
+
+private final class SelectedModelSelectionCounter: Sendable {
+    private let count = Mutex(0)
+
+    var value: Int {
+        count.withLock { value in
+            value
+        }
+    }
+
+    func increment() {
+        count.withLock { value in
+            value += 1
+        }
     }
 }

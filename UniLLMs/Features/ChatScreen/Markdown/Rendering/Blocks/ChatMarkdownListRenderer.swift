@@ -281,9 +281,15 @@ final class ChatMarkdownListRenderer {
         switch marker {
         case let .text(text):
             result.append(NSAttributedString(string: text, attributes: context.bodyAttributes()))
+            let font = listMarkerFont(isOrdered: isOrdered)
             result.addAttribute(
                 .font,
-                value: listMarkerFont(isOrdered: isOrdered),
+                value: font,
+                range: NSRange(location: 0, length: (text as NSString).length)
+            )
+            result.addAttribute(
+                .chatFontSymbolicTraits,
+                value: font.fontDescriptor.symbolicTraits.rawValue,
                 range: NSRange(location: 0, length: (text as NSString).length)
             )
         case let .checkbox(isChecked):

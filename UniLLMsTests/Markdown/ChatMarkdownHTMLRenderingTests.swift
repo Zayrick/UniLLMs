@@ -16,14 +16,12 @@ final class ChatMarkdownHTMLRenderingTests: ChatMarkdownRenderingTestCase {
         )
 
         XCTAssertEqual(attributedText.string, "A bold italic code H2O x2\nnext")
-        XCTAssertTrue(try XCTUnwrap(attributedText.font(containing: "bold")).fontDescriptor.symbolicTraits.contains(.traitBold))
-        XCTAssertTrue(try XCTUnwrap(attributedText.font(containing: "italic")).fontDescriptor.symbolicTraits.contains(.traitItalic))
+        XCTAssertTrue(try XCTUnwrap(attributedText.fontSymbolicTraits(containing: "bold")).contains(.traitBold))
+        XCTAssertTrue(try XCTUnwrap(attributedText.fontSymbolicTraits(containing: "italic")).contains(.traitItalic))
         XCTAssertNotNil(
-            attributedText.attribute(
-                .chatInlineCodeBackgroundColor,
-                at: try XCTUnwrap(attributedText.range(of: "code")).location,
-                effectiveRange: nil
-            ) as? UIColor
+            attributedText.inlineCodeCornerRadius(
+                at: try XCTUnwrap(attributedText.range(of: "code")).location
+            )
         )
         XCTAssertLessThan(
             try XCTUnwrap(attributedText.baselineOffset(containing: "2O")),
@@ -54,14 +52,43 @@ final class ChatMarkdownHTMLRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertFalse(attributedText.string.contains("<strong>"))
         XCTAssertTrue(attributedText.string.contains("<script>"))
         XCTAssertTrue(attributedText.string.contains("</script>"))
-        XCTAssertTrue(try XCTUnwrap(attributedText.font(containing: "strong HTML")).fontDescriptor.symbolicTraits.contains(.traitBold))
+        XCTAssertTrue(try XCTUnwrap(attributedText.fontSymbolicTraits(containing: "strong HTML")).contains(.traitBold))
         XCTAssertNotNil(
-            attributedText.attribute(
-                .chatInlineCodeBackgroundColor,
-                at: try XCTUnwrap(attributedText.range(of: "inline HTML code")).location,
-                effectiveRange: nil
-            ) as? UIColor
+            attributedText.inlineCodeCornerRadius(
+                at: try XCTUnwrap(attributedText.range(of: "inline HTML code")).location
+            )
         )
+    }
+
+    @MainActor
+    func testMarkdownHTMLNestedBlockQuoteUsesSharedIndentAndBarAttributes() throws {
+        let attributedText = renderMarkdownText(
+            """
+            <blockquote>
+              Outer
+              <blockquote><strong>Inner</strong> <code>code</code></blockquote>
+            </blockquote>
+            """
+        )
+
+        let outerStyle = try XCTUnwrap(attributedText.paragraphMetrics(containing: "Outer"))
+        let innerStyle = try XCTUnwrap(attributedText.paragraphMetrics(containing: "Inner"))
+        let innerTraits = try XCTUnwrap(attributedText.fontSymbolicTraits(containing: "Inner"))
+        let codeRange = try XCTUnwrap(attributedText.range(of: "code"))
+        let outerPositions = try XCTUnwrap(attributedText.blockQuoteBarPositions(containing: "Outer"))
+        let innerPositions = try XCTUnwrap(attributedText.blockQuoteBarPositions(containing: "Inner"))
+
+        XCTAssertEqual(outerPositions, [ChatMarkdownBlockQuoteStyle.barLeading])
+        XCTAssertEqual(innerPositions.count, 2)
+        XCTAssertEqual(innerPositions[0], ChatMarkdownBlockQuoteStyle.barLeading, accuracy: 0.001)
+        XCTAssertEqual(
+            innerPositions[1],
+            ChatMarkdownBlockQuoteStyle.barLeading + ChatMarkdownBlockQuoteStyle.indentPerLevel,
+            accuracy: 0.001
+        )
+        XCTAssertGreaterThan(innerStyle.headIndent, outerStyle.headIndent)
+        XCTAssertTrue(innerTraits.contains(.traitBold))
+        XCTAssertNotNil(attributedText.inlineCodeCornerRadius(at: codeRange.location))
     }
 
     @MainActor
@@ -103,9 +130,7 @@ final class ChatMarkdownHTMLRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertTrue(attributedText.string.contains(#"<img src="https://example.com/x.png">"#))
         XCTAssertTrue(attributedText.string.contains("<details><summary>Hidden</summary></details>"))
         XCTAssertFalse(
-            try XCTUnwrap(attributedText.font(containing: "not bold"))
-                .fontDescriptor
-                .symbolicTraits
+            try XCTUnwrap(attributedText.fontSymbolicTraits(containing: "not bold"))
                 .contains(.traitBold)
         )
     }
@@ -206,7 +231,10 @@ final class ChatMarkdownHTMLRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertTrue(tableData.rows[0][0].isHeader)
         XCTAssertEqual(tableData.rows[0][1].alignment, .right)
         XCTAssertEqual(tableData.rows[1][0].accessibilityText, "Ada")
-        XCTAssertTrue(try XCTUnwrap(tableData.rows[1][0].attributedText.font(containing: "Ada")).fontDescriptor.symbolicTraits.contains(.traitBold))
+        XCTAssertTrue(
+            try XCTUnwrap(tableData.rows[1][0].attributedText.fontSymbolicTraits(containing: "Ada"))
+                .contains(.traitBold)
+        )
     }
 
     @MainActor
@@ -237,7 +265,7 @@ final class ChatMarkdownHTMLRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(detailsBlock.summary, "More info")
         XCTAssertFalse(detailsBlock.isOpen)
         XCTAssertEqual(bodyText.string, "Inside bold body.")
-        XCTAssertTrue(try XCTUnwrap(bodyText.font(containing: "bold")).fontDescriptor.symbolicTraits.contains(.traitBold))
+        XCTAssertTrue(try XCTUnwrap(bodyText.fontSymbolicTraits(containing: "bold")).contains(.traitBold))
     }
 
     @MainActor
@@ -269,7 +297,7 @@ final class ChatMarkdownHTMLRenderingTests: ChatMarkdownRenderingTestCase {
 
         XCTAssertEqual(detailsBlock.summary, "More info")
         XCTAssertEqual(bodyText.string, "Inside bold body.")
-        XCTAssertTrue(try XCTUnwrap(bodyText.font(containing: "bold")).fontDescriptor.symbolicTraits.contains(.traitBold))
+        XCTAssertTrue(try XCTUnwrap(bodyText.fontSymbolicTraits(containing: "bold")).contains(.traitBold))
         XCTAssertEqual(imageBlock.source, "https://example.com/default.png")
         XCTAssertEqual(imageBlock.altText, "Diagram")
     }
@@ -319,7 +347,7 @@ final class ChatMarkdownHTMLRenderingTests: ChatMarkdownRenderingTestCase {
 
         XCTAssertEqual(detailsBlock.summary, "Escaped source")
         XCTAssertEqual(bodyText.string, "Use <tag> & bold text.")
-        XCTAssertTrue(try XCTUnwrap(bodyText.font(containing: "bold")).fontDescriptor.symbolicTraits.contains(.traitBold))
+        XCTAssertTrue(try XCTUnwrap(bodyText.fontSymbolicTraits(containing: "bold")).contains(.traitBold))
     }
 
     @MainActor

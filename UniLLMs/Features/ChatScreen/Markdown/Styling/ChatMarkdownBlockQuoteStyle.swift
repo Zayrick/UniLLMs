@@ -13,6 +13,34 @@ enum ChatMarkdownBlockQuoteStyle {
     nonisolated static let barWidth: CGFloat = 3.0
     nonisolated static let barLeading: CGFloat = 2.0
 
+    nonisolated static func barPositions(forDepth depth: Int) -> [CGFloat] {
+        guard depth > 0 else {
+            return []
+        }
+
+        return (0..<depth).map { level in
+            barLeading + CGFloat(level) * indentPerLevel
+        }
+    }
+
+    nonisolated static func addingBarPosition(
+        _ position: CGFloat,
+        to existingPositions: [CGFloat]
+    ) -> [CGFloat] {
+        var result = existingPositions
+        if !result.contains(position) {
+            result.append(position)
+        }
+        return result.sorted()
+    }
+
+    nonisolated static func shiftingBarPositions(
+        _ positions: [CGFloat],
+        by offset: CGFloat
+    ) -> [CGFloat] {
+        positions.map { $0 + offset }
+    }
+
     nonisolated static var barColor: UIColor {
         UIColor.tertiaryLabel
     }

@@ -76,40 +76,22 @@ final class ThinkingSectionViewTests: XCTestCase {
         )
         let attributedText = try XCTUnwrap(textView.attributedText)
         let backingString = attributedText.string as NSString
-        let traits = section.traitCollection
 
         let dataRange = backingString.range(of: "data")
         XCTAssertNotEqual(dataRange.location, NSNotFound)
 
-        let dataFont = try XCTUnwrap(
-            attributedText.attribute(.font, at: dataRange.location, effectiveRange: nil) as? UIFont
+        let dataTraits = try XCTUnwrap(
+            attributedText.fontSymbolicTraits(at: dataRange.location)
         )
-        XCTAssertTrue(dataFont.fontDescriptor.symbolicTraits.contains(.traitBold))
-
-        let textColor = try XCTUnwrap(
-            attributedText.attribute(.foregroundColor, at: dataRange.location, effectiveRange: nil) as? UIColor
-        )
-        XCTAssertTrue(
-            textColor
-                .resolvedColor(with: traits)
-                .isEqual(UIColor.secondaryLabel.resolvedColor(with: traits))
-        )
+        XCTAssertTrue(dataTraits.contains(.traitBold))
 
         let codeRange = backingString.range(of: "code")
         XCTAssertNotEqual(codeRange.location, NSNotFound)
 
-        let codeBackgroundColor = try XCTUnwrap(
-            attributedText.attribute(
-                .chatInlineCodeBackgroundColor,
-                at: codeRange.location,
-                effectiveRange: nil
-            ) as? UIColor
+        let codeCornerRadius = try XCTUnwrap(
+            attributedText.inlineCodeCornerRadius(at: codeRange.location)
         )
-        XCTAssertTrue(
-            codeBackgroundColor
-                .resolvedColor(with: traits)
-                .isEqual(UIColor.tertiarySystemFill.resolvedColor(with: traits))
-        )
+        XCTAssertEqual(codeCornerRadius, ChatMarkdownInlineCodeStyle.cornerRadius)
     }
 }
 

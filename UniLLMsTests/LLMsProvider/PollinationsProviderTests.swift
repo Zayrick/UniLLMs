@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import Synchronization
 import XCTest
 @testable import UniLLMs
 
@@ -287,11 +288,10 @@ final class PollinationsProviderTests: XCTestCase {
     }
 }
 
-private final class PollinationsRequestCapture {
+private final class PollinationsRequestCapture: Sendable {
     fileprivate let id = UUID().uuidString
     private let handler: PollinationsRequestCapturingURLProtocol.RequestHandler
-    private let lock = NSLock()
-    private var capturedRequests: [URLRequest] = []
+    private let capturedRequests = Mutex<[URLRequest]>([])
 
     init(handler: @escaping PollinationsRequestCapturingURLProtocol.RequestHandler) {
         self.handler = handler
@@ -299,12 +299,9 @@ private final class PollinationsRequestCapture {
     }
 
     var requests: [URLRequest] {
-        lock.lock()
-        defer {
-            lock.unlock()
+        capturedRequests.withLock { requests in
+            requests
         }
-
-        return capturedRequests
     }
 
     func invalidate() {
@@ -312,40 +309,36 @@ private final class PollinationsRequestCapture {
     }
 
     fileprivate func handle(_ request: URLRequest) throws -> (HTTPURLResponse, Data) {
-        lock.lock()
-        capturedRequests.append(request)
-        lock.unlock()
+        capturedRequests.withLock { requests in
+            requests.append(request)
+        }
 
         return try handler(request)
     }
 }
 
 private final class PollinationsRequestCapturingURLProtocol: URLProtocol {
-    typealias RequestHandler = (URLRequest) throws -> (HTTPURLResponse, Data)
+    typealias RequestHandler = @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
 
     fileprivate static let captureIDHeader = "X-UniLLMs-Pollinations-Test-Capture-ID"
-    private static let lock = NSLock()
-    nonisolated(unsafe) private static var capturesByID: [String: PollinationsRequestCapture] = [:]
+    private static let capturesByID = Mutex<[String: PollinationsRequestCapture]>([:])
 
     fileprivate static func register(capture: PollinationsRequestCapture, id: String) {
-        lock.lock()
-        capturesByID[id] = capture
-        lock.unlock()
+        capturesByID.withLock { captures in
+            captures[id] = capture
+        }
     }
 
     fileprivate static func unregisterCapture(id: String) {
-        lock.lock()
-        capturesByID[id] = nil
-        lock.unlock()
+        capturesByID.withLock { captures in
+            captures[id] = nil
+        }
     }
 
     private static func capture(for id: String) -> PollinationsRequestCapture? {
-        lock.lock()
-        defer {
-            lock.unlock()
+        capturesByID.withLock { captures in
+            captures[id]
         }
-
-        return capturesByID[id]
     }
 
     override class func canInit(with request: URLRequest) -> Bool {

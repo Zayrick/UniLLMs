@@ -47,34 +47,26 @@ final class ChatMarkdownBlockQuoteRenderer {
             return
         }
 
-        let fullRange = NSRange(location: 0, length: attributedString.length)
-        var updates: [(positions: [CGFloat], range: NSRange)] = []
-        attributedString.enumerateAttribute(.chatBlockQuoteBarPositions, in: fullRange) { value, range, _ in
-            let existingPositions = (value as? [CGFloat]) ?? []
-            let positions = blockQuoteBarPositions(
-                adding: ChatMarkdownBlockQuoteStyle.barLeading,
+        var location = 0
+        while location < attributedString.length {
+            var effectiveRange = NSRange(location: 0, length: 0)
+            let existingPositions = (
+                attributedString.attribute(
+                    .chatBlockQuoteBarPositions,
+                    at: location,
+                    effectiveRange: &effectiveRange
+                ) as? [CGFloat]
+            ) ?? []
+            let positions = ChatMarkdownBlockQuoteStyle.addingBarPosition(
+                ChatMarkdownBlockQuoteStyle.barLeading,
                 to: existingPositions
             )
-            updates.append((positions, range))
-        }
-
-        for update in updates {
             attributedString.addAttribute(
                 .chatBlockQuoteBarPositions,
-                value: update.positions,
-                range: update.range
+                value: positions,
+                range: effectiveRange
             )
+            location = effectiveRange.location + max(effectiveRange.length, 1)
         }
-    }
-
-    private func blockQuoteBarPositions(
-        adding position: CGFloat,
-        to existingPositions: [CGFloat]
-    ) -> [CGFloat] {
-        var result = existingPositions
-        if !result.contains(position) {
-            result.append(position)
-        }
-        return result.sorted()
     }
 }

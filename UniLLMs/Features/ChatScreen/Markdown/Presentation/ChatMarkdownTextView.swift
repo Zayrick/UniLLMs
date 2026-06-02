@@ -43,6 +43,7 @@ final class ChatMarkdownTextView: UITextView {
             actualCharacterRange: nil
         )
         invalidateIntrinsicContentSize()
+        setNeedsLayout()
         setNeedsDisplay()
     }
 

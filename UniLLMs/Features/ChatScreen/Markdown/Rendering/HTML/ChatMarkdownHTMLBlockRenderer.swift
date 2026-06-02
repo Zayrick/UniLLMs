@@ -536,6 +536,7 @@ private struct HTMLTextMode {
 
         var attributes: [NSAttributedString.Key: Any] = [
             .font: resolvedFont,
+            .chatFontSymbolicTraits: resolvedFont.fontDescriptor.symbolicTraits.rawValue,
             .foregroundColor: foregroundColor
         ]
 
@@ -586,12 +587,6 @@ private struct HTMLTextMode {
     }
 
     private var blockQuoteBarPositions: [CGFloat] {
-        guard blockQuoteDepth > 0 else {
-            return []
-        }
-
-        return (0..<blockQuoteDepth).map { depth in
-            ChatMarkdownBlockQuoteStyle.barLeading + CGFloat(depth) * ChatMarkdownBlockQuoteStyle.indentPerLevel
-        }
+        ChatMarkdownBlockQuoteStyle.barPositions(forDepth: blockQuoteDepth)
     }
 }

@@ -9,9 +9,29 @@
 import UIKit
 
 extension NSAttributedString.Key {
-    static let chatAccessibilityText = NSAttributedString.Key(
+    nonisolated static let chatAccessibilityText = NSAttributedString.Key(
         "UniLLMs.ChatMarkdown.accessibilityText"
     )
+
+    nonisolated static let chatFontSymbolicTraits = NSAttributedString.Key(
+        "UniLLMs.ChatMarkdown.fontSymbolicTraits"
+    )
+}
+
+fileprivate struct ChatMarkdownAccessibilityTextAttribute: CodableAttributedStringKey, MarkdownDecodableAttributedStringKey {
+    typealias Value = String
+
+    static let name = "UniLLMs.ChatMarkdown.accessibilityText"
+}
+
+fileprivate struct ChatMarkdownAttributeScope: AttributeScope {
+    let accessibilityText: ChatMarkdownAccessibilityTextAttribute
+}
+
+extension AttributeScopes {
+    fileprivate var chatMarkdown: ChatMarkdownAttributeScope.Type {
+        ChatMarkdownAttributeScope.self
+    }
 }
 
 enum ChatMarkdownCheckboxRenderer {
@@ -49,16 +69,21 @@ extension NSAttributedString {
             return ""
         }
 
-        let backingString = string as NSString
-        var result = ""
-        enumerateAttributes(in: NSRange(location: 0, length: length)) { attributes, range, _ in
-            if let accessibilityText = attributes[.chatAccessibilityText] as? String {
-                result += accessibilityText
-                return
-            }
+        guard let attributedString = try? AttributedString(
+            self,
+            including: \.chatMarkdown
+        ) else {
+            return string.replacingOccurrences(of: "\u{fffc}", with: "")
+        }
 
-            let substring = backingString.substring(with: range)
-            result += substring.replacingOccurrences(of: "\u{fffc}", with: "")
+        var result = ""
+        for run in attributedString.runs {
+            if let accessibilityText = run[ChatMarkdownAccessibilityTextAttribute.self] {
+                result += accessibilityText
+            } else {
+                result += String(attributedString.characters[run.range])
+                    .replacingOccurrences(of: "\u{fffc}", with: "")
+            }
         }
         return result
     }
@@ -93,23 +118,31 @@ extension ChatMarkdownRenderingContext {
             return
         }
 
-        let fullRange = NSRange(location: 0, length: attributedString.length)
-        var paragraphRanges: [(style: NSParagraphStyle?, range: NSRange)] = []
-        attributedString.enumerateAttribute(.paragraphStyle, in: fullRange) { value, range, _ in
-            paragraphRanges.append((value as? NSParagraphStyle, range))
-        }
-
-        for paragraphRange in paragraphRanges {
+        var location = 0
+        while location < attributedString.length {
+            var effectiveRange = NSRange(location: 0, length: 0)
+            let existingStyle = attributedString.attribute(
+                .paragraphStyle,
+                at: location,
+                effectiveRange: &effectiveRange
+            ) as? NSParagraphStyle
             let paragraphStyle: NSMutableParagraphStyle
-            if let existingStyle = paragraphRange.style,
+            if let existingStyle,
                let mutableStyle = existingStyle.mutableCopy() as? NSMutableParagraphStyle {
                 paragraphStyle = mutableStyle
             } else {
                 paragraphStyle = NSMutableParagraphStyle()
+                paragraphStyle.lineSpacing = style.bodyLineSpacing(compatibleWith: traitCollection)
+                paragraphStyle.paragraphSpacing = style.bodyParagraphSpacing(compatibleWith: traitCollection)
             }
 
             transform(paragraphStyle)
-            attributedString.addAttribute(.paragraphStyle, value: paragraphStyle, range: paragraphRange.range)
+            attributedString.addAttribute(
+                .paragraphStyle,
+                value: paragraphStyle,
+                range: effectiveRange
+            )
+            location = effectiveRange.location + max(effectiveRange.length, 1)
         }
     }
 
@@ -146,22 +179,26 @@ extension ChatMarkdownRenderingContext {
             return
         }
 
-        let fullRange = NSRange(location: 0, length: attributedString.length)
-        var updates: [(positions: [CGFloat], range: NSRange)] = []
-        attributedString.enumerateAttribute(.chatBlockQuoteBarPositions, in: fullRange) { value, range, _ in
-            guard let positions = value as? [CGFloat], !positions.isEmpty else {
-                return
-            }
-
-            updates.append((positions.map { $0 + offset }, range))
-        }
-
-        for update in updates {
-            attributedString.addAttribute(
+        var location = 0
+        while location < attributedString.length {
+            var effectiveRange = NSRange(location: 0, length: 0)
+            let positions = attributedString.attribute(
                 .chatBlockQuoteBarPositions,
-                value: update.positions,
-                range: update.range
-            )
+                at: location,
+                effectiveRange: &effectiveRange
+            ) as? [CGFloat]
+
+            if let positions, !positions.isEmpty {
+                attributedString.addAttribute(
+                    .chatBlockQuoteBarPositions,
+                    value: ChatMarkdownBlockQuoteStyle.shiftingBarPositions(
+                        positions,
+                        by: offset
+                    ),
+                    range: effectiveRange
+                )
+            }
+            location = effectiveRange.location + max(effectiveRange.length, 1)
         }
     }
 
@@ -188,15 +225,19 @@ extension ChatMarkdownRenderingContext {
     }
 
     func bodyAttributes() -> [NSAttributedString.Key: Any] {
-        [
-            .font: currentBodyFont(),
+        let font = currentBodyFont()
+        return [
+            .font: font,
+            .chatFontSymbolicTraits: font.fontDescriptor.symbolicTraits.rawValue,
             .foregroundColor: currentTextColor
         ]
     }
 
     func secondaryAttributes() -> [NSAttributedString.Key: Any] {
-        [
-            .font: style.calloutFont(compatibleWith: traitCollection),
+        let font = style.calloutFont(compatibleWith: traitCollection)
+        return [
+            .font: font,
+            .chatFontSymbolicTraits: font.fontDescriptor.symbolicTraits.rawValue,
             .foregroundColor: style.secondaryTextColor
         ]
     }

@@ -1248,7 +1248,7 @@ final class ChatViewController: UIViewController {
 
     private func animateExistingMessages(from previousFrames: [(view: UIView, frame: CGRect)]) {
         guard view.window != nil,
-              !AccessibilityPreferences.isReduceMotionEnabled else {
+              MotionPreferences.allowsNonessentialMotion else {
             return
         }
 
@@ -1310,7 +1310,7 @@ final class ChatViewController: UIViewController {
         completion: (() -> Void)? = nil
     ) {
         guard view.window != nil,
-              !AccessibilityPreferences.isReduceMotionEnabled else {
+              MotionPreferences.allowsNonessentialMotion else {
             bubbleView.alpha = 1.0
             completion?()
             return
@@ -1642,7 +1642,7 @@ final class ChatViewController: UIViewController {
 
         guard animated,
               view.window != nil,
-              !AccessibilityPreferences.isReduceMotionEnabled else {
+              MotionPreferences.allowsNonessentialMotion else {
             setModuleSelectionTitle(title)
             mainPageView.layoutIfNeeded()
             return
@@ -1824,7 +1824,7 @@ final class ChatViewController: UIViewController {
 
         guard animated,
               view.window != nil,
-              !AccessibilityPreferences.isReduceMotionEnabled else {
+              MotionPreferences.allowsNonessentialMotion else {
             update()
             return
         }
@@ -2018,7 +2018,7 @@ final class ChatViewController: UIViewController {
 
             guard animated,
                   hostView?.window != nil,
-                  !AccessibilityPreferences.isReduceMotionEnabled,
+                  MotionPreferences.allowsNonessentialMotion,
                   abs(scrollView.contentOffset.y - contentOffset.y) > Metrics.layoutEpsilon else {
                 animationGeneration += 1
                 scrollView.setContentOffset(contentOffset, animated: false)

@@ -101,6 +101,7 @@ private struct ChatMarkdownInlineRenderingMode {
     func attributes() -> [NSAttributedString.Key: Any] {
         var attributes: [NSAttributedString.Key: Any] = [
             .font: font,
+            .chatFontSymbolicTraits: font.fontDescriptor.symbolicTraits.rawValue,
             .foregroundColor: foregroundColor
         ]
 
@@ -421,6 +422,7 @@ private final class ChatMarkdownInlineCodeRenderer {
 
         var attributes: [NSAttributedString.Key: Any] = [
             .font: resolvedCodeFont,
+            .chatFontSymbolicTraits: resolvedCodeFont.fontDescriptor.symbolicTraits.rawValue,
             .foregroundColor: context.style.codeTextColor,
             .chatInlineCodeBackgroundColor: context.style.codeBackgroundColor,
             .chatInlineCodeCornerRadius: ChatMarkdownInlineCodeStyle.cornerRadius
