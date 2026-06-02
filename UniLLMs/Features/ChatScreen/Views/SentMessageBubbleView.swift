@@ -39,6 +39,8 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
     private let label = UILabel()
     private let historyIndicatorView = UIImageView()
     private var attachmentRowStackView: UIStackView?
+    private var pendingContextMenuAction: (() -> Void)?
+    private var isContextMenuDisplayed = false
 
     var onPreviewAttachment: ((ChatAttachment) -> Void)?
     var onResend: ((String, [ChatAttachment]) -> Void)?
@@ -426,6 +428,24 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
         return path
     }
 
+    private func performAfterContextMenuDismissal(_ action: @escaping () -> Void) {
+        guard isContextMenuDisplayed else {
+            action()
+            return
+        }
+
+        pendingContextMenuAction = action
+    }
+
+    private func performPendingContextMenuActionIfNeeded() {
+        guard let action = pendingContextMenuAction else {
+            return
+        }
+
+        pendingContextMenuAction = nil
+        action()
+    }
+
     func contextMenuInteraction(
         _ interaction: UIContextMenuInteraction,
         configurationForMenuAtLocation location: CGPoint
@@ -448,7 +468,9 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
                 title: "Resend",
                 image: UIImage(systemName: "arrow.clockwise")
             ) { _ in
-                self?.onResend?(messageText, attachments)
+                self?.performAfterContextMenuDismissal { [weak self] in
+                    self?.onResend?(messageText, attachments)
+                }
             }
             actions.append(resendAction)
 
@@ -456,7 +478,9 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
                 title: "Edit & Resend",
                 image: UIImage(systemName: "square.and.pencil")
             ) { _ in
-                self?.onEditAndResend?(messageText, attachments)
+                self?.performAfterContextMenuDismissal { [weak self] in
+                    self?.onEditAndResend?(messageText, attachments)
+                }
             }
             actions.append(editAction)
 
@@ -468,7 +492,9 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
                     title: historyTitle,
                     image: UIImage(systemName: "clock")
                 ) { _ in
-                    self?.onShowHistory?()
+                    self?.performAfterContextMenuDismissal { [weak self] in
+                        self?.onShowHistory?()
+                    }
                 }
                 actions.append(historyAction)
             }
@@ -491,6 +517,32 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
         dismissalPreviewForItemWithIdentifier identifier: any NSCopying
     ) -> UITargetedPreview? {
         makeTargetedPreview()
+    }
+
+    func contextMenuInteraction(
+        _ interaction: UIContextMenuInteraction,
+        willDisplayMenuFor configuration: UIContextMenuConfiguration,
+        animator: (any UIContextMenuInteractionAnimating)?
+    ) {
+        isContextMenuDisplayed = true
+        pendingContextMenuAction = nil
+    }
+
+    func contextMenuInteraction(
+        _ interaction: UIContextMenuInteraction,
+        willEndFor configuration: UIContextMenuConfiguration,
+        animator: (any UIContextMenuInteractionAnimating)?
+    ) {
+        let completion = {
+            self.isContextMenuDisplayed = false
+            self.performPendingContextMenuActionIfNeeded()
+        }
+
+        if let animator {
+            animator.addCompletion(completion)
+        } else {
+            completion()
+        }
     }
 
     private final class AttachmentChipView: UIView {

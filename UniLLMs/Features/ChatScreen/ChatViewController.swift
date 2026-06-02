@@ -927,6 +927,11 @@ final class ChatViewController: UIViewController {
             return
         }
 
+        guard containsSentMessage(withID: messageID) else {
+            presentAttachmentError("The message is no longer available.")
+            return
+        }
+
         view.endEditing(true)
 
         let editorViewController = MessageEditViewController(
@@ -954,6 +959,11 @@ final class ChatViewController: UIViewController {
 
     private func presentMessageRevisionHistory(messageID: UUID) {
         guard presentedViewController == nil else {
+            return
+        }
+
+        guard containsSentMessage(withID: messageID) else {
+            presentAttachmentError("The message is no longer available.")
             return
         }
 
@@ -1035,9 +1045,7 @@ final class ChatViewController: UIViewController {
         mainPageView.layoutIfNeeded()
         let existingMessageFrames = visibleMessageFrames()
 
-        guard let firstRemovedIndex = messagesStackView.arrangedSubviews.firstIndex(where: { view in
-            (view as? SentMessageBubbleView)?.messageID == messageID
-        }) else {
+        guard let firstRemovedIndex = indexOfSentMessage(withID: messageID) else {
             presentAttachmentError("The message is no longer available.")
             return
         }
@@ -1074,6 +1082,16 @@ final class ChatViewController: UIViewController {
 
     private func refreshEditHistory(for bubbleView: SentMessageBubbleView) {
         bubbleView.editHistoryCount = chatRuntime.messageRevisions(for: bubbleView.messageID).count
+    }
+
+    private func containsSentMessage(withID messageID: UUID) -> Bool {
+        indexOfSentMessage(withID: messageID) != nil
+    }
+
+    private func indexOfSentMessage(withID messageID: UUID) -> Int? {
+        messagesStackView.arrangedSubviews.firstIndex { view in
+            (view as? SentMessageBubbleView)?.messageID == messageID
+        }
     }
 
     private func removeMessagesStarting(at firstRemovedIndex: Int) {
@@ -1724,38 +1742,27 @@ final class ChatViewController: UIViewController {
     }
 
     private func configureSentMessageActions(for bubbleView: SentMessageBubbleView) {
-        bubbleView.editHistoryCount = chatRuntime.messageRevisions(for: bubbleView.messageID).count
+        let messageID = bubbleView.messageID
+        bubbleView.editHistoryCount = chatRuntime.messageRevisions(for: messageID).count
         bubbleView.onPreviewAttachment = { [weak self] attachment in
             self?.presentAttachmentPreview(for: attachment)
         }
-        bubbleView.onResend = { [weak self, weak bubbleView] text, attachments in
-            guard let bubbleView else {
-                return
-            }
-
+        bubbleView.onResend = { [weak self, messageID] text, attachments in
             self?.resendMessage(
-                messageID: bubbleView.messageID,
+                messageID: messageID,
                 text: text,
                 attachments: attachments
             )
         }
-        bubbleView.onEditAndResend = { [weak self, weak bubbleView] text, attachments in
-            guard let bubbleView else {
-                return
-            }
-
+        bubbleView.onEditAndResend = { [weak self, messageID] text, attachments in
             self?.presentMessageEditor(
-                messageID: bubbleView.messageID,
+                messageID: messageID,
                 text: text,
                 attachments: attachments
             )
         }
-        bubbleView.onShowHistory = { [weak self, weak bubbleView] in
-            guard let bubbleView else {
-                return
-            }
-
-            self?.presentMessageRevisionHistory(messageID: bubbleView.messageID)
+        bubbleView.onShowHistory = { [weak self, messageID] in
+            self?.presentMessageRevisionHistory(messageID: messageID)
         }
     }
 
