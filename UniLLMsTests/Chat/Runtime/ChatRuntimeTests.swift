@@ -153,6 +153,41 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
         XCTAssertEqual(archivedText, "Second")
     }
 
+    func testResendingOriginalUserMessageArchivesCurrentBranch() async throws {
+        let adapter = CapturingRuntimeProvider()
+        let (runtime, historyStore) = makeRuntime(
+            adapter: adapter,
+            systemPromptStore: InMemorySystemPromptStore(prompts: [])
+        )
+        let messageID = UUID()
+
+        let firstTurn = try runtime.startTurn(
+            prompt: "Repeat this",
+            userMessageID: messageID
+        )
+        for try await _ in firstTurn {}
+        let resendTurn = try runtime.startTurn(
+            prompt: "Repeat this",
+            userMessageID: messageID,
+            replacingUserMessageID: messageID
+        )
+        for try await _ in resendTurn {}
+        await runtime.waitForPendingHistoryPersistence()
+
+        XCTAssertEqual(adapter.requests.count, 2)
+        let resendRequest = try XCTUnwrap(adapter.requests.last)
+        XCTAssertEqual(resendRequest.messages.map(\.content), ["Repeat this"])
+
+        let events = try await historyStore.fetchEvents(sessionID: runtime.currentSessionID)
+        let messages = ChatTimelineEvent.messages(from: events)
+        XCTAssertEqual(messages.map(\.content), ["Repeat this", "Done."])
+        XCTAssertEqual(messages.first?.id, messageID)
+
+        let revisions = try XCTUnwrap(ChatTimelineEvent.messageRevisions(from: events)[messageID])
+        XCTAssertEqual(revisions.count, 1)
+        XCTAssertEqual(revisions.first?.firstUserMessageText, "Repeat this")
+    }
+
     func testSwitchingToMessageRevisionArchivesCurrentBranch() async throws {
         let adapter = CapturingRuntimeProvider()
         let (runtime, historyStore) = makeRuntime(

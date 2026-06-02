@@ -41,6 +41,7 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
     private var attachmentRowStackView: UIStackView?
 
     var onPreviewAttachment: ((ChatAttachment) -> Void)?
+    var onResend: ((String, [ChatAttachment]) -> Void)?
     var onEditAndResend: ((String, [ChatAttachment]) -> Void)?
     var onShowHistory: (() -> Void)?
     var editHistoryCount = 0 {
@@ -434,6 +435,23 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
             previewProvider: nil
         ) { [weak self, messageText, attachments, editHistoryCount] _ in
             var actions: [UIMenuElement] = []
+
+            let copyAction = UIAction(
+                title: "Copy",
+                image: UIImage(systemName: "doc.on.doc")
+            ) { _ in
+                UIPasteboard.general.string = messageText
+            }
+            actions.append(copyAction)
+
+            let resendAction = UIAction(
+                title: "Resend",
+                image: UIImage(systemName: "arrow.clockwise")
+            ) { _ in
+                self?.onResend?(messageText, attachments)
+            }
+            actions.append(resendAction)
+
             let editAction = UIAction(
                 title: "Edit & Resend",
                 image: UIImage(systemName: "square.and.pencil")
@@ -454,14 +472,6 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
                 }
                 actions.append(historyAction)
             }
-
-            let copyAction = UIAction(
-                title: "Copy",
-                image: UIImage(systemName: "doc.on.doc")
-            ) { _ in
-                UIPasteboard.general.string = messageText
-            }
-            actions.append(copyAction)
 
             return UIMenu(title: "", children: actions)
         }

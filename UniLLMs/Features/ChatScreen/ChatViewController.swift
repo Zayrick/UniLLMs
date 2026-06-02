@@ -1010,13 +1010,25 @@ final class ChatViewController: UIViewController {
         text: String,
         attachments: [ChatAttachment]
     ) {
+        let editedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        resendMessage(
+            messageID: messageID,
+            text: editedText,
+            attachments: attachments
+        )
+    }
+
+    private func resendMessage(
+        messageID: UUID,
+        text: String,
+        attachments: [ChatAttachment]
+    ) {
         guard activeResponseTask == nil else {
             presentAttachmentError("Wait for the current response to finish.")
             return
         }
 
-        let editedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !editedText.isEmpty || !attachments.isEmpty else {
+        guard !text.isEmpty || !attachments.isEmpty else {
             return
         }
 
@@ -1033,7 +1045,7 @@ final class ChatViewController: UIViewController {
         let responseStream: AsyncThrowingStream<ChatResponseDelta, Error>
         do {
             responseStream = try chatRuntime.startTurn(
-                prompt: editedText,
+                prompt: text,
                 attachments: attachments,
                 userMessageID: messageID,
                 replacingUserMessageID: messageID
@@ -1046,7 +1058,7 @@ final class ChatViewController: UIViewController {
         removeMessagesStarting(at: firstRemovedIndex)
         let (bubbleView, responseView) = appendOutgoingMessageViews(
             messageID: messageID,
-            text: editedText,
+            text: text,
             attachments: attachments
         )
 
@@ -1715,6 +1727,17 @@ final class ChatViewController: UIViewController {
         bubbleView.editHistoryCount = chatRuntime.messageRevisions(for: bubbleView.messageID).count
         bubbleView.onPreviewAttachment = { [weak self] attachment in
             self?.presentAttachmentPreview(for: attachment)
+        }
+        bubbleView.onResend = { [weak self, weak bubbleView] text, attachments in
+            guard let bubbleView else {
+                return
+            }
+
+            self?.resendMessage(
+                messageID: bubbleView.messageID,
+                text: text,
+                attachments: attachments
+            )
         }
         bubbleView.onEditAndResend = { [weak self, weak bubbleView] text, attachments in
             guard let bubbleView else {
