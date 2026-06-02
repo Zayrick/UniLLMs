@@ -104,7 +104,7 @@ final class LLMsProviderViewController: UITableViewController {
         var configuration = UIContentUnavailableConfiguration.empty()
         configuration.image = UIImage(systemName: "globe")
         configuration.text = "No LLM Providers"
-        configuration.secondaryText = "Add a provider to connect credentials and make models available in chat."
+        configuration.secondaryText = "Add a provider to start chatting."
         configuration.button = addProviderButtonConfiguration()
         configuration.buttonProperties.menu = providerMenu()
         contentUnavailableConfiguration = configuration

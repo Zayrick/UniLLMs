@@ -159,7 +159,7 @@ final class SystemPromptsViewController: UITableViewController {
         configuration.text = "No System Prompts"
         configuration.secondaryText = isSelectingPrompt
             ? "Create prompts from Settings."
-            : "Save reusable instructions and apply them when starting new conversations."
+            : "Create a prompt to reuse in chats."
         if !isSelectingPrompt {
             configuration.button = addPromptButtonConfiguration()
             configuration.buttonProperties.primaryAction = UIAction { [weak self] _ in

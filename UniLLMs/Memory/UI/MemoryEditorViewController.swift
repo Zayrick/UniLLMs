@@ -16,7 +16,7 @@ final class MemoryEditorViewController: UITableViewController {
         }
 
         var footerTitle: String? {
-            "Memories help the assistant personalize future replies. You can edit or delete them anytime."
+            nil
         }
     }
 

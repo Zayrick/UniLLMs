@@ -20,9 +20,9 @@ final class SystemPromptEditorViewController: UITableViewController {
         var footerTitle: String? {
             switch self {
             case .name:
-                return "Use a short name so this prompt is easy to find later."
+                return nil
             case .prompt:
-                return "These instructions are saved as the system message for conversations that use this prompt."
+                return "Applies to chats that use this prompt."
             }
         }
     }
@@ -159,7 +159,7 @@ final class SystemPromptEditorViewController: UITableViewController {
 
         cell.configure(
             text: promptText,
-            placeholder: "Describe the assistant's role, tone, rules, and constraints."
+            placeholder: "You are a concise assistant."
         )
         cell.onTextChange = { [weak self] text in
             self?.promptText = text

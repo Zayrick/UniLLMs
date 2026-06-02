@@ -32,9 +32,9 @@ final class MemoriesViewController: UITableViewController {
             case .injection:
                 return nil
             case .assistantAccess:
-                return "These choices apply when Tools are enabled. You stay in control of what is saved."
+                return "Requires Tools."
             case .savedMemories:
-                return "Review, add, edit, or delete individual memories."
+                return nil
             case .clear:
                 return nil
             }
@@ -284,7 +284,7 @@ final class MemoriesViewController: UITableViewController {
 
     private func injectionEnabledCell() -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.settingCell)
-            ?? UITableViewCell(style: .subtitle, reuseIdentifier: ReuseIdentifier.settingCell)
+            ?? UITableViewCell(style: .default, reuseIdentifier: ReuseIdentifier.settingCell)
         configureInjectionEnabledCellContent(cell)
 
         let toggle = UISwitch()
@@ -306,7 +306,7 @@ final class MemoriesViewController: UITableViewController {
 
     private func injectionFilterCell() -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.settingCell)
-            ?? UITableViewCell(style: .subtitle, reuseIdentifier: ReuseIdentifier.settingCell)
+            ?? UITableViewCell(style: .default, reuseIdentifier: ReuseIdentifier.settingCell)
         var contentConfiguration = cell.defaultContentConfiguration()
         contentConfiguration.text = "Memory Filter"
         contentConfiguration.image = UIImage(systemName: "line.3.horizontal.decrease.circle")
@@ -333,7 +333,7 @@ final class MemoriesViewController: UITableViewController {
 
     private func injectionMaximumMemoriesCell() -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.settingCell)
-            ?? UITableViewCell(style: .subtitle, reuseIdentifier: ReuseIdentifier.settingCell)
+            ?? UITableViewCell(style: .default, reuseIdentifier: ReuseIdentifier.settingCell)
         var contentConfiguration = cell.defaultContentConfiguration()
         contentConfiguration.text = "Memory Limit"
         contentConfiguration.image = UIImage(systemName: "number.circle")
@@ -360,7 +360,7 @@ final class MemoriesViewController: UITableViewController {
 
     private func memoryToolCell(for indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.toolCell)
-            ?? UITableViewCell(style: .subtitle, reuseIdentifier: ReuseIdentifier.toolCell)
+            ?? UITableViewCell(style: .default, reuseIdentifier: ReuseIdentifier.toolCell)
         let item = memoryToolItems[indexPath.row]
         let isEnabled = dependencies.toolSettingsManager.isBuiltInToolEnabled(id: item.id)
         configureMemoryToolCellContent(
@@ -386,8 +386,6 @@ final class MemoriesViewController: UITableViewController {
     ) {
         var contentConfiguration = cell.defaultContentConfiguration()
         contentConfiguration.text = item.title
-        contentConfiguration.secondaryText = item.subtitle
-        contentConfiguration.secondaryTextProperties.numberOfLines = 2
         contentConfiguration.image = UIImage(systemName: item.symbolName)
         contentConfiguration.imageProperties.tintColor = isEnabled ? .systemGreen : .secondaryLabel
         cell.contentConfiguration = contentConfiguration
@@ -409,10 +407,9 @@ final class MemoriesViewController: UITableViewController {
     }
 
     private func clearAllCell() -> UITableViewCell {
-        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
         var contentConfiguration = cell.defaultContentConfiguration()
         contentConfiguration.text = "Clear All Memories"
-        contentConfiguration.secondaryText = "Delete every saved memory from this device."
         contentConfiguration.image = UIImage(systemName: "trash")
         contentConfiguration.textProperties.color = memoryCount > 0 ? .systemRed : .secondaryLabel
         contentConfiguration.imageProperties.tintColor = memoryCount > 0 ? .systemRed : .secondaryLabel

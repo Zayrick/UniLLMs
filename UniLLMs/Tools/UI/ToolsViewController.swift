@@ -173,11 +173,11 @@ final class ToolsViewController: UITableViewController {
 
         switch section {
         case .masterSwitch:
-            return nil
+            return "Applies to built-in and MCP tools."
         case .builtInTools:
-            return builtInToolRows.isEmpty ? "No built-in tools are registered." : nil
+            return builtInToolRows.isEmpty ? "No built-in tools." : nil
         case .mcpServers:
-            return servers.isEmpty ? "Add a Streamable HTTP MCP server to expose tools to the selected model." : nil
+            return servers.isEmpty ? "No MCP servers." : nil
         }
     }
 
@@ -270,10 +270,9 @@ final class ToolsViewController: UITableViewController {
     }
 
     private func masterSwitchCell() -> UITableViewCell {
-        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
         var contentConfiguration = cell.defaultContentConfiguration()
         contentConfiguration.text = "Enable Tools"
-        contentConfiguration.secondaryText = "Allow tools in chat requests"
         contentConfiguration.image = UIImage(systemName: "hammer")
         cell.contentConfiguration = contentConfiguration
 
@@ -331,7 +330,6 @@ final class ToolsViewController: UITableViewController {
     ) {
         var contentConfiguration = cell.defaultContentConfiguration()
         contentConfiguration.text = tool.presentationName
-        contentConfiguration.secondaryText = tool.summary
         contentConfiguration.image = UIImage(systemName: tool.symbolName ?? "wrench.and.screwdriver")
         contentConfiguration.imageProperties.tintColor = isEnabled ? .systemGreen : .secondaryLabel
         cell.contentConfiguration = contentConfiguration
@@ -344,7 +342,7 @@ final class ToolsViewController: UITableViewController {
     ) {
         var contentConfiguration = cell.defaultContentConfiguration()
         contentConfiguration.text = "Memory Tools"
-        contentConfiguration.secondaryText = "\(enabledCount) of \(totalCount) memory actions enabled. Manage details in Memories."
+        contentConfiguration.secondaryText = "\(enabledCount)/\(totalCount) enabled"
         contentConfiguration.image = UIImage(systemName: "brain.head.profile")
         contentConfiguration.imageProperties.tintColor = enabledCount > 0 ? .systemGreen : .secondaryLabel
         cell.contentConfiguration = contentConfiguration

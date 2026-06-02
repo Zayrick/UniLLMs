@@ -134,7 +134,7 @@ final class MemoryListViewController: UITableViewController {
         configuration.image = UIImage(systemName: "brain.head.profile")
         if memories.isEmpty {
             configuration.text = "No Saved Memories"
-            configuration.secondaryText = "Add details you want the assistant to remember."
+            configuration.secondaryText = "Add a memory when needed."
             configuration.button = addMemoryButtonConfiguration()
             configuration.buttonProperties.primaryAction = UIAction { [weak self] _ in
                 self?.addMemory()

@@ -10,7 +10,6 @@ import Foundation
 nonisolated struct MemoryToolUserFacingItem: Equatable {
     let id: String
     let title: String
-    let subtitle: String
     let symbolName: String
 }
 
@@ -25,31 +24,26 @@ nonisolated enum MemoryToolCatalog {
         MemoryToolUserFacingItem(
             id: addID,
             title: "Save memories",
-            subtitle: "Let the assistant save details you ask it to remember.",
             symbolName: "plus.circle"
         ),
         MemoryToolUserFacingItem(
             id: searchID,
             title: "Find memories",
-            subtitle: "Let the assistant look up saved details when they may help.",
             symbolName: "magnifyingglass"
         ),
         MemoryToolUserFacingItem(
             id: listID,
             title: "View memories",
-            subtitle: "Let the assistant see saved memories and their IDs.",
             symbolName: "list.bullet"
         ),
         MemoryToolUserFacingItem(
             id: updateID,
             title: "Update memories",
-            subtitle: "Let the assistant revise a saved memory when you ask.",
             symbolName: "pencil"
         ),
         MemoryToolUserFacingItem(
             id: deleteID,
             title: "Delete memories",
-            subtitle: "Let the assistant remove a saved memory when you ask.",
             symbolName: "trash"
         )
     ]
