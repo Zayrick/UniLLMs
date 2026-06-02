@@ -43,7 +43,7 @@ final class MemoriesViewController: UITableViewController {
 
     private enum InjectionRow: Int, CaseIterable {
         case enabled
-        case timeRange
+        case filter
         case maximumMemories
     }
 
@@ -275,8 +275,8 @@ final class MemoriesViewController: UITableViewController {
         switch row {
         case .enabled:
             return injectionEnabledCell()
-        case .timeRange:
-            return injectionTimeRangeCell()
+        case .filter:
+            return injectionFilterCell()
         case .maximumMemories:
             return injectionMaximumMemoriesCell()
         }
@@ -304,30 +304,30 @@ final class MemoriesViewController: UITableViewController {
         cell.contentConfiguration = contentConfiguration
     }
 
-    private func injectionTimeRangeCell() -> UITableViewCell {
+    private func injectionFilterCell() -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.settingCell)
             ?? UITableViewCell(style: .subtitle, reuseIdentifier: ReuseIdentifier.settingCell)
         var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = "Time Range"
-        contentConfiguration.image = UIImage(systemName: "calendar")
+        contentConfiguration.text = "Memory Filter"
+        contentConfiguration.image = UIImage(systemName: "line.3.horizontal.decrease.circle")
         contentConfiguration.imageProperties.tintColor = .systemTeal
         cell.contentConfiguration = contentConfiguration
         cell.accessoryView = menuButton(
-            title: injectionSettings.timeRange.title,
-            menu: timeRangeMenu(),
-            accessibilityLabel: "Memory injection time range"
+            title: injectionSettings.filter.title,
+            menu: filterMenu(),
+            accessibilityLabel: "Memory injection filter"
         )
         cell.accessoryType = .none
         cell.selectionStyle = .none
         return cell
     }
 
-    private func configureInjectionTimeRangeButton(_ button: UIButton) {
+    private func configureInjectionFilterButton(_ button: UIButton) {
         configureMenuButton(
             button,
-            title: injectionSettings.timeRange.title,
-            menu: timeRangeMenu(),
-            accessibilityLabel: "Memory injection time range"
+            title: injectionSettings.filter.title,
+            menu: filterMenu(),
+            accessibilityLabel: "Memory injection filter"
         )
     }
 
@@ -478,18 +478,18 @@ final class MemoriesViewController: UITableViewController {
         button.sizeToFit()
     }
 
-    private func timeRangeMenu() -> UIMenu {
-        let actions = MemoryInjectionTimeRange.allCases.map { timeRange in
+    private func filterMenu() -> UIMenu {
+        let actions = MemoryInjectionFilter.allCases.map { filter in
             UIAction(
-                title: timeRange.title,
-                state: timeRange == injectionSettings.timeRange ? .on : .off
+                title: filter.title,
+                state: filter == injectionSettings.filter ? .on : .off
             ) { [weak self] _ in
                 guard let self else {
                     return
                 }
 
                 var updatedSettings = self.injectionSettings
-                updatedSettings.timeRange = timeRange
+                updatedSettings.filter = filter
                 self.saveInjectionSettings(updatedSettings)
             }
         }
@@ -570,9 +570,9 @@ final class MemoriesViewController: UITableViewController {
     private func updateVisibleInjectionCells() {
         updateVisibleInjectionEnabledCell()
         updateVisibleInjectionMenuButton(
-            row: .timeRange
+            row: .filter
         ) { button in
-            configureInjectionTimeRangeButton(button)
+            configureInjectionFilterButton(button)
         }
         updateVisibleInjectionMenuButton(
             row: .maximumMemories
@@ -630,8 +630,13 @@ final class MemoriesViewController: UITableViewController {
     }
 
     private var selectableMaximumMemories: [Int?] {
-        let values = MemoryInjectionSettings.selectableMaximumMemories + [injectionSettings.maximumMemories].compactMap { $0 }
-        return [nil] + Array(Set(values)).sorted().map(Optional.some)
+        var values = MemoryInjectionSettings.selectableMaximumMemories
+        if let maximumMemories = injectionSettings.maximumMemories,
+           !values.contains(maximumMemories) {
+            values.append(maximumMemories)
+        }
+
+        return [nil] + values.sorted().map(Optional.some)
     }
 
     private var memoryLimitMenuTitle: String {

@@ -34,7 +34,7 @@ final class UserDefaultsMemorySettingsStore: MemorySettingsStore {
     func saveInjectionSettings(_ settings: MemoryInjectionSettings) {
         let normalizedSettings = MemoryInjectionSettings(
             isEnabled: settings.isEnabled,
-            timeRange: settings.timeRange,
+            filter: settings.filter,
             maximumMemories: settings.maximumMemories
         )
         guard normalizedSettings != loadInjectionSettings() else {

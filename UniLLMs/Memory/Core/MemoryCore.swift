@@ -62,7 +62,8 @@ nonisolated struct MemoryCandidate: Codable, Equatable, Identifiable {
     }
 }
 
-nonisolated enum MemoryInjectionTimeRange: String, Codable, CaseIterable, Equatable {
+nonisolated enum MemoryInjectionFilter: String, Codable, CaseIterable, Equatable {
+    case smart
     case all
     case last24Hours
     case last7Days
@@ -72,6 +73,8 @@ nonisolated enum MemoryInjectionTimeRange: String, Codable, CaseIterable, Equata
 
     var title: String {
         switch self {
+        case .smart:
+            return "Smart"
         case .all:
             return "All Time"
         case .last24Hours:
@@ -89,7 +92,7 @@ nonisolated enum MemoryInjectionTimeRange: String, Codable, CaseIterable, Equata
 
     fileprivate var timeInterval: TimeInterval? {
         switch self {
-        case .all:
+        case .smart, .all:
             return nil
         case .last24Hours:
             return 24 * 60 * 60
@@ -106,37 +109,37 @@ nonisolated enum MemoryInjectionTimeRange: String, Codable, CaseIterable, Equata
 }
 
 nonisolated struct MemoryInjectionSettings: Codable, Equatable {
-    static let defaultMaximumMemories = 8
+    static let defaultMaximumMemories = 5
     static let maximumMemoryLimit = 50
     static let selectableMaximumMemories = [3, 5, 8, 12, 20]
 
     var isEnabled: Bool
-    var timeRange: MemoryInjectionTimeRange
+    var filter: MemoryInjectionFilter
     var maximumMemories: Int?
 
     init(
         isEnabled: Bool = true,
-        timeRange: MemoryInjectionTimeRange = .all,
+        filter: MemoryInjectionFilter = .smart,
         maximumMemories: Int? = Self.defaultMaximumMemories
     ) {
         self.isEnabled = isEnabled
-        self.timeRange = timeRange
+        self.filter = filter
         self.maximumMemories = Self.clampedMaximumMemories(maximumMemories)
     }
 
     private enum CodingKeys: String, CodingKey {
         case isEnabled
-        case timeRange
+        case filter
         case maximumMemories
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
-        timeRange = try container.decodeIfPresent(
-            MemoryInjectionTimeRange.self,
-            forKey: .timeRange
-        ) ?? .all
+        filter = try container.decodeIfPresent(
+            MemoryInjectionFilter.self,
+            forKey: .filter
+        ) ?? .smart
         if container.contains(.maximumMemories) {
             if try container.decodeNil(forKey: .maximumMemories) {
                 maximumMemories = nil
@@ -153,7 +156,7 @@ nonisolated struct MemoryInjectionSettings: Codable, Equatable {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(isEnabled, forKey: .isEnabled)
-        try container.encode(timeRange, forKey: .timeRange)
+        try container.encode(filter, forKey: .filter)
         if let maximumMemories {
             try container.encode(maximumMemories, forKey: .maximumMemories)
         } else {
@@ -171,10 +174,34 @@ nonisolated struct MemoryInjectionSettings: Codable, Equatable {
 }
 
 nonisolated enum MemoryTextSearch {
-    static func filtered(_ memories: [MemoryRecord], matching query: String) -> [MemoryRecord] {
+    private struct RelevanceToken: Hashable {
+        enum Kind: Hashable {
+            case word
+            case cjkBigram
+        }
+
+        var kind: Kind
+        var value: String
+    }
+
+    private static let promptStopWords: Set<String> = [
+        "a", "an", "and", "are", "as", "at", "be", "can", "could", "do", "does", "for", "from",
+        "help", "how", "i", "in", "is", "it", "me", "my", "of", "on", "or", "please", "should",
+        "the", "to", "with", "you", "your", "we", "what", "when", "where", "why", "would"
+    ]
+
+    private static let promptStopCharacters = Set(
+        "你我他她它们的地得是了在和与及也有就都很更请帮做问说给能会想吗呢吧啊呀哦".unicodeScalars
+    )
+
+    static func filtered(
+        _ memories: [MemoryRecord],
+        matching query: String,
+        emptyQueryMatchesAll: Bool = true
+    ) -> [MemoryRecord] {
         let terms = searchTerms(from: query)
         guard !terms.isEmpty else {
-            return memories
+            return emptyQueryMatchesAll ? memories : []
         }
 
         return memories.filter { memory in
@@ -185,11 +212,127 @@ nonisolated enum MemoryTextSearch {
         }
     }
 
+    static func rankedByRelevance(_ memories: [MemoryRecord], matching query: String) -> [MemoryRecord] {
+        let queryTokens = Array(Set(relevanceTokens(from: query, droppingPromptStopWords: true)))
+        guard !queryTokens.isEmpty else {
+            return []
+        }
+
+        return memories
+            .map { memory in
+                (
+                    memory: memory,
+                    score: relevanceScore(for: memory.text, queryTokens: queryTokens)
+                )
+            }
+            .filter { $0.score > 0 }
+            .sorted {
+                if $0.score != $1.score {
+                    return $0.score > $1.score
+                }
+                if $0.memory.updatedAt != $1.memory.updatedAt {
+                    return $0.memory.updatedAt > $1.memory.updatedAt
+                }
+                return $0.memory.createdAt > $1.memory.createdAt
+            }
+            .map(\.memory)
+    }
+
     private static func searchTerms(from query: String) -> [String] {
         query
             .lowercased()
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { !$0.isEmpty }
+    }
+
+    private static func relevanceScore(for text: String, queryTokens: [RelevanceToken]) -> Int {
+        let frequencies = Dictionary(
+            relevanceTokens(from: text, droppingPromptStopWords: false).map { ($0, 1) },
+            uniquingKeysWith: +
+        )
+
+        return queryTokens.reduce(0) { score, token in
+            score + (frequencies[token] ?? 0)
+        }
+    }
+
+    private static func relevanceTokens(
+        from text: String,
+        droppingPromptStopWords: Bool
+    ) -> [RelevanceToken] {
+        var tokens: [RelevanceToken] = []
+        var currentWord = ""
+        var currentCJKScalars: [Unicode.Scalar] = []
+
+        func appendCurrentWord() {
+            guard !currentWord.isEmpty else {
+                return
+            }
+            defer {
+                currentWord = ""
+            }
+
+            guard !droppingPromptStopWords || !promptStopWords.contains(currentWord) else {
+                return
+            }
+
+            tokens.append(RelevanceToken(kind: .word, value: currentWord))
+        }
+
+        func appendCurrentCJKRun() {
+            guard currentCJKScalars.count >= 2 else {
+                currentCJKScalars.removeAll()
+                return
+            }
+            defer {
+                currentCJKScalars.removeAll()
+            }
+
+            for index in currentCJKScalars.indices.dropLast() {
+                let nextIndex = currentCJKScalars.index(after: index)
+                let bigram = String(currentCJKScalars[index]) + String(currentCJKScalars[nextIndex])
+                tokens.append(RelevanceToken(kind: .cjkBigram, value: bigram))
+            }
+        }
+
+        for scalar in text.lowercased().unicodeScalars {
+            if isCJKIdeograph(scalar) {
+                appendCurrentWord()
+                if droppingPromptStopWords,
+                   promptStopCharacters.contains(scalar) {
+                    appendCurrentCJKRun()
+                } else {
+                    currentCJKScalars.append(scalar)
+                }
+            } else if CharacterSet.alphanumerics.contains(scalar) {
+                appendCurrentCJKRun()
+                currentWord.append(contentsOf: String(scalar))
+            } else {
+                appendCurrentWord()
+                appendCurrentCJKRun()
+            }
+        }
+
+        appendCurrentWord()
+        appendCurrentCJKRun()
+        return tokens
+    }
+
+    private static func isCJKIdeograph(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x3400...0x4DBF,
+             0x4E00...0x9FFF,
+             0xF900...0xFAFF,
+             0x20000...0x2A6DF,
+             0x2A700...0x2B73F,
+             0x2B740...0x2B81F,
+             0x2B820...0x2CEAF,
+             0x2CEB0...0x2EBEF,
+             0x30000...0x3134F:
+            return true
+        default:
+            return false
+        }
     }
 }
 
@@ -225,7 +368,7 @@ struct StoreBackedMemoryRetriever: MemoryRetriever {
         self.settingsStore = settingsStore
     }
 
-    func retrieveRelevantMemories(for _: ChatContext) async throws -> [MemoryRecord] {
+    func retrieveRelevantMemories(for context: ChatContext) async throws -> [MemoryRecord] {
         let settings = settingsStore.loadInjectionSettings()
         guard settings.isEnabled else {
             return []
@@ -234,23 +377,33 @@ struct StoreBackedMemoryRetriever: MemoryRetriever {
         let memories = try await store.fetchMemories(scope: .user)
         let eligibleMemories = Self.memories(
             memories,
-            in: settings.timeRange,
+            matching: settings.filter,
             referenceDate: Date()
         )
         let sortedMemories = Self.sortedForPresentation(eligibleMemories)
-        guard let maximumMemories = settings.maximumMemories else {
-            return sortedMemories
-        }
 
-        return Array(sortedMemories.prefix(maximumMemories))
+        switch settings.filter {
+        case .smart:
+            let matchedMemories = MemoryTextSearch.rankedByRelevance(
+                sortedMemories,
+                matching: Self.retrievalQuery(from: context)
+            )
+            return Self.limited(matchedMemories, maximumMemories: settings.maximumMemories)
+        case .all, .last24Hours, .last7Days, .last30Days, .last90Days, .lastYear:
+            return Self.limited(sortedMemories, maximumMemories: settings.maximumMemories)
+        }
+    }
+
+    private static func retrievalQuery(from context: ChatContext) -> String {
+        context.messages.last(where: { $0.role == .user })?.content ?? ""
     }
 
     private static func memories(
         _ memories: [MemoryRecord],
-        in timeRange: MemoryInjectionTimeRange,
+        matching filter: MemoryInjectionFilter,
         referenceDate: Date
     ) -> [MemoryRecord] {
-        guard let timeInterval = timeRange.timeInterval else {
+        guard let timeInterval = filter.timeInterval else {
             return memories
         }
 
@@ -258,6 +411,14 @@ struct StoreBackedMemoryRetriever: MemoryRetriever {
         return memories.filter {
             $0.updatedAt >= cutoffDate
         }
+    }
+
+    private static func limited(_ memories: [MemoryRecord], maximumMemories: Int?) -> [MemoryRecord] {
+        guard let maximumMemories else {
+            return memories
+        }
+
+        return Array(memories.prefix(maximumMemories))
     }
 
     private static func sortedForPresentation(_ memories: [MemoryRecord]) -> [MemoryRecord] {

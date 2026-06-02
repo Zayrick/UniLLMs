@@ -60,6 +60,27 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
         XCTAssertEqual(memory.updatedAt, memory.createdAt)
     }
 
+    func testMemoryInjectionSettingsRoundTripsSmartFilter() throws {
+        let settings = MemoryInjectionSettings(
+            isEnabled: true,
+            filter: .smart,
+            maximumMemories: 12
+        )
+
+        let data = try JSONEncoder().encode(settings)
+        let decodedSettings = try JSONDecoder().decode(MemoryInjectionSettings.self, from: data)
+
+        XCTAssertEqual(decodedSettings, settings)
+    }
+
+    func testMemoryInjectionSettingsDefaultsToSmartFilterWithFiveMemories() {
+        let settings = MemoryInjectionSettings()
+
+        XCTAssertTrue(settings.isEnabled)
+        XCTAssertEqual(settings.filter, .smart)
+        XCTAssertEqual(settings.maximumMemories, 5)
+    }
+
     func testMemoryManagerSearchesCaseInsensitiveTerms() async throws {
         let store = UserDefaultsMemoryStore(
             defaults: defaults,
@@ -90,7 +111,7 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
         settingsStore.saveInjectionSettings(
             MemoryInjectionSettings(
                 isEnabled: true,
-                timeRange: .last7Days,
+                filter: .last7Days,
                 maximumMemories: 1
             )
         )
@@ -170,7 +191,7 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
         settingsStore.saveInjectionSettings(
             MemoryInjectionSettings(
                 isEnabled: true,
-                timeRange: .all,
+                filter: .all,
                 maximumMemories: 1
             )
         )
@@ -189,6 +210,131 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
         XCTAssertEqual(memories.map(\.text), ["User prefers concise answers."])
     }
 
+    func testMemoryRetrieverSmartFilterRanksPartialKeywordMatches() async throws {
+        let store = UserDefaultsMemoryStore(
+            defaults: defaults,
+            storageKey: "smartMemoryRetriever"
+        )
+        let settingsStore = UserDefaultsMemorySettingsStore(
+            defaults: defaults,
+            storageKey: "smartMemoryRetrieverSettings"
+        )
+        settingsStore.saveInjectionSettings(
+            MemoryInjectionSettings(
+                isEnabled: true,
+                filter: .smart,
+                maximumMemories: 5
+            )
+        )
+        let manager = MemoryManager(
+            store: store,
+            settingsStore: settingsStore
+        )
+        let now = Date()
+        try await store.saveMemory(
+            MemoryRecord(
+                scope: .user,
+                text: "Travel plans should include trains.",
+                createdAt: now.addingTimeInterval(-3),
+                updatedAt: now.addingTimeInterval(-3)
+            )
+        )
+        try await store.saveMemory(
+            MemoryRecord(
+                scope: .user,
+                text: "Travel budgets should stay flexible.",
+                createdAt: now.addingTimeInterval(-1),
+                updatedAt: now.addingTimeInterval(-1)
+            )
+        )
+        try await store.saveMemory(
+            MemoryRecord(scope: .user, text: "User prefers concise answers.")
+        )
+
+        let memories = try await manager.retrieveRelevantMemories(
+            for: ChatContext(messages: [ChatMessage(role: .user, content: "Can you help with my travel plans")])
+        )
+
+        XCTAssertEqual(
+            memories.map(\.text),
+            [
+                "Travel plans should include trains.",
+                "Travel budgets should stay flexible."
+            ]
+        )
+    }
+
+    func testMemoryRetrieverSmartFilterUsesDefaultMemoryCount() async throws {
+        let store = UserDefaultsMemoryStore(
+            defaults: defaults,
+            storageKey: "defaultSmartMemoryRetriever"
+        )
+        let settingsStore = UserDefaultsMemorySettingsStore(
+            defaults: defaults,
+            storageKey: "defaultSmartMemoryRetrieverSettings"
+        )
+        settingsStore.saveInjectionSettings(MemoryInjectionSettings())
+        let manager = MemoryManager(
+            store: store,
+            settingsStore: settingsStore
+        )
+        let now = Date()
+        for index in 0..<6 {
+            try await store.saveMemory(
+                MemoryRecord(
+                    scope: .user,
+                    text: "Travel plan candidate \(index)",
+                    createdAt: now.addingTimeInterval(TimeInterval(-index)),
+                    updatedAt: now.addingTimeInterval(TimeInterval(-index))
+                )
+            )
+        }
+
+        let memories = try await manager.retrieveRelevantMemories(
+            for: ChatContext(messages: [ChatMessage(role: .user, content: "travel plan")])
+        )
+
+        XCTAssertEqual(memories.count, 5)
+        XCTAssertEqual(settingsStore.loadInjectionSettings().maximumMemories, 5)
+    }
+
+    func testMemoryRetrieverSmartFilterMatchesCJKBigramsWithoutSingleCharacterFalsePositives() async throws {
+        let store = UserDefaultsMemoryStore(
+            defaults: defaults,
+            storageKey: "cjkSmartMemoryRetriever"
+        )
+        let settingsStore = UserDefaultsMemorySettingsStore(
+            defaults: defaults,
+            storageKey: "cjkSmartMemoryRetrieverSettings"
+        )
+        settingsStore.saveInjectionSettings(
+            MemoryInjectionSettings(
+                isEnabled: true,
+                filter: .smart,
+                maximumMemories: 5
+            )
+        )
+        let manager = MemoryManager(
+            store: store,
+            settingsStore: settingsStore
+        )
+        try await store.saveMemory(
+            MemoryRecord(scope: .user, text: "上海旅行应该安排高铁。")
+        )
+        try await store.saveMemory(
+            MemoryRecord(scope: .user, text: "我喜欢咖啡。")
+        )
+        try await store.saveMemory(
+            MemoryRecord(scope: .user, text: "User prefers concise answers.")
+        )
+
+        let memories = try await manager.retrieveRelevantMemories(
+            for: ChatContext(messages: [ChatMessage(role: .user, content: "帮我做上海旅行计划")])
+        )
+
+        XCTAssertEqual(memories.map(\.text), ["上海旅行应该安排高铁。"])
+    }
+
     func testMemoryRetrieverSupportsUnlimitedInjectionCount() async throws {
         let store = UserDefaultsMemoryStore(
             defaults: defaults,
@@ -201,7 +347,7 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
         settingsStore.saveInjectionSettings(
             MemoryInjectionSettings(
                 isEnabled: true,
-                timeRange: .all,
+                filter: .all,
                 maximumMemories: nil
             )
         )
