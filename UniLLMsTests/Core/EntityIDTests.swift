@@ -8,6 +8,7 @@ import XCTest
 @testable import UniLLMs
 
 final class EntityIDTests: XCTestCase {
+    @MainActor
     func testInitializerUsesProvidedUUID() throws {
         let uuid = try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
 
@@ -16,6 +17,7 @@ final class EntityIDTests: XCTestCase {
         XCTAssertEqual(id.rawValue, uuid)
     }
 
+    @MainActor
     func testDefaultInitializerGeneratesDistinctIDs() {
         let first = EntityID<TestOwner>()
         let second = EntityID<TestOwner>()
@@ -23,6 +25,7 @@ final class EntityIDTests: XCTestCase {
         XCTAssertNotEqual(first, second)
     }
 
+    @MainActor
     func testCodableRoundTripPreservesRawValue() throws {
         let id = EntityID<TestOwner>()
 
@@ -32,6 +35,7 @@ final class EntityIDTests: XCTestCase {
         XCTAssertEqual(decoded, id)
     }
 
+    @MainActor
     func testHashableDeduplicatesSameOwnerAndRawValue() throws {
         let uuid = try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-000000000002"))
         let first = EntityID<TestOwner>(uuid)

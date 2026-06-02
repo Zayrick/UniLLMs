@@ -9,6 +9,7 @@ import XCTest
 
 @MainActor
 final class ToolRegistryTests: XCTestCase {
+    @MainActor
     func testRegisteringDuplicateToolReplacesImplementationWithoutDuplicatingOrder() {
         let original = RegistryTool(name: "lookup", displayName: "Lookup")
         let replacement = RegistryTool(name: "lookup", displayName: "Lookup Replacement")
@@ -20,6 +21,7 @@ final class ToolRegistryTests: XCTestCase {
         XCTAssertEqual(registry.tool(id: "lookup")?.definition.displayName, "Lookup Replacement")
     }
 
+    @MainActor
     func testToolsPreserveFirstRegistrationOrder() {
         let registry = ToolRegistry(tools: [
             RegistryTool(name: "first", displayName: "First"),

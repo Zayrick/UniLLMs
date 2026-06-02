@@ -113,9 +113,9 @@ final class ChatViewController: UIViewController {
     private var composerKeyboardBottomConstraint: NSLayoutConstraint!
     private var composerRestingBottomConstraint: NSLayoutConstraint!
     private var keyboardObservation: NotificationCenter.ObservationToken?
-    private var selectedModelSelectionObservation: NSObjectProtocol?
-    private var chatHistoryObservation: NSObjectProtocol?
-    private var systemPromptObservation: NSObjectProtocol?
+    private var selectedModelSelectionObservation: NotificationObservation?
+    private var chatHistoryObservation: NotificationObservation?
+    private var systemPromptObservation: NotificationObservation?
     private var historyReloadTask: Task<Void, Never>?
     private var historySelectionTask: Task<Void, Never>?
     private var isKeyboardVisible = false
@@ -152,21 +152,12 @@ final class ChatViewController: UIViewController {
         reloadHistorySessions(selectedSessionID: nil)
     }
 
-    deinit {
+    isolated deinit {
         activeResponseTask?.cancel()
         historyReloadTask?.cancel()
         historySelectionTask?.cancel()
         if let keyboardObservation {
             NotificationCenter.default.removeObserver(keyboardObservation)
-        }
-        if let selectedModelSelectionObservation {
-            NotificationCenter.default.removeObserver(selectedModelSelectionObservation)
-        }
-        if let chatHistoryObservation {
-            NotificationCenter.default.removeObserver(chatHistoryObservation)
-        }
-        if let systemPromptObservation {
-            NotificationCenter.default.removeObserver(systemPromptObservation)
         }
     }
 
@@ -1138,17 +1129,21 @@ final class ChatViewController: UIViewController {
     }
 
     private func installSystemPromptObserver() {
-        systemPromptObservation = NotificationCenter.default.addObserver(
-            forName: UserDefaultsSystemPromptStore.didChangeNotification,
+        systemPromptObservation = NotificationObservation(
+            NotificationCenter.default.addObserver(
+                forName: UserDefaultsSystemPromptStore.didChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let self else {
-                return
-            }
+            Task { @MainActor [weak self] in
+                guard let self else {
+                    return
+                }
 
-            self.reloadSelectedSystemPrompt()
+                self.reloadSelectedSystemPrompt()
+            }
         }
+    )
     }
 
     private func reloadSelectedSystemPrompt() {
@@ -1253,7 +1248,7 @@ final class ChatViewController: UIViewController {
 
     private func animateExistingMessages(from previousFrames: [(view: UIView, frame: CGRect)]) {
         guard view.window != nil,
-              !UIAccessibility.isReduceMotionEnabled else {
+              !AccessibilityPreferences.isReduceMotionEnabled else {
             return
         }
 
@@ -1315,7 +1310,7 @@ final class ChatViewController: UIViewController {
         completion: (() -> Void)? = nil
     ) {
         guard view.window != nil,
-              !UIAccessibility.isReduceMotionEnabled else {
+              !AccessibilityPreferences.isReduceMotionEnabled else {
             bubbleView.alpha = 1.0
             completion?()
             return
@@ -1521,17 +1516,21 @@ final class ChatViewController: UIViewController {
     }
 
     private func installChatHistoryObserver() {
-        chatHistoryObservation = NotificationCenter.default.addObserver(
-            forName: ChatRuntime.historyDidChangeNotification,
+        chatHistoryObservation = NotificationObservation(
+            NotificationCenter.default.addObserver(
+                forName: ChatRuntime.historyDidChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let self else {
-                return
-            }
+            Task { @MainActor [weak self] in
+                guard let self else {
+                    return
+                }
 
-            self.reloadHistorySessions(selectedSessionID: self.chatRuntime.currentSessionID)
+                self.reloadHistorySessions(selectedSessionID: self.chatRuntime.currentSessionID)
+            }
         }
+    )
     }
 
     private func reloadHistorySessions(selectedSessionID: UUID?) {
@@ -1609,13 +1608,17 @@ final class ChatViewController: UIViewController {
     }
 
     private func installSelectedModelSelectionObserver() {
-        selectedModelSelectionObservation = NotificationCenter.default.addObserver(
-            forName: LLMsProviderStore.selectedModelSelectionDidChangeNotification,
+        selectedModelSelectionObservation = NotificationObservation(
+            NotificationCenter.default.addObserver(
+                forName: LLMsProviderStore.selectedModelSelectionDidChangeNotification,
             object: providerStore,
             queue: .main
         ) { [weak self] _ in
-            self?.reloadSelectedModelSelection(animated: true)
+            Task { @MainActor [weak self] in
+                self?.reloadSelectedModelSelection(animated: true)
+            }
         }
+    )
     }
 
     private func reloadSelectedModelSelection(animated: Bool) {
@@ -1639,7 +1642,7 @@ final class ChatViewController: UIViewController {
 
         guard animated,
               view.window != nil,
-              !UIAccessibility.isReduceMotionEnabled else {
+              !AccessibilityPreferences.isReduceMotionEnabled else {
             setModuleSelectionTitle(title)
             mainPageView.layoutIfNeeded()
             return
@@ -1821,7 +1824,7 @@ final class ChatViewController: UIViewController {
 
         guard animated,
               view.window != nil,
-              !UIAccessibility.isReduceMotionEnabled else {
+              !AccessibilityPreferences.isReduceMotionEnabled else {
             update()
             return
         }
@@ -2000,10 +2003,6 @@ final class ChatViewController: UIViewController {
             isBottomLocked = isScrolledToBottom()
         }
 
-        func userWillEndDragging(targetOffsetY: CGFloat) {
-            isBottomLocked = isScrolledToBottom(offsetY: targetOffsetY)
-        }
-
         func userDidFinishScrolling() {
             isBottomLocked = isScrolledToBottom()
         }
@@ -2019,7 +2018,7 @@ final class ChatViewController: UIViewController {
 
             guard animated,
                   hostView?.window != nil,
-                  !UIAccessibility.isReduceMotionEnabled,
+                  !AccessibilityPreferences.isReduceMotionEnabled,
                   abs(scrollView.contentOffset.y - contentOffset.y) > Metrics.layoutEpsilon else {
                 animationGeneration += 1
                 scrollView.setContentOffset(contentOffset, animated: false)
@@ -2166,18 +2165,6 @@ extension ChatViewController: UIScrollViewDelegate {
         }
 
         messagesScrollCoordinator.userDidScroll()
-    }
-
-    func scrollViewWillEndDragging(
-        _ scrollView: UIScrollView,
-        withVelocity velocity: CGPoint,
-        targetContentOffset: UnsafeMutablePointer<CGPoint>
-    ) {
-        guard scrollView === messagesScrollView else {
-            return
-        }
-
-        messagesScrollCoordinator.userWillEndDragging(targetOffsetY: targetContentOffset.pointee.y)
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {

@@ -21,7 +21,7 @@ final class SystemPromptsViewController: UITableViewController {
     private let dependencies: AppDependencyContainer
     private let mode: Mode
     private var prompts: [SystemPromptRecord] = []
-    private var storeObservation: NSObjectProtocol?
+    private var storeObservation: NotificationObservation?
 
     private enum ReuseIdentifier {
         static let promptCell = "SystemPromptCell"
@@ -40,12 +40,6 @@ final class SystemPromptsViewController: UITableViewController {
         dependencies = AppEnvironment.shared.dependencies
         mode = .manage
         super.init(coder: coder)
-    }
-
-    deinit {
-        if let storeObservation {
-            NotificationCenter.default.removeObserver(storeObservation)
-        }
     }
 
     override func viewDidLoad() {
@@ -104,13 +98,17 @@ final class SystemPromptsViewController: UITableViewController {
     }
 
     private func installStoreObserver() {
-        storeObservation = NotificationCenter.default.addObserver(
-            forName: UserDefaultsSystemPromptStore.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.reloadContent()
-        }
+        storeObservation = NotificationObservation(
+            NotificationCenter.default.addObserver(
+                forName: UserDefaultsSystemPromptStore.didChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.reloadContent()
+                }
+            }
+        )
     }
 
     private func reloadContent() {

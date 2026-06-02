@@ -9,6 +9,7 @@ import XCTest
 @testable import UniLLMs
 
 final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
+    @MainActor
     func testAddingProvidersAssignsUUIDsAndUniqueNames() throws {
         let first = try makeTestProviderDraft()
         store.saveProvider(first)
@@ -25,6 +26,7 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
         XCTAssertEqual(first.configuration[TestRemoteProvider.ConfigurationKey.apiBase], testProviderDefaultAPIBase)
     }
 
+    @MainActor
     func testProviderDraftDoesNotPersistUntilSaved() throws {
         let draft = try makeTestProviderDraft()
 
@@ -37,6 +39,7 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
         XCTAssertEqual(reloaded.name, "Test Remote")
     }
 
+    @MainActor
     func testProviderConfigurationUpdatesPersistByUUID() throws {
         var provider = try addTestProvider()
         provider.name = "Work Provider"
@@ -55,6 +58,7 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
         XCTAssertEqual(reloaded.models, provider.models)
     }
 
+    @MainActor
     func testProviderRecordDecodesLegacyConfigurationFields() throws {
         let json = """
         [{
@@ -75,6 +79,7 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
         XCTAssertEqual(provider.configuration[TestRemoteProvider.ConfigurationKey.apiBase], "https://legacy.example/v1")
     }
 
+    @MainActor
     func testModelUpdatesDoNotOverwriteUnsavedConfiguration() throws {
         let provider = try addTestProvider()
         let models = [
@@ -96,6 +101,7 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
         XCTAssertEqual(reloaded.modelsUpdatedAt, updatedAt)
     }
 
+    @MainActor
     func testModelUpdatesForDraftDoNotPersist() throws {
         let draft = try makeTestProviderDraft()
 
@@ -110,6 +116,7 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
         XCTAssertTrue(store.fetchProviders().isEmpty)
     }
 
+    @MainActor
     func testDeletingProviderRemovesMatchingUUIDOnly() throws {
         let first = try addTestProvider()
         let second = try addTestProvider()
@@ -120,6 +127,7 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
         XCTAssertEqual(providers.map(\.id), [second.id])
     }
 
+    @MainActor
     func testMovingProviderPersistsProviderOrder() throws {
         let first = try addTestProvider()
         let second = try addTestProvider()
@@ -134,6 +142,7 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
         XCTAssertEqual(store.fetchProviders().map(\.id), [first.id, second.id, third.id])
     }
 
+    @MainActor
     func testFetchingProviderByIDReturnsMatchingProvider() throws {
         _ = try addTestProvider()
         let second = try addTestProvider()
@@ -146,6 +155,7 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
         XCTAssertNil(store.fetchProvider(id: missingID))
     }
 
+    @MainActor
     func testSelectedModelSelectionPersistsByProviderUUIDAndModelID() throws {
         var provider = try addTestProvider()
         provider.name = "Work Provider"
@@ -170,6 +180,7 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
         XCTAssertEqual(selection.modelName, "Claude Sonnet 4")
     }
 
+    @MainActor
     func testDeletingSelectedProviderClearsSelectedModelSelection() throws {
         var provider = try addTestProvider()
         provider.models = [
@@ -190,6 +201,7 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
         XCTAssertNil(store.fetchSelectedModelSelection())
     }
 
+    @MainActor
     func testRemovingSelectedModelClearsSelectedModelSelection() throws {
         var provider = try addTestProvider()
         provider.models = [
@@ -216,6 +228,7 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
         XCTAssertNil(store.fetchSelectedModelSelection())
     }
 
+    @MainActor
     func testRefreshingSelectedModelUpdatesRecoveredDisplayName() throws {
         var provider = try addTestProvider()
         provider.models = [
@@ -243,6 +256,7 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
         XCTAssertEqual(selection.modelName, "GPT-4.1 Latest")
     }
 
+    @MainActor
     func testChatModelSelectionDisplayNameFallsBackToIDWhenModelNameIsMissing() {
         let selection = LLMModelSelection(
             providerID: UUID(),
@@ -254,6 +268,7 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
         XCTAssertEqual(selection.displayName, "gpt-4.1-mini")
     }
 
+    @MainActor
     func testSavingSelectedModelSelectionPostsStoreScopedNotification() throws {
         let observer = SelectedModelSelectionObserver(store: store)
         defer {
@@ -273,6 +288,7 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
         XCTAssertEqual(observer.notificationCount, 1)
     }
 
+    @MainActor
     func testClearingMissingSelectedModelSelectionDoesNotPostNotification() {
         let observer = SelectedModelSelectionObserver(store: store)
         defer {
@@ -284,6 +300,7 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
         XCTAssertEqual(observer.notificationCount, 0)
     }
 
+    @MainActor
     func testUpdatingUnrelatedProviderDoesNotPostSelectedModelNotification() throws {
         var selectedProvider = try addTestProvider()
         selectedProvider.models = [
@@ -315,6 +332,7 @@ private final class SelectedModelSelectionObserver {
     private let observedStore: LLMProviderStore
     private(set) var notificationCount = 0
 
+    @MainActor
     init(store: LLMProviderStore) {
         observedStore = store
         token = NotificationCenter.default.addObserver(

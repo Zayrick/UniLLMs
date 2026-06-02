@@ -104,13 +104,21 @@ final class ChatMarkdownTextView: UITextView {
 }
 
 private final class ChatMarkdownLayoutManager: NSLayoutManager {
-    override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: CGPoint) {
+    nonisolated override init() {
+        super.init()
+    }
+
+    nonisolated required init?(coder: NSCoder) {
+        super.init(coder: coder)
+    }
+
+    nonisolated override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: CGPoint) {
         drawBlockQuoteBars(forGlyphRange: glyphsToShow, at: origin)
         drawInlineCodeBackgrounds(forGlyphRange: glyphsToShow, at: origin)
         super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
     }
 
-    private func drawBlockQuoteBars(forGlyphRange glyphsToShow: NSRange, at origin: CGPoint) {
+    private nonisolated func drawBlockQuoteBars(forGlyphRange glyphsToShow: NSRange, at origin: CGPoint) {
         guard let textStorage else {
             return
         }
@@ -152,7 +160,7 @@ private final class ChatMarkdownLayoutManager: NSLayoutManager {
         }
     }
 
-    private func blockQuoteBarPositions(
+    private nonisolated func blockQuoteBarPositions(
         in characterRange: NSRange,
         textStorage: NSTextStorage
     ) -> [CGFloat] {
@@ -173,7 +181,7 @@ private final class ChatMarkdownLayoutManager: NSLayoutManager {
         return result.sorted()
     }
 
-    private func drawInlineCodeBackgrounds(forGlyphRange glyphsToShow: NSRange, at origin: CGPoint) {
+    private nonisolated func drawInlineCodeBackgrounds(forGlyphRange glyphsToShow: NSRange, at origin: CGPoint) {
         guard let textStorage else {
             return
         }
@@ -215,7 +223,7 @@ private final class ChatMarkdownLayoutManager: NSLayoutManager {
         }
     }
 
-    private func drawInlineCodeBackground(
+    private nonisolated func drawInlineCodeBackground(
         color: UIColor,
         cornerRadius: CGFloat,
         glyphRange: NSRange,
@@ -253,7 +261,7 @@ private final class ChatMarkdownLayoutManager: NSLayoutManager {
         }
     }
 
-    private func inlineCodeBackgroundHeight(
+    private nonisolated func inlineCodeBackgroundHeight(
         forGlyphRange glyphRange: NSRange,
         lineFragmentHeight: CGFloat,
         usedRectHeight: CGFloat
@@ -269,7 +277,7 @@ private final class ChatMarkdownLayoutManager: NSLayoutManager {
         return min(contentHeight, availableHeight)
     }
 
-    private func inlineCodeFontLineHeight(forGlyphRange glyphRange: NSRange) -> CGFloat {
+    private nonisolated func inlineCodeFontLineHeight(forGlyphRange glyphRange: NSRange) -> CGFloat {
         guard let textStorage else {
             return 0.0
         }

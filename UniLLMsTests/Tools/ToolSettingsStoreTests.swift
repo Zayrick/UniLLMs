@@ -9,6 +9,7 @@ import XCTest
 @testable import UniLLMs
 
 final class ToolSettingsStoreTests: UserDefaultsBackedTestCase {
+    @MainActor
     func testToolSettingsStorePersistsGlobalAndBuiltInToolEnablement() {
         let settingsStore = UserDefaultsToolSettingsStore(
             defaults: defaults,
@@ -36,6 +37,7 @@ final class ToolSettingsStoreTests: UserDefaultsBackedTestCase {
         XCTAssertTrue(reloadedStore.isBuiltInToolEnabled(id: "current_datetime"))
     }
 
+    @MainActor
     func testToolSettingsStoreReadsLegacyMCPGlobalToolsEnabled() throws {
         let legacyJSON = #"{"toolsEnabled":true,"servers":[]}"#
         defaults.set(try XCTUnwrap(legacyJSON.data(using: .utf8)), forKey: "legacyMCPSettings")
@@ -57,6 +59,7 @@ final class ToolSettingsStoreTests: UserDefaultsBackedTestCase {
         XCTAssertTrue(migratedStore.loadToolsEnabled())
     }
 
+    @MainActor
     func testToolSettingsManagerUpdatesBuiltInToolsAsGroup() {
         let settingsStore = UserDefaultsToolSettingsStore(
             defaults: defaults,

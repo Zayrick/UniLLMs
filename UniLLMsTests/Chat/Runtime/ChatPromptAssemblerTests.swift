@@ -8,6 +8,7 @@ import XCTest
 @testable import UniLLMs
 
 final class ChatPromptAssemblerTests: XCTestCase {
+    @MainActor
     func testAssemblePromptKeepsInstructionsSeparateFromMessages() {
         let memoryDate = Date(timeIntervalSince1970: 100)
         let messageDate = Date(timeIntervalSince1970: 200)
@@ -39,6 +40,7 @@ final class ChatPromptAssemblerTests: XCTestCase {
         XCTAssertEqual(promptParts.messages[0].createdAt, messageDate)
     }
 
+    @MainActor
     func testAssemblePromptKeepsOriginalMessagesWhenInstructionsAreEmpty() {
         let originalMessages = [
             ChatMessage(role: .system, content: "Be concise."),
@@ -53,6 +55,7 @@ final class ChatPromptAssemblerTests: XCTestCase {
         XCTAssertEqual(prompt.messages, originalMessages)
     }
 
+    @MainActor
     func testInstructionTextCombinesSystemPromptAndMemories() {
         let originalMessages = [
             ChatMessage(role: .user, content: "Hello")
@@ -75,6 +78,7 @@ final class ChatPromptAssemblerTests: XCTestCase {
         XCTAssertEqual(promptParts.messages, originalMessages)
     }
 
+    @MainActor
     func testAssemblePromptOmitsBlankSystemPromptAndMemory() {
         let originalMessages = [
             ChatMessage(role: .user, content: "Hello")

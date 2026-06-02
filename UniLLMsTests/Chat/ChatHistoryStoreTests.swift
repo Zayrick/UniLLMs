@@ -13,9 +13,17 @@ import XCTest
 final class ChatHistoryStoreTests: XCTestCase {
     private var defaults: UserDefaults!
     private var suiteName: String!
-    private var store: UserDefaultsChatStore!
     private var attachmentDirectory: URL!
     private var attachmentStore: ChatAttachmentStore!
+
+    @MainActor
+    private var store: UserDefaultsChatStore {
+        UserDefaultsChatStore(
+            defaults: defaults,
+            storageKey: "chatHistory",
+            attachmentStore: attachmentStore
+        )
+    }
 
     override func setUpWithError() throws {
         suiteName = "ChatHistoryStoreTests.\(UUID().uuidString)"
@@ -23,11 +31,6 @@ final class ChatHistoryStoreTests: XCTestCase {
         attachmentDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ChatHistoryStoreTests-\(UUID().uuidString)", isDirectory: true)
         attachmentStore = ChatAttachmentStore(rootDirectory: attachmentDirectory)
-        store = UserDefaultsChatStore(
-            defaults: defaults,
-            storageKey: "chatHistory",
-            attachmentStore: attachmentStore
-        )
     }
 
     override func tearDownWithError() throws {
@@ -40,11 +43,11 @@ final class ChatHistoryStoreTests: XCTestCase {
         }
         defaults = nil
         suiteName = nil
-        store = nil
         attachmentDirectory = nil
         attachmentStore = nil
     }
 
+    @MainActor
     func testFetchSessionsSortsByLastSentDate() async throws {
         let olderSession = ChatSession(
             title: "Older",
@@ -65,6 +68,7 @@ final class ChatHistoryStoreTests: XCTestCase {
         XCTAssertEqual(sessions.map(\.id), [newerSession.id, olderSession.id])
     }
 
+    @MainActor
     func testSaveSessionPersistsSelectedSystemPromptID() async throws {
         let promptID = UUID()
         let session = ChatSession(
@@ -84,6 +88,7 @@ final class ChatHistoryStoreTests: XCTestCase {
         XCTAssertEqual(reloadedSession.selectedSystemPromptID, promptID)
     }
 
+    @MainActor
     func testFetchSessionsDecodesLegacySessionsWithoutSelectedSystemPromptID() async throws {
         let sessionID = UUID()
         let legacyPayload = """
@@ -109,6 +114,7 @@ final class ChatHistoryStoreTests: XCTestCase {
         XCTAssertNil(session.selectedSystemPromptID)
     }
 
+    @MainActor
     func testFetchEventsKeepsSessionsIsolatedAndChronological() async throws {
         let firstSession = ChatSession(title: "First")
         let secondSession = ChatSession(title: "Second")
@@ -138,6 +144,7 @@ final class ChatHistoryStoreTests: XCTestCase {
         XCTAssertEqual(secondEvents, [otherEvent])
     }
 
+    @MainActor
     func testToolTimelineEventsPersistArgumentsAndResults() async throws {
         let session = ChatSession(title: "Tool Call")
         let toolCall = ChatToolCall(
@@ -163,6 +170,7 @@ final class ChatHistoryStoreTests: XCTestCase {
         XCTAssertEqual(events, [toolCallsEvent, completedEvent])
     }
 
+    @MainActor
     func testChatToolCallDecodesLegacyStringArguments() throws {
         let data = try XCTUnwrap(
             """
@@ -183,6 +191,7 @@ final class ChatHistoryStoreTests: XCTestCase {
         XCTAssertEqual(toolCall.presentationName, "Weather Search")
     }
 
+    @MainActor
     func testTimelineAccumulatorMergesConsecutiveTextDeltas() {
         var accumulator = ChatTimelineAccumulator()
         let startedAt = Date(timeIntervalSince1970: 10)
@@ -215,6 +224,7 @@ final class ChatHistoryStoreTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testTimelineEventsDeriveProviderMessages() {
         let toolCall = ChatToolCall(
             id: "call_1",
@@ -257,6 +267,7 @@ final class ChatHistoryStoreTests: XCTestCase {
         XCTAssertEqual(messages[3].content, "It is 20C.")
     }
 
+    @MainActor
     func testTimelineEventsKeepToolCallBatchTogether() {
         let firstToolCall = ChatToolCall(
             id: "call_1",
@@ -297,6 +308,7 @@ final class ChatHistoryStoreTests: XCTestCase {
         XCTAssertEqual(messages[3].toolCallID, "call_2")
     }
 
+    @MainActor
     func testDeleteSessionRemovesSessionAndEvents() async throws {
         let session = ChatSession(title: "Delete Me")
         let event = ChatTimelineEvent(kind: .userMessage(text: "Remove this"))
@@ -313,6 +325,7 @@ final class ChatHistoryStoreTests: XCTestCase {
         XCTAssertTrue(events.isEmpty)
     }
 
+    @MainActor
     func testAttachmentStoreCreatesDistinctAttachmentsForDuplicateData() throws {
         let data = Data("same file bytes".utf8)
 
@@ -338,6 +351,7 @@ final class ChatHistoryStoreTests: XCTestCase {
         XCTAssertEqual(try attachmentStore.loadData(for: second), data)
     }
 
+    @MainActor
     func testSaveEventsRemovesAttachmentNoLongerReferencedBySession() async throws {
         let session = ChatSession(title: "Replacement")
         let attachment = try attachmentStore.store(
@@ -361,6 +375,7 @@ final class ChatHistoryStoreTests: XCTestCase {
         XCTAssertNil(attachmentStore.fileURL(for: attachment))
     }
 
+    @MainActor
     func testSaveEventsKeepsAttachmentReferencedByMessageRevision() async throws {
         let session = ChatSession(title: "Revision Attachment")
         let messageID = UUID()
@@ -398,6 +413,7 @@ final class ChatHistoryStoreTests: XCTestCase {
         XCTAssertNil(attachmentStore.fileURL(for: attachment))
     }
 
+    @MainActor
     func testDeleteSessionRemovesUnreferencedAttachmentFile() async throws {
         let session = ChatSession(title: "Attachment")
         let attachment = try attachmentStore.store(
@@ -420,6 +436,7 @@ final class ChatHistoryStoreTests: XCTestCase {
         XCTAssertNil(attachmentStore.fileURL(for: attachment))
     }
 
+    @MainActor
     func testDeleteSessionKeepsAttachmentFileReferencedByAnotherSession() async throws {
         let firstSession = ChatSession(title: "First")
         let secondSession = ChatSession(title: "Second")

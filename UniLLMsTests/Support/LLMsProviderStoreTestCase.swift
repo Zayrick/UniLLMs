@@ -8,18 +8,12 @@ import XCTest
 @testable import UniLLMs
 
 class LLMsProviderStoreTestCase: UserDefaultsBackedTestCase {
-    var store: LLMProviderStore!
-
-    override func setUpWithError() throws {
-        try super.setUpWithError()
-        store = LLMProviderStore(defaults: defaults, storageKey: "providers")
+    @MainActor
+    var store: LLMProviderStore {
+        LLMProviderStore(defaults: defaults, storageKey: "providers")
     }
 
-    override func tearDownWithError() throws {
-        store = nil
-        try super.tearDownWithError()
-    }
-
+    @MainActor
     func makeProviderManager(
         adapters: [any LLMsProviderAdapter] = [TestRemoteProvider()]
     ) -> LLMsProviderManager {
@@ -29,17 +23,20 @@ class LLMsProviderStoreTestCase: UserDefaultsBackedTestCase {
         )
     }
 
+    @MainActor
     func makeTestProviderDraft() throws -> LLMsProviderRecord {
         try makeProviderManager().makeProviderDraft(kind: TestRemoteProvider.providerKind)
     }
 
     @discardableResult
+    @MainActor
     func addTestProvider() throws -> LLMsProviderRecord {
         let provider = try makeTestProviderDraft()
         store.saveProvider(provider)
         return provider
     }
 
+    @MainActor
     var testProviderDefaultAPIBase: String {
         TestRemoteProvider().defaultConfiguration[TestRemoteProvider.ConfigurationKey.apiBase]
     }

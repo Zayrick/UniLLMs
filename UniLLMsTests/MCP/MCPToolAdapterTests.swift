@@ -8,6 +8,7 @@ import XCTest
 @testable import UniLLMs
 
 final class MCPToolAdapterTests: XCTestCase {
+    @MainActor
     func testExecuteMapsMCPErrorResultToToolErrorStatus() async throws {
         let client = ToolAdapterMCPClient(result: MCPToolResult(content: "Invalid input.", isError: true))
         let adapter = MCPToolAdapter(

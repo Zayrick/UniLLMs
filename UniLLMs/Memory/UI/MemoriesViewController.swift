@@ -65,7 +65,7 @@ final class MemoriesViewController: UITableViewController {
     private var injectionSettings = MemoryInjectionSettings()
     private var memoryToolItems: [MemoryToolUserFacingItem] = []
     private var memoryCount = 0
-    private var storeObservations: [NSObjectProtocol] = []
+    private var storeObservations: [NotificationObservation] = []
     private var memoryCountTask: Task<Void, Never>?
     private var clearTask: Task<Void, Never>?
 
@@ -79,12 +79,9 @@ final class MemoriesViewController: UITableViewController {
         super.init(coder: coder)
     }
 
-    deinit {
+    isolated deinit {
         memoryCountTask?.cancel()
         clearTask?.cancel()
-        storeObservations.forEach {
-            NotificationCenter.default.removeObserver($0)
-        }
     }
 
     override func viewDidLoad() {
@@ -107,26 +104,32 @@ final class MemoriesViewController: UITableViewController {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.handleToolSettingsStoreChange()
+            Task { @MainActor [weak self] in
+                self?.handleToolSettingsStoreChange()
+            }
         }
         let memoryObservation = NotificationCenter.default.addObserver(
             forName: UserDefaultsMemoryStore.didChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.reloadMemoryCount()
+            Task { @MainActor [weak self] in
+                self?.reloadMemoryCount()
+            }
         }
         let memorySettingsObservation = NotificationCenter.default.addObserver(
             forName: UserDefaultsMemorySettingsStore.didChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.reloadInjectionSettings()
+            Task { @MainActor [weak self] in
+                self?.reloadInjectionSettings()
+            }
         }
         storeObservations = [
-            toolSettingsObservation,
-            memoryObservation,
-            memorySettingsObservation
+            NotificationObservation(toolSettingsObservation),
+            NotificationObservation(memoryObservation),
+            NotificationObservation(memorySettingsObservation)
         ]
     }
 

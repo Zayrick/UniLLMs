@@ -9,6 +9,7 @@ import XCTest
 
 @MainActor
 final class LLMsProviderRegistryTests: XCTestCase {
+    @MainActor
     func testAdaptersPreserveRegistrationOrder() {
         let first = RegistryTestProvider(kind: "first", displayName: "First")
         let second = RegistryTestProvider(kind: "second", displayName: "Second")
@@ -18,6 +19,7 @@ final class LLMsProviderRegistryTests: XCTestCase {
         XCTAssertEqual(registry.adapters.map(\.kind.rawValue), ["first", "second"])
     }
 
+    @MainActor
     func testRegisteringSameKindReplacesAdapterWithoutDuplicatingOrder() {
         let first = RegistryTestProvider(kind: "provider", displayName: "Original")
         let replacement = RegistryTestProvider(kind: "provider", displayName: "Replacement")
@@ -29,6 +31,7 @@ final class LLMsProviderRegistryTests: XCTestCase {
         XCTAssertEqual(registry.adapters.count, 1)
     }
 
+    @MainActor
     func testAdapterForUnknownKindReturnsNil() {
         let registry = LLMsProviderRegistry()
 

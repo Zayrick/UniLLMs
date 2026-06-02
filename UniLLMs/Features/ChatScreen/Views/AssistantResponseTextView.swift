@@ -465,7 +465,7 @@ final class AssistantResponseTextView: UIView {
         copyMarkdownButton.playAppearAnimation()
 
         guard window != nil,
-              !UIAccessibility.isReduceMotionEnabled else {
+              !AccessibilityPreferences.isReduceMotionEnabled else {
             copyButtonContainerView.alpha = 1.0
             copyButtonContainerView.transform = .identity
             return
@@ -611,7 +611,7 @@ final class AssistantResponseTextView: UIView {
 
         func playAppearAnimation() {
             guard window != nil,
-                  !UIAccessibility.isReduceMotionEnabled else {
+                  !AccessibilityPreferences.isReduceMotionEnabled else {
                 return
             }
 
@@ -644,7 +644,7 @@ final class AssistantResponseTextView: UIView {
             guard animated,
                   window != nil,
                   let imageView,
-                  !UIAccessibility.isReduceMotionEnabled else {
+                  !AccessibilityPreferences.isReduceMotionEnabled else {
                 setButtonImage(image)
                 completion?()
                 return

@@ -9,6 +9,7 @@ import XCTest
 @testable import UniLLMs
 
 final class ChatTurnRunnerTests: LLMsProviderStoreTestCase {
+    @MainActor
     func testChatTurnRunnerMapsErrorToolResultToFailedToolEvent() async throws {
         let providerManager = makeProviderManager(adapters: [ToolLoopTestProvider()])
         let runner = ChatTurnRunner(
@@ -72,6 +73,7 @@ final class ChatTurnRunnerTests: LLMsProviderStoreTestCase {
         XCTAssertEqual(message, "Invalid tool input.")
     }
 
+    @MainActor
     func testChatTurnRunnerKeepsSystemPromptSingleAcrossToolLoop() async throws {
         let adapter = CapturingToolLoopProvider()
         let providerManager = makeProviderManager(adapters: [adapter])
@@ -121,6 +123,7 @@ final class ChatTurnRunnerTests: LLMsProviderStoreTestCase {
         })
     }
 
+    @MainActor
     func testChatTurnRunnerUsesOriginalToolCallIDForProviderToolMessage() async throws {
         let adapter = CapturingToolLoopProvider()
         let providerManager = makeProviderManager(adapters: [adapter])

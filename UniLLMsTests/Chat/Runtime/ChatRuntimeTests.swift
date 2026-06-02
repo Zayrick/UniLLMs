@@ -9,6 +9,7 @@ import XCTest
 
 @MainActor
 final class ChatRuntimeTests: LLMsProviderStoreTestCase {
+    @MainActor
     func testSelectingSystemPromptWithoutMessagesDoesNotCreateHistorySession() async throws {
         let prompt = SystemPromptRecord(title: "Translator", content: "Always answer in Chinese.")
         let promptStore = InMemorySystemPromptStore(prompts: [prompt])
@@ -25,6 +26,7 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
         XCTAssertTrue(sessions.isEmpty)
     }
 
+    @MainActor
     func testFailedFirstTurnWithSystemPromptClearsOptimisticHistoryEvent() async throws {
         let prompt = SystemPromptRecord(title: "Translator", content: "Always answer in Chinese.")
         let promptStore = InMemorySystemPromptStore(prompts: [prompt])
@@ -47,6 +49,7 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
         XCTAssertTrue(sessions.isEmpty)
     }
 
+    @MainActor
     func testSuccessfulFirstTurnWithSystemPromptSendsPromptAndPersistsSelection() async throws {
         let prompt = SystemPromptRecord(title: "Translator", content: "Always answer in Chinese.")
         let promptStore = InMemorySystemPromptStore(prompts: [prompt])
@@ -78,6 +81,7 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
         XCTAssertEqual(session.selectedSystemPromptID, prompt.id)
     }
 
+    @MainActor
     func testSelectingSystemPromptDuringActiveTurnUpdatesNextTurnSelectionOnly() async throws {
         let firstPrompt = SystemPromptRecord(title: "First", content: "Use the first prompt.")
         let secondPrompt = SystemPromptRecord(title: "Second", content: "Use the second prompt.")
@@ -106,6 +110,7 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
         XCTAssertEqual(session.selectedSystemPromptID, secondPrompt.id)
     }
 
+    @MainActor
     func testEditingPriorUserMessageResendsFromThatPointOnly() async throws {
         let adapter = CapturingRuntimeProvider()
         let (runtime, historyStore) = makeRuntime(
@@ -153,6 +158,7 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
         XCTAssertEqual(archivedText, "Second")
     }
 
+    @MainActor
     func testResendingOriginalUserMessageArchivesCurrentBranch() async throws {
         let adapter = CapturingRuntimeProvider()
         let (runtime, historyStore) = makeRuntime(
@@ -188,6 +194,7 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
         XCTAssertEqual(revisions.first?.firstUserMessageText, "Repeat this")
     }
 
+    @MainActor
     func testSwitchingToMessageRevisionArchivesCurrentBranch() async throws {
         let adapter = CapturingRuntimeProvider()
         let (runtime, historyStore) = makeRuntime(
@@ -236,6 +243,7 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
         XCTAssertEqual(archivedText, "Edited second")
     }
 
+    @MainActor
     func testMessageRevisionsStayInArchivedOrder() async throws {
         let adapter = CapturingRuntimeProvider()
         let (runtime, _) = makeRuntime(

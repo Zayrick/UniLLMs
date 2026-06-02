@@ -9,6 +9,7 @@ import XCTest
 @testable import UniLLMs
 
 final class MCPHTTPClientTests: XCTestCase {
+    @MainActor
     func testMCPToolResultPreservesExecutionErrorStatus() {
         let result = MCPHTTPClient.toolResult(
             from: .object([

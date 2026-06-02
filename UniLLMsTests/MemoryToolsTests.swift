@@ -8,6 +8,7 @@ import XCTest
 @testable import UniLLMs
 
 final class MemoryToolsTests: UserDefaultsBackedTestCase {
+    @MainActor
     func testMemoryToolsAddSearchUpdateListAndDeleteMemories() async throws {
         let manager = MemoryManager(
             store: UserDefaultsMemoryStore(
@@ -87,6 +88,7 @@ final class MemoryToolsTests: UserDefaultsBackedTestCase {
         XCTAssertTrue(memories.isEmpty)
     }
 
+    @MainActor
     func testMemoryAddToolRejectsEmptyText() async throws {
         let manager = MemoryManager(
             store: UserDefaultsMemoryStore(
@@ -109,6 +111,7 @@ final class MemoryToolsTests: UserDefaultsBackedTestCase {
         XCTAssertTrue(memories.isEmpty)
     }
 
+    @MainActor
     func testMemorySearchToolRejectsInvalidLimit() async throws {
         let manager = MemoryManager(
             store: UserDefaultsMemoryStore(

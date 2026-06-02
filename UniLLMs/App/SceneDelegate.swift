@@ -12,13 +12,16 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     var window: UIWindow?
 
-
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
-        guard scene is UIWindowScene else { return }
+        guard let windowScene = scene as? UIWindowScene else { return }
 
-        if let chatViewController = window?.rootViewController as? ChatViewController {
-            chatViewController.configure(dependencies: AppEnvironment.shared.dependencies)
-        }
+        let chatViewController = ChatViewController()
+        chatViewController.configure(dependencies: AppEnvironment.shared.dependencies)
+
+        let window = UIWindow(windowScene: windowScene)
+        window.rootViewController = chatViewController
+        self.window = window
+        window.makeKeyAndVisible()
     }
 
     func sceneDidDisconnect(_ scene: UIScene) {
@@ -48,8 +51,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // Use this method to save data, release shared resources, and store enough scene-specific state information
         // to restore the scene back to its current state.
 
-        (UIApplication.shared.delegate as? AppDelegate)?.saveContext()
+        AppEnvironment.shared.dependencies.coreDataStack.saveContext()
     }
-
 
 }

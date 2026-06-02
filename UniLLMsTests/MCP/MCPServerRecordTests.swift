@@ -8,6 +8,7 @@ import XCTest
 @testable import UniLLMs
 
 final class MCPServerRecordTests: XCTestCase {
+    @MainActor
     func testDisplayNameUsesTrimmedNameWhenPresent() {
         let server = MCPServerRecord(
             name: "  Team Tools  ",
@@ -17,6 +18,7 @@ final class MCPServerRecordTests: XCTestCase {
         XCTAssertEqual(server.displayName, "Team Tools")
     }
 
+    @MainActor
     func testDisplayNameFallsBackToEndpointHost() {
         let server = MCPServerRecord(
             name: " ",
@@ -26,6 +28,7 @@ final class MCPServerRecordTests: XCTestCase {
         XCTAssertEqual(server.displayName, "tools.example.com")
     }
 
+    @MainActor
     func testDisplayNameFallsBackToGenericNameWhenNameAndEndpointAreEmpty() {
         let server = MCPServerRecord(name: "", configuration: MCPServerConfiguration(endpoint: ""))
 

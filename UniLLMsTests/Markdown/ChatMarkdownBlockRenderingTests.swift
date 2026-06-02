@@ -9,6 +9,7 @@ import XCTest
 @testable import UniLLMs
 
 final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
+    @MainActor
     func testMarkdownThematicBreakRendersAsVisualDivider() throws {
         let attributedText = renderMarkdownText("Above\n\n---\n\nBelow")
 
@@ -18,6 +19,7 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertTrue(attributedText.containsTextAttachment)
     }
 
+    @MainActor
     func testMarkdownTableRendersAsDedicatedBlock() throws {
         let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let blocks = renderer.render(
@@ -40,6 +42,7 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(tableData.rows[1][0].accessibilityText, "Tables")
     }
 
+    @MainActor
     func testMarkdownCodeBlockRendersAsDedicatedBlockWithLanguageFallback() throws {
         let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let blocks = renderer.render(
@@ -80,6 +83,7 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(fallbackCodeBlock.code, "plain")
     }
 
+    @MainActor
     func testMarkdownStandaloneImageRendersAsDedicatedBlock() throws {
         let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let blocks = renderer.render(
@@ -115,6 +119,7 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(outroText.string, "Outro")
     }
 
+    @MainActor
     func testMarkdownTaskListUsesSymbolAttachmentWithReadableAccessibilityText() throws {
         let rendered = renderMarkdownText("- [ ] Todo")
 
@@ -124,6 +129,7 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertFalse(rendered.chatAccessibilityString.contains("\u{fffc}"))
     }
 
+    @MainActor
     func testMarkdownBareURLUsesRendererLinkAttribute() throws {
         let rendered = renderMarkdownText("Visit https://example.com/docs now")
         let linkRange = (rendered.string as NSString).range(of: "https://example.com/docs")
@@ -133,6 +139,7 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(url?.absoluteString, "https://example.com/docs")
     }
 
+    @MainActor
     func testMarkdownRendererKeepsSingleColumnPipeTableAsTable() throws {
         let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let blocks = renderer.render(
@@ -153,6 +160,7 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(tableData.rows.count, 2)
     }
 
+    @MainActor
     func testMarkdownTableInlineCodeUsesRoundedPillAttributesAndCleanAccessibilityText() throws {
         let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let blocks = renderer.render(
@@ -182,6 +190,7 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
         )
     }
 
+    @MainActor
     func testMarkdownTableNestedStrongEmphasisCombinesFontTraits() throws {
         let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let blocks = renderer.render(
@@ -205,6 +214,7 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertTrue(traits.contains(.traitItalic))
     }
 
+    @MainActor
     func testMarkdownBlockQuoteNestedInlineStylesCompose() throws {
         let attributedText = renderMarkdownText("> ***Quoted*** `id`")
         let quoteFont = try XCTUnwrap(attributedText.font(containing: "Quoted"))
@@ -224,6 +234,7 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
         )
     }
 
+    @MainActor
     func testMarkdownNestedListRendersIncreasingIndents() throws {
         let attributedText = renderMarkdownText("- Parent\n  - Child\n    - Grandchild")
 
@@ -237,6 +248,7 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertGreaterThan(grandchildStyle.headIndent, childStyle.headIndent)
     }
 
+    @MainActor
     func testMarkdownBlockQuotePreservesNestedListIndents() throws {
         let attributedText = renderMarkdownText("> - Parent\n>   - Child\n>     - Grandchild")
 
@@ -250,6 +262,7 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertGreaterThan(grandchildStyle.headIndent, childStyle.headIndent)
     }
 
+    @MainActor
     func testMarkdownNestedBlockQuoteRendersIncreasingIndents() throws {
         let attributedText = renderMarkdownText("> Outer\n>\n> > Inner")
 
@@ -260,6 +273,7 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertGreaterThan(innerStyle.headIndent, outerStyle.headIndent)
     }
 
+    @MainActor
     func testMarkdownBlockQuoteStoresBarPositionAtLeadingMargin() throws {
         let attributedText = renderMarkdownText("> Quote")
         let positions = try XCTUnwrap(attributedText.blockQuoteBarPositions(containing: "Quote"))
@@ -268,6 +282,7 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(positions[0], ChatMarkdownBlockQuoteStyle.barLeading, accuracy: 0.001)
     }
 
+    @MainActor
     func testMarkdownNestedBlockQuoteStoresBarPositionForEachLevel() throws {
         let attributedText = renderMarkdownText("> Outer\n>\n> > Inner")
         let positions = try XCTUnwrap(attributedText.blockQuoteBarPositions(containing: "Inner"))
@@ -281,6 +296,7 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
         )
     }
 
+    @MainActor
     func testMarkdownListContinuationPreservesNestedBlockQuoteIndent() throws {
         let attributedText = renderMarkdownText("- Item\n  > Quote")
 
@@ -291,6 +307,7 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertGreaterThan(quoteStyle.headIndent, itemStyle.headIndent)
     }
 
+    @MainActor
     func testMarkdownListContinuationOffsetsNestedBlockQuoteBarPosition() throws {
         let attributedText = renderMarkdownText("- Item\n  > Quote")
 
@@ -305,6 +322,7 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
         )
     }
 
+    @MainActor
     func testMarkdownBlockQuoteKeepsOuterBarBeforeNestedListMarker() throws {
         let attributedText = renderMarkdownText("> - Item")
 
@@ -316,6 +334,7 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertGreaterThan(itemStyle.firstLineHeadIndent, positions[0])
     }
 
+    @MainActor
     func testMarkdownOrderedListUsesStableContentIndentAcrossDigitWidths() throws {
         let attributedText = renderMarkdownText("9. Nine\n10. Ten")
 
@@ -325,6 +344,7 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(nineStyle.headIndent, tenStyle.headIndent)
     }
 
+    @MainActor
     func testMarkdownTaskListRendersCheckboxMarkers() throws {
         let attributedText = renderMarkdownText("- [x] Done\n- [ ] Todo")
 

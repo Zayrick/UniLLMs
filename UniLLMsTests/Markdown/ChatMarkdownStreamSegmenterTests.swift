@@ -9,6 +9,7 @@ import XCTest
 @testable import UniLLMs
 
 final class ChatMarkdownStreamSegmenterTests: XCTestCase {
+    @MainActor
     func testMarkdownStreamSegmenterCompletesStableBlocksAndLeavesCurrentTail() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -30,6 +31,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "![Alt](https://example.com/image.png)\nNext")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterCompletesDisplayLatexBlock() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -52,6 +54,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "Next paragraph")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterKeepsBlockQuoteAsOutermostSegment() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -73,6 +76,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "Next")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterKeepsLazyBlockQuoteContinuationInQuoteSegment() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -94,6 +98,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "Next")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterDoesNotLetHeadingBlockQuoteUseLazyContinuation() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -110,6 +115,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "After")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterDoesNotLetEmptyBlockQuoteUseLazyContinuation() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -126,6 +132,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "After")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterSeparatesBlankLineBetweenBlockQuotes() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -141,6 +148,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "> Second")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterDoesNotTreatLazyLineAsBlockQuoteCodeFenceBody() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -150,6 +158,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "After")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterCompletesTableWhenNextSegmentStarts() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -172,6 +181,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "After")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterCompletesSingleColumnTableWhenNextSegmentStarts() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -194,6 +204,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "After")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterDoesNotTreatFourSpaceIndentedFenceAsTopLevelFence() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -209,6 +220,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "After")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterDoesNotTreatFourSpaceIndentedDisplayMathAsTopLevelMath() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -224,6 +236,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "After")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterDoesNotCloseDisplayMathWithIndentedDelimiter() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -233,6 +246,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "$$\nx\n    $$\ntail")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterKeepsNonPipeTableBodyRowsInTable() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -256,6 +270,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "After")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterDoesNotSplitMismatchedTableHeaderAndDelimiter() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -277,6 +292,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "After")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterIgnoresPipeInsideHeaderCodeSpan() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -299,6 +315,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "After")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterDoesNotLetNonOneOrderedListInterruptParagraph() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -320,6 +337,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "After")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterDoesNotLetEmptyListItemInterruptParagraph() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -336,6 +354,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "After")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterDoesNotTreatSingleHyphenAsSetextUnderline() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -352,6 +371,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "After")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterNormalizesSplitCRLFOnce() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -362,6 +382,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "After")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterKeepsHTMLDetailsAsOutermostSegment() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -375,6 +396,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "After")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterDoesNotCompleteOpenHTMLDetailsBeforeClosingTag() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -385,6 +407,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, detailsMarkdown)
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterKeepsRawHTMLBlockUntilTerminatorAcrossBlankLines() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -408,6 +431,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "After")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterEndsTableBeforeIndentedCodeBlock() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -431,6 +455,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "After")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterRecognizesTypeSevenClosingHTMLBlock() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -440,6 +465,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "After")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterRecognizesSourceHTMLBlockTag() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -449,6 +475,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "After")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterEndsTableBeforeTypeSevenHTMLBlock() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -473,6 +500,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "After")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterKeepsStandaloneImageLineInsideTableBody() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -495,6 +523,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "After")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterKeepsMalformedHTMLTagInsideTableBody() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -517,6 +546,7 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "After")
     }
 
+    @MainActor
     func testMarkdownStreamSegmenterDoesNotTreatInlineDetailsTextAsHTMLBlock() {
         var segmenter = ChatMarkdownStreamSegmenter()
 

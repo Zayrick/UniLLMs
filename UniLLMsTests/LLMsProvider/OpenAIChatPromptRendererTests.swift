@@ -8,6 +8,7 @@ import XCTest
 @testable import UniLLMs
 
 final class OpenAIChatPromptRendererTests: XCTestCase {
+    @MainActor
     func testRendererCombinesSystemPromptAndMemoriesIntoSingleSystemMessage() throws {
         let prompt = SystemPromptRecord(
             title: "Translator",
@@ -43,6 +44,7 @@ final class OpenAIChatPromptRendererTests: XCTestCase {
         XCTAssertEqual(messages.dropFirst().first?.content, .text("Hello"))
     }
 
+    @MainActor
     func testRendererDoesNotDuplicateInstructionsAcrossToolLoopMessages() throws {
         let prompt = SystemPromptRecord(
             title: "Tools",
@@ -73,6 +75,7 @@ final class OpenAIChatPromptRendererTests: XCTestCase {
         XCTAssertEqual(messages[3].toolCallID, "call_1")
     }
 
+    @MainActor
     func testRendererOmitsBlankSystemPromptAndBlankMemories() throws {
         let prompt = SystemPromptRecord(
             title: "Blank",
@@ -95,6 +98,7 @@ final class OpenAIChatPromptRendererTests: XCTestCase {
         XCTAssertEqual(messages.first?.content, .text("Hello"))
     }
 
+    @MainActor
     func testRendererKeepsReasoningOnlyAssistantMessageValid() throws {
         let messages = try OpenAIChatPromptRenderer.messages(
             for: ChatRequest(
@@ -112,6 +116,7 @@ final class OpenAIChatPromptRendererTests: XCTestCase {
         XCTAssertEqual(payload["content"] as? String, "")
     }
 
+    @MainActor
     func testOpenAICompatibleRendererKeepsReasoningOnlyAssistantMessageValid() throws {
         let messages = try OpenAICompatibleChatPromptRenderer.messages(
             for: ChatRequest(

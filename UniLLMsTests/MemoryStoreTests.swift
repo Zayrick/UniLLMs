@@ -8,6 +8,7 @@ import XCTest
 @testable import UniLLMs
 
 final class MemoryStoreTests: UserDefaultsBackedTestCase {
+    @MainActor
     func testMemoryStorePersistsUpdatesAndDeletesRecords() async throws {
         let store = UserDefaultsMemoryStore(
             defaults: defaults,
@@ -41,6 +42,7 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
         XCTAssertTrue(savedMemories.isEmpty)
     }
 
+    @MainActor
     func testMemoryRecordDecodingDefaultsUpdatedAtToCreatedAt() throws {
         let id = UUID()
         let json = """
@@ -60,6 +62,7 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
         XCTAssertEqual(memory.updatedAt, memory.createdAt)
     }
 
+    @MainActor
     func testMemoryInjectionSettingsRoundTripsSmartFilter() throws {
         let settings = MemoryInjectionSettings(
             isEnabled: true,
@@ -73,6 +76,7 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
         XCTAssertEqual(decodedSettings, settings)
     }
 
+    @MainActor
     func testMemoryInjectionSettingsDefaultsToSmartFilterWithFiveMemories() {
         let settings = MemoryInjectionSettings()
 
@@ -81,6 +85,7 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
         XCTAssertEqual(settings.maximumMemories, 5)
     }
 
+    @MainActor
     func testMemoryManagerSearchesCaseInsensitiveTerms() async throws {
         let store = UserDefaultsMemoryStore(
             defaults: defaults,
@@ -99,6 +104,7 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
         XCTAssertEqual(matches.map(\.text), ["User prefers concise Chinese responses."])
     }
 
+    @MainActor
     func testMemoryRetrieverAppliesInjectionSettingsIntersection() async throws {
         let store = UserDefaultsMemoryStore(
             defaults: defaults,
@@ -152,6 +158,7 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
         XCTAssertEqual(memories.map(\.text), ["Most recent memory"])
     }
 
+    @MainActor
     func testMemoryRetrieverReturnsNoMemoriesWhenInjectionIsDisabled() async throws {
         let store = UserDefaultsMemoryStore(
             defaults: defaults,
@@ -179,6 +186,7 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
         XCTAssertTrue(memories.isEmpty)
     }
 
+    @MainActor
     func testMemoryRetrieverDoesNotFilterInjectedMemoriesByPromptKeywords() async throws {
         let store = UserDefaultsMemoryStore(
             defaults: defaults,
@@ -210,6 +218,7 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
         XCTAssertEqual(memories.map(\.text), ["User prefers concise answers."])
     }
 
+    @MainActor
     func testMemoryRetrieverSmartFilterRanksPartialKeywordMatches() async throws {
         let store = UserDefaultsMemoryStore(
             defaults: defaults,
@@ -264,6 +273,7 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
         )
     }
 
+    @MainActor
     func testMemoryRetrieverSmartFilterUsesDefaultMemoryCount() async throws {
         let store = UserDefaultsMemoryStore(
             defaults: defaults,
@@ -298,6 +308,7 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
         XCTAssertEqual(settingsStore.loadInjectionSettings().maximumMemories, 5)
     }
 
+    @MainActor
     func testMemoryRetrieverSmartFilterMatchesCJKBigramsWithoutSingleCharacterFalsePositives() async throws {
         let store = UserDefaultsMemoryStore(
             defaults: defaults,
@@ -335,6 +346,7 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
         XCTAssertEqual(memories.map(\.text), ["上海旅行应该安排高铁。"])
     }
 
+    @MainActor
     func testMemoryRetrieverSupportsUnlimitedInjectionCount() async throws {
         let store = UserDefaultsMemoryStore(
             defaults: defaults,
@@ -366,6 +378,7 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
         XCTAssertNil(settingsStore.loadInjectionSettings().maximumMemories)
     }
 
+    @MainActor
     func testMemoryManagerDeletesAllMemoriesInScope() async throws {
         let store = UserDefaultsMemoryStore(
             defaults: defaults,

@@ -9,6 +9,7 @@ import XCTest
 @testable import UniLLMs
 
 class ChatMarkdownRenderingTestCase: XCTestCase {
+    @MainActor
     var markdownRendererTraits: UITraitCollection {
         UITraitCollection { traits in
             traits.displayScale = 2.0
@@ -16,6 +17,7 @@ class ChatMarkdownRenderingTestCase: XCTestCase {
         }
     }
 
+    @MainActor
     func renderMarkdownText(
         _ markdown: String,
         file: StaticString = #filePath,

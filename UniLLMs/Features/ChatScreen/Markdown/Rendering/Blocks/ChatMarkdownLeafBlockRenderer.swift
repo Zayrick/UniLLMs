@@ -109,10 +109,10 @@ final class ChatMarkdownLeafBlockRenderer {
     }
 }
 
-final class HorizontalRuleTextAttachment: NSTextAttachment {
-    static let totalHeight: CGFloat = 14.0
+nonisolated final class HorizontalRuleTextAttachment: NSTextAttachment {
+    nonisolated static let totalHeight: CGFloat = 14.0
 
-    init(color: UIColor, traitCollection: UITraitCollection) {
+    nonisolated init(color: UIColor, traitCollection: UITraitCollection) {
         let lineHeight = 1.0 / traitCollection.displayScale
         super.init(data: nil, ofType: nil)
         image = Self.makeImage(
@@ -122,11 +122,11 @@ final class HorizontalRuleTextAttachment: NSTextAttachment {
         )
     }
 
-    required init?(coder: NSCoder) {
+    nonisolated required init?(coder: NSCoder) {
         super.init(coder: coder)
     }
 
-    override func attachmentBounds(
+    nonisolated override func attachmentBounds(
         for textContainer: NSTextContainer?,
         proposedLineFragment lineFrag: CGRect,
         glyphPosition position: CGPoint,
@@ -140,7 +140,7 @@ final class HorizontalRuleTextAttachment: NSTextAttachment {
         )
     }
 
-    private static func makeImage(
+    private nonisolated static func makeImage(
         color: UIColor,
         traitCollection: UITraitCollection,
         lineHeight: CGFloat

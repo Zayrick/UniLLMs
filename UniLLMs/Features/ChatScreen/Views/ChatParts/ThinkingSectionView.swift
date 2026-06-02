@@ -300,7 +300,7 @@ final class ThinkingSectionView: UIView {
             self.superview?.setNeedsLayout()
         }
 
-        guard animated, window != nil, !UIAccessibility.isReduceMotionEnabled else {
+        guard animated, window != nil, !AccessibilityPreferences.isReduceMotionEnabled else {
             updates()
             completion()
             return

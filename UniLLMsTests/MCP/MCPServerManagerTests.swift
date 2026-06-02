@@ -8,6 +8,7 @@ import XCTest
 @testable import UniLLMs
 
 final class MCPServerManagerTests: XCTestCase {
+    @MainActor
     func testLoadToolsOnlyConnectsEnabledServers() async {
         let enabledServer = MCPServerRecord(
             name: "Enabled",
@@ -39,6 +40,7 @@ final class MCPServerManagerTests: XCTestCase {
         XCTAssertEqual(disabledClient.connectCallCount, 0)
     }
 
+    @MainActor
     func testLoadToolsSkipsFailingServerAndKeepsOtherServers() async {
         let failingServer = MCPServerRecord(name: "Failing")
         let workingServer = MCPServerRecord(name: "Working")

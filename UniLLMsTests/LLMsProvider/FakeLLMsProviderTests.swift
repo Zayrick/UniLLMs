@@ -9,6 +9,7 @@ import XCTest
 @testable import UniLLMs
 
 final class FakeLLMsProviderTests: XCTestCase {
+    @MainActor
     func testFakeStaticModelReturnsSingleDelayedResponse() async throws {
         let provider = FakeLLMsProvider(staticResponseDelayNanoseconds: 0)
         var deltas: [ChatResponseDelta] = []
@@ -28,6 +29,7 @@ final class FakeLLMsProviderTests: XCTestCase {
         XCTAssertTrue(deltas[0].content.contains("fake static response"))
     }
 
+    @MainActor
     func testFakeStreamModelYieldsResponseOneCharacterAtATime() async throws {
         let provider = FakeLLMsProvider(
             streamInitialDelayNanoseconds: 0,
@@ -50,6 +52,7 @@ final class FakeLLMsProviderTests: XCTestCase {
         XCTAssertTrue(streamedContent.contains("fake streaming response"))
     }
 
+    @MainActor
     func testFakeMarkdownStaticModelReturnsSingleMarkdownFixture() async throws {
         let provider = FakeLLMsProvider(staticResponseDelayNanoseconds: 0)
         var deltas: [ChatResponseDelta] = []
@@ -72,6 +75,7 @@ final class FakeLLMsProviderTests: XCTestCase {
         XCTAssertTrue(deltas[0].content.contains("$$"))
     }
 
+    @MainActor
     func testFakeMarkdownStreamModelYieldsMarkdownFixtureInRandomSizedCharacterChunks() async throws {
         let provider = FakeLLMsProvider(
             streamInitialDelayNanoseconds: 0,

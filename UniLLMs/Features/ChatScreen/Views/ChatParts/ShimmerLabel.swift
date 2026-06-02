@@ -118,13 +118,13 @@ final class ShimmerLabel: UILabel {
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(reduceMotionStatusDidChange),
-            name: UIAccessibility.reduceMotionStatusDidChangeNotification,
+            name: AccessibilityPreferences.reduceMotionStatusDidChangeNotification,
             object: nil
         )
     }
 
     private func updateAnimationState() {
-        if isShimmering, window != nil, !UIAccessibility.isReduceMotionEnabled {
+        if isShimmering, window != nil, !AccessibilityPreferences.isReduceMotionEnabled {
             startShimmering()
         } else {
             stopShimmering()

@@ -16,7 +16,7 @@ final class MemoryListViewController: UITableViewController {
     private let searchController = UISearchController(searchResultsController: nil)
     private var memories: [MemoryRecord] = []
     private var visibleMemories: [MemoryRecord] = []
-    private var storeObservation: NSObjectProtocol?
+    private var storeObservation: NotificationObservation?
     private var reloadTask: Task<Void, Never>?
 
     init(dependencies: AppDependencyContainer = AppEnvironment.shared.dependencies) {
@@ -29,11 +29,8 @@ final class MemoryListViewController: UITableViewController {
         super.init(coder: coder)
     }
 
-    deinit {
+    isolated deinit {
         reloadTask?.cancel()
-        if let storeObservation {
-            NotificationCenter.default.removeObserver(storeObservation)
-        }
     }
 
     override func viewDidLoad() {
@@ -70,13 +67,17 @@ final class MemoryListViewController: UITableViewController {
     }
 
     private func installStoreObserver() {
-        storeObservation = NotificationCenter.default.addObserver(
-            forName: UserDefaultsMemoryStore.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.reloadContent()
-        }
+        storeObservation = NotificationObservation(
+            NotificationCenter.default.addObserver(
+                forName: UserDefaultsMemoryStore.didChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.reloadContent()
+                }
+            }
+        )
     }
 
     private func reloadContent() {

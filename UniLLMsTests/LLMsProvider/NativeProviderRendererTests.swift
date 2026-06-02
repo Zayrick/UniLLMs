@@ -8,6 +8,7 @@ import XCTest
 @testable import UniLLMs
 
 final class NativeProviderRendererTests: XCTestCase {
+    @MainActor
     func testOpenAIRendererCanUseDeveloperInstructionRole() throws {
         let prompt = SystemPromptRecord(
             title: "Developer",
@@ -27,6 +28,7 @@ final class NativeProviderRendererTests: XCTestCase {
         XCTAssertEqual(messages.first?.content, .text("Answer tersely."))
     }
 
+    @MainActor
     func testOpenAIRendererThrowsWhenImageAttachmentDataIsMissing() {
         let attachment = ChatAttachment(
             kind: .image,
@@ -54,6 +56,7 @@ final class NativeProviderRendererTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testOpenAICompatibleRendererThrowsWhenImageAttachmentDataIsMissing() {
         let attachment = ChatAttachment(
             kind: .image,
@@ -81,6 +84,7 @@ final class NativeProviderRendererTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testOpenRouterRendererThrowsWhenImageAttachmentDataIsMissing() {
         let attachment = ChatAttachment(
             kind: .image,
@@ -109,6 +113,7 @@ final class NativeProviderRendererTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testAnthropicRendererKeepsToolsAsContentBlocks() throws {
         let prompt = SystemPromptRecord(
             title: "Tools",
@@ -154,6 +159,7 @@ final class NativeProviderRendererTests: XCTestCase {
         XCTAssertEqual(toolBlocks.first?["content"] as? String, "Sunny")
     }
 
+    @MainActor
     func testAnthropicStreamParserAccumulatesToolUseBlocks() throws {
         var accumulator = AnthropicToolCallAccumulator()
 
@@ -187,6 +193,7 @@ final class NativeProviderRendererTests: XCTestCase {
         XCTAssertEqual(toolCall.argumentObject, ["location": .string("SF")])
     }
 
+    @MainActor
     func testGeminiRendererKeepsToolsAsFunctionParts() throws {
         let prompt = SystemPromptRecord(
             title: "Tools",
@@ -237,6 +244,7 @@ final class NativeProviderRendererTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testGeminiRendererPreservesFunctionCallThoughtSignature() throws {
         let toolCall = ChatToolCall(
             id: "call_abc",
@@ -262,6 +270,7 @@ final class NativeProviderRendererTests: XCTestCase {
         XCTAssertEqual(assistantParts.first?["thoughtSignature"] as? String, "signature_abc")
     }
 
+    @MainActor
     func testGeminiRendererUsesErrorKeyForFailedFunctionResponses() throws {
         let renderedPrompt = try GeminiChatPromptRenderer.render(
             request: ChatRequest(
@@ -286,6 +295,7 @@ final class NativeProviderRendererTests: XCTestCase {
         XCTAssertEqual(response["error"] as? String, "Invalid tool input.")
     }
 
+    @MainActor
     func testGeminiStreamParserDecodesTextAndFunctionCallParts() throws {
         var toolCallIndex = 0
         let textDelta = try XCTUnwrap(
@@ -316,6 +326,7 @@ final class NativeProviderRendererTests: XCTestCase {
         XCTAssertEqual(toolCallIndex, 1)
     }
 
+    @MainActor
     func testGeminiStreamParserThrowsWhenPromptIsBlocked() throws {
         var toolCallIndex = 0
 
@@ -330,6 +341,7 @@ final class NativeProviderRendererTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testGeminiStreamParserThrowsWhenCandidateHasBlockedFinishReason() throws {
         var toolCallIndex = 0
 

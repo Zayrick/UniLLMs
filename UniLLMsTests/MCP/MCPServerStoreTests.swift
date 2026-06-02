@@ -9,6 +9,7 @@ import XCTest
 @testable import UniLLMs
 
 final class MCPServerStoreTests: UserDefaultsBackedTestCase {
+    @MainActor
     func testMCPServerStorePersistsServers() {
         let mcpStore = UserDefaultsMCPServerStore(defaults: defaults, storageKey: "mcpServers")
         var server = mcpStore.makeServerDraft()
@@ -35,6 +36,7 @@ final class MCPServerStoreTests: UserDefaultsBackedTestCase {
         XCTAssertEqual(reloadedServer?.configuration.isEnabled, true)
     }
 
+    @MainActor
     func testMCPServerStoreUpdatesMatchingUUID() {
         let mcpStore = UserDefaultsMCPServerStore(defaults: defaults, storageKey: "mcpServers")
         var server = MCPServerRecord(name: "Old")
@@ -47,6 +49,7 @@ final class MCPServerStoreTests: UserDefaultsBackedTestCase {
         XCTAssertEqual(mcpStore.loadServers(), [server])
     }
 
+    @MainActor
     func testMCPServerStoreDeletesMatchingUUIDOnly() {
         let mcpStore = UserDefaultsMCPServerStore(defaults: defaults, storageKey: "mcpServers")
         let first = MCPServerRecord(name: "First")
@@ -59,6 +62,7 @@ final class MCPServerStoreTests: UserDefaultsBackedTestCase {
         XCTAssertEqual(mcpStore.loadServers(), [second])
     }
 
+    @MainActor
     func testMCPServerStoreMovesValidIndicesAndIgnoresInvalidMoves() {
         let mcpStore = UserDefaultsMCPServerStore(defaults: defaults, storageKey: "mcpServers")
         let first = MCPServerRecord(name: "First")

@@ -9,6 +9,7 @@ import XCTest
 @testable import UniLLMs
 
 final class ChatMarkdownHTMLRenderingTests: ChatMarkdownRenderingTestCase {
+    @MainActor
     func testMarkdownInlineHTMLRendersGFMTextSemantics() throws {
         let attributedText = renderMarkdownText(
             "A <strong>bold</strong> <em>italic</em> <code>code</code> H<sub>2</sub>O x<sup>2</sup><br/>next"
@@ -34,6 +35,7 @@ final class ChatMarkdownHTMLRenderingTests: ChatMarkdownRenderingTestCase {
         )
     }
 
+    @MainActor
     func testMarkdownHTMLBlockRendersAllowedTagsAndFiltersDisallowedGFMRawHTML() throws {
         let attributedText = renderMarkdownText(
             """
@@ -62,12 +64,14 @@ final class ChatMarkdownHTMLRenderingTests: ChatMarkdownRenderingTestCase {
         )
     }
 
+    @MainActor
     func testMarkdownHTMLBlockDecodesCommonNamedEntitiesWithoutHTMLImporter() {
         let attributedText = renderMarkdownText("Symbols: &copy; &trade; &mdash; &notareal;")
 
         XCTAssertEqual(attributedText.string, "Symbols: © ™ — &notareal;")
     }
 
+    @MainActor
     func testMarkdownHTMLTagFilterKeepsAllGFMDisallowedRawTagsLiteral() {
         let attributedText = renderMarkdownText(
             """
@@ -89,6 +93,7 @@ final class ChatMarkdownHTMLRenderingTests: ChatMarkdownRenderingTestCase {
         }
     }
 
+    @MainActor
     func testMarkdownHTMLTagFilterDoesNotRenderNestedTagsInsideDisallowedRawHTML() throws {
         let attributedText = renderMarkdownText(
             #"<script><strong>not bold</strong><img src="https://example.com/x.png"><details><summary>Hidden</summary></details></script>"#
@@ -105,6 +110,7 @@ final class ChatMarkdownHTMLRenderingTests: ChatMarkdownRenderingTestCase {
         )
     }
 
+    @MainActor
     func testMarkdownHTMLCommentsAndCustomAnchorsDoNotRenderVisibleText() {
         let attributedText = renderMarkdownText(
             """
@@ -121,6 +127,7 @@ final class ChatMarkdownHTMLRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertFalse(attributedText.string.contains("custom-anchor"))
     }
 
+    @MainActor
     func testMarkdownStandaloneHTMLPictureRendersAsImageBlock() throws {
         let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let blocks = renderer.render(
@@ -149,6 +156,7 @@ final class ChatMarkdownHTMLRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(imageBlock.altText, "Diagram")
     }
 
+    @MainActor
     func testMarkdownWrappedStandaloneHTMLImageRendersAsImageBlock() throws {
         let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let blocks = renderer.render(
@@ -165,6 +173,7 @@ final class ChatMarkdownHTMLRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(imageBlock.altText, "Diagram")
     }
 
+    @MainActor
     func testMarkdownHTMLTableRendersAsNativeTableBlock() throws {
         let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let blocks = renderer.render(
@@ -200,6 +209,7 @@ final class ChatMarkdownHTMLRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertTrue(try XCTUnwrap(tableData.rows[1][0].attributedText.font(containing: "Ada")).fontDescriptor.symbolicTraits.contains(.traitBold))
     }
 
+    @MainActor
     func testMarkdownHTMLDetailsCreatesGitHubStyleDetailsBlock() throws {
         let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let blocks = renderer.render(
@@ -230,6 +240,7 @@ final class ChatMarkdownHTMLRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertTrue(try XCTUnwrap(bodyText.font(containing: "bold")).fontDescriptor.symbolicTraits.contains(.traitBold))
     }
 
+    @MainActor
     func testMarkdownHTMLDetailsRendersBodyInOpeningHTMLBlock() throws {
         let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let blocks = renderer.render(
@@ -263,6 +274,7 @@ final class ChatMarkdownHTMLRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(imageBlock.altText, "Diagram")
     }
 
+    @MainActor
     func testMarkdownHTMLDetailsWithoutSummaryUsesDefaultSummaryAndKeepsBody() throws {
         let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let blocks = renderer.render(
@@ -285,6 +297,7 @@ final class ChatMarkdownHTMLRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(bodyText.string, "Body without summary.")
     }
 
+    @MainActor
     func testMarkdownHTMLDetailsBodyPreservesMarkdownSourceBeforeNestedRendering() throws {
         let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let blocks = renderer.render(
@@ -309,6 +322,7 @@ final class ChatMarkdownHTMLRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertTrue(try XCTUnwrap(bodyText.font(containing: "bold")).fontDescriptor.symbolicTraits.contains(.traitBold))
     }
 
+    @MainActor
     func testMarkdownHTMLDetailsKeepsNestedDetailsInsideOuterBody() throws {
         let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let blocks = renderer.render(
@@ -351,6 +365,7 @@ final class ChatMarkdownHTMLRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(afterText.string, "After")
     }
 
+    @MainActor
     func testMarkdownHTMLOpenDetailsStartsExpanded() throws {
         let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let blocks = renderer.render(

@@ -9,6 +9,7 @@ import XCTest
 @testable import UniLLMs
 
 final class ToolCatalogTests: XCTestCase {
+    @MainActor
     func testBuiltInToolCatalogRegistersDateTimeTool() {
         let registry = BuiltInToolCatalog.makeRegistry(
             memoryManager: MemoryManager(store: InMemoryMemoryStore())
@@ -23,6 +24,7 @@ final class ToolCatalogTests: XCTestCase {
         XCTAssertEqual(registry.tools.first?.definition.symbolName, "clock")
     }
 
+    @MainActor
     func testToolCatalogExposesBuiltInToolsWhenEnabled() async {
         let catalog = ToolCatalog(
             registry: ToolRegistry(tools: [DateTimeTool()]),
@@ -35,6 +37,7 @@ final class ToolCatalogTests: XCTestCase {
         XCTAssertEqual(definitions.first?.presentationName, "Current Date and Time")
     }
 
+    @MainActor
     func testToolCatalogReturnsNoToolsWhenDisabled() async {
         let catalog = ToolCatalog(
             registry: ToolRegistry(tools: [DateTimeTool()]),
@@ -47,6 +50,7 @@ final class ToolCatalogTests: XCTestCase {
         XCTAssertNil(catalog.tool(id: "current_datetime"))
     }
 
+    @MainActor
     func testToolCatalogSkipsDisabledBuiltInTools() async {
         let catalog = ToolCatalog(
             registry: ToolRegistry(tools: [DateTimeTool()]),
@@ -60,6 +64,7 @@ final class ToolCatalogTests: XCTestCase {
         XCTAssertNil(catalog.tool(id: "current_datetime"))
     }
 
+    @MainActor
     func testToolCatalogMergesBuiltInAndDynamicToolsSortedByPresentationName() async {
         let dynamicTool = CatalogTool(name: "dynamic_lookup", displayName: "A Dynamic Lookup")
         let source = CatalogDynamicToolSource(tools: [dynamicTool])
@@ -79,6 +84,7 @@ final class ToolCatalogTests: XCTestCase {
         XCTAssertEqual(source.loadCallCount, 1)
     }
 
+    @MainActor
     func testToolCatalogClearsDynamicToolCacheWhenGloballyDisabled() async {
         var isEnabled = true
         let source = CatalogDynamicToolSource(tools: [
@@ -103,6 +109,7 @@ final class ToolCatalogTests: XCTestCase {
         XCTAssertNil(catalog.tool(id: "dynamic_lookup"))
     }
 
+    @MainActor
     func testToolCatalogDisabledBuiltInToolDoesNotHideDynamicTool() async {
         let dynamicTool = CatalogTool(name: "current_datetime", displayName: "Dynamic Current Time")
         let catalog = ToolCatalog(

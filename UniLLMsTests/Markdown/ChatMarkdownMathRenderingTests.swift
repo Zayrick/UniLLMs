@@ -9,6 +9,7 @@ import XCTest
 @testable import UniLLMs
 
 final class ChatMarkdownMathRenderingTests: ChatMarkdownRenderingTestCase {
+    @MainActor
     func testMarkdownInlineLatexRendersAsInlineAttachment() throws {
         let attributedText = renderMarkdownText("Euler has $e^{i\\pi}+1=0$ inline.")
 
@@ -18,6 +19,7 @@ final class ChatMarkdownMathRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(attributedText.textAttachmentCount, 1)
     }
 
+    @MainActor
     func testMarkdownInlineChemistryLatexRendersAsInlineAttachment() throws {
         let attributedText = renderMarkdownText("Water is $\\ce{H2O}$ and sulfate is $\\ce{SO4^2-}$.")
 
@@ -28,6 +30,7 @@ final class ChatMarkdownMathRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(attributedText.textAttachmentCount, 2)
     }
 
+    @MainActor
     func testMarkdownBareChemistryCommandRendersAsInlineAttachment() throws {
         let attributedText = renderMarkdownText("Balanced reaction: \\ce{2H2 + O2 -> 2H2O}.")
 
@@ -36,6 +39,7 @@ final class ChatMarkdownMathRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(attributedText.textAttachmentCount, 1)
     }
 
+    @MainActor
     func testMarkdownExtensibleArrowLatexRendersAsInlineAttachment() throws {
         let attributedText = renderMarkdownText("Catalyst $A \\xrightarrow[heat]{Pt} B$ done.")
 
@@ -45,6 +49,7 @@ final class ChatMarkdownMathRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(attributedText.textAttachmentCount, 1)
     }
 
+    @MainActor
     func testMarkdownChemistryArrowLabelsRenderAsInlineAttachment() throws {
         let attributedText = renderMarkdownText("Labeled reaction: \\ce{A ->[H2O][heat] B}.")
 
@@ -53,6 +58,7 @@ final class ChatMarkdownMathRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(attributedText.textAttachmentCount, 1)
     }
 
+    @MainActor
     func testMarkdownChemistryNuclideNotationRendersAsInlineAttachment() throws {
         let attributedText = renderMarkdownText("Nuclide: \\ce{^{227}_{90}Th+}.")
 
@@ -61,6 +67,7 @@ final class ChatMarkdownMathRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(attributedText.textAttachmentCount, 1)
     }
 
+    @MainActor
     func testMarkdownChemistryPhysicalUnitsRenderAsInlineAttachment() throws {
         let attributedText = renderMarkdownText("Heat capacity: \\pu{75.3 J // mol K}; concentration: \\pu{1.2e-3 mol L-1}.")
 
@@ -70,6 +77,7 @@ final class ChatMarkdownMathRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(attributedText.textAttachmentCount, 2)
     }
 
+    @MainActor
     func testMarkdownChemistryComplexMhchemExamplesRenderAsInlineAttachments() throws {
         let attributedText = renderMarkdownText(
             "Examples: \\ce{Zn^2+ <=>[+ 2OH-][+ 2H+] Zn(OH)2 v}, \\ce{A\\bond{#}B}, \\ce{NaOH(aq,$\\infty$)}."
@@ -79,6 +87,7 @@ final class ChatMarkdownMathRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(attributedText.textAttachmentCount, 3)
     }
 
+    @MainActor
     func testMarkdownEscapedDollarDoesNotStartInlineLatex() {
         let attributedText = renderMarkdownText("Price is \\$5 and math is $x+1$.")
 
@@ -87,6 +96,7 @@ final class ChatMarkdownMathRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertTrue(attributedText.chatAccessibilityString.contains("Formula: x+1"))
     }
 
+    @MainActor
     func testMarkdownDisplayLatexRendersAsDedicatedBlock() throws {
         let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let blocks = renderer.render(
@@ -123,6 +133,7 @@ final class ChatMarkdownMathRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(afterText.string.trimmingCharacters(in: .whitespacesAndNewlines), "After")
     }
 
+    @MainActor
     func testMarkdownDisplayChemistryLatexRendersAsDedicatedBlock() throws {
         let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let blocks = renderer.render(
@@ -147,6 +158,7 @@ final class ChatMarkdownMathRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(mathBlock.latex, "\\ce{2H2 + O2 -> 2H2O}")
     }
 
+    @MainActor
     func testMarkdownMathSplitterKeepsMathInsideFenceWithInvalidClosingFence() {
         let segments = ChatMarkdownMathBlockSplitter.segments(
             in: """

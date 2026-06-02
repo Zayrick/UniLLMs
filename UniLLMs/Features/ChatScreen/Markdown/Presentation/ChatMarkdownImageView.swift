@@ -209,7 +209,7 @@ final class ChatMarkdownImageView: UIView {
         loadTask?.resume()
     }
 
-    private static func isSuccessfulResponse(_ response: URLResponse?) -> Bool {
+    private nonisolated static func isSuccessfulResponse(_ response: URLResponse?) -> Bool {
         guard let httpResponse = response as? HTTPURLResponse else {
             return false
         }

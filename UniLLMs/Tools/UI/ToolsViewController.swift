@@ -28,7 +28,7 @@ final class ToolsViewController: UITableViewController {
     private let dependencies: AppDependencyContainer
     private var builtInToolRows: [BuiltInToolRow] = []
     private var servers: [MCPServerRecord] = []
-    private var storeObservations: [NSObjectProtocol] = []
+    private var storeObservations: [NotificationObservation] = []
 
     init(dependencies: AppDependencyContainer = AppEnvironment.shared.dependencies) {
         self.dependencies = dependencies
@@ -38,12 +38,6 @@ final class ToolsViewController: UITableViewController {
     required init?(coder: NSCoder) {
         dependencies = AppEnvironment.shared.dependencies
         super.init(coder: coder)
-    }
-
-    deinit {
-        storeObservations.forEach {
-            NotificationCenter.default.removeObserver($0)
-        }
     }
 
     override func viewDidLoad() {
@@ -82,16 +76,23 @@ final class ToolsViewController: UITableViewController {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.handleToolSettingsStoreChange()
+            Task { @MainActor [weak self] in
+                self?.handleToolSettingsStoreChange()
+            }
         }
         let mcpServerObservation = NotificationCenter.default.addObserver(
             forName: UserDefaultsMCPServerStore.didChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.reloadContent()
+            Task { @MainActor [weak self] in
+                self?.reloadContent()
+            }
         }
-        storeObservations = [toolSettingsObservation, mcpServerObservation]
+        storeObservations = [
+            NotificationObservation(toolSettingsObservation),
+            NotificationObservation(mcpServerObservation)
+        ]
     }
 
     private func reloadContent() {

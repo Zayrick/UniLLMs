@@ -8,6 +8,7 @@ import XCTest
 @testable import UniLLMs
 
 final class PollinationsProviderTests: XCTestCase {
+    @MainActor
     func testPollinationsStreamParserDecodesContentReasoningAndToolCallDelta() throws {
         let delta = try XCTUnwrap(
             PollinationsAPIClient.streamDelta(
@@ -25,6 +26,7 @@ final class PollinationsProviderTests: XCTestCase {
         XCTAssertEqual(toolCallDelta.argumentsFragment, #"{"query":"#)
     }
 
+    @MainActor
     func testPollinationsStreamParserDecodesReasoningDetailsDelta() throws {
         let delta = try XCTUnwrap(
             PollinationsAPIClient.streamDelta(
@@ -36,11 +38,13 @@ final class PollinationsProviderTests: XCTestCase {
         XCTAssertEqual(delta.reasoning, "Step summary")
     }
 
+    @MainActor
     func testPollinationsStreamParserIgnoresCommentsAndDoneEvents() throws {
         XCTAssertNil(try PollinationsAPIClient.streamDelta(fromServerSentEventLine: ": ping"))
         XCTAssertNil(try PollinationsAPIClient.streamDelta(fromServerSentEventLine: "data: [DONE]"))
     }
 
+    @MainActor
     func testPollinationsStreamParserThrowsMidStreamError() throws {
         XCTAssertThrowsError(
             try PollinationsAPIClient.streamDelta(
@@ -51,6 +55,7 @@ final class PollinationsProviderTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testPollinationsClientFetchModelsUsesFreeAnonymousEndpointWhenKeyBlank() async throws {
         let capture = PollinationsRequestCapture { request in
             let url = try XCTUnwrap(request.url)
@@ -123,6 +128,7 @@ final class PollinationsProviderTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testPollinationsClientFetchModelsSendsAuthorizationWhenKeyIsPresent() async throws {
         let capture = PollinationsRequestCapture { request in
             let url = try XCTUnwrap(request.url)
@@ -154,6 +160,7 @@ final class PollinationsProviderTests: XCTestCase {
         XCTAssertEqual(capture.requests.count, 1)
     }
 
+    @MainActor
     func testPollinationsProviderStreamsWithoutAPIKeyUsingFreeChatCompletionsEndpoint() async throws {
         let capture = PollinationsRequestCapture { request in
             let url = try XCTUnwrap(request.url)
@@ -195,6 +202,7 @@ final class PollinationsProviderTests: XCTestCase {
         XCTAssertEqual(capture.requests.count, 1)
     }
 
+    @MainActor
     func testPollinationsProviderStreamsWithAPIKeyUsingOfficialV1ChatCompletionsEndpoint() async throws {
         let capture = PollinationsRequestCapture { request in
             let url = try XCTUnwrap(request.url)
@@ -232,6 +240,7 @@ final class PollinationsProviderTests: XCTestCase {
         XCTAssertEqual(capture.requests.count, 1)
     }
 
+    @MainActor
     func testPollinationsProviderDoesNotRequireAPIKeyOrCustomAPIBase() throws {
         let provider = PollinationsProvider()
         var configuration = provider.defaultConfiguration
@@ -243,6 +252,7 @@ final class PollinationsProviderTests: XCTestCase {
         XCTAssertNoThrow(try provider.validateChatConfiguration(configuration))
     }
 
+    @MainActor
     func testPollinationsServerStatusDescriptionsCoverQuotaAndRateLimit() {
         XCTAssertEqual(
             PollinationsAPIClient.APIError.serverStatus(
@@ -315,7 +325,7 @@ private final class PollinationsRequestCapturingURLProtocol: URLProtocol {
 
     fileprivate static let captureIDHeader = "X-UniLLMs-Pollinations-Test-Capture-ID"
     private static let lock = NSLock()
-    private static var capturesByID: [String: PollinationsRequestCapture] = [:]
+    nonisolated(unsafe) private static var capturesByID: [String: PollinationsRequestCapture] = [:]
 
     fileprivate static func register(capture: PollinationsRequestCapture, id: String) {
         lock.lock()

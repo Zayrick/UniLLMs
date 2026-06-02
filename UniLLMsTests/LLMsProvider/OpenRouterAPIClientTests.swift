@@ -9,6 +9,7 @@ import XCTest
 @testable import UniLLMs
 
 final class OpenRouterAPIClientTests: XCTestCase {
+    @MainActor
     func testOpenRouterStreamParserDecodesContentDelta() throws {
         let delta = try XCTUnwrap(
             OpenRouterAPIClient.streamDelta(
@@ -20,6 +21,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
         XCTAssertEqual(delta.reasoning, "")
     }
 
+    @MainActor
     func testOpenRouterStreamParserDecodesReasoningDelta() throws {
         let delta = try XCTUnwrap(
             OpenRouterAPIClient.streamDelta(
@@ -31,6 +33,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
         XCTAssertEqual(delta.reasoning, "Thinking")
     }
 
+    @MainActor
     func testOpenRouterStreamParserDecodesReasoningDetailsDelta() throws {
         let delta = try XCTUnwrap(
             OpenRouterAPIClient.streamDelta(
@@ -42,11 +45,13 @@ final class OpenRouterAPIClientTests: XCTestCase {
         XCTAssertEqual(delta.reasoning, "Step summary")
     }
 
+    @MainActor
     func testOpenRouterStreamParserIgnoresCommentsAndDoneEvents() throws {
         XCTAssertNil(try OpenRouterAPIClient.streamDelta(fromServerSentEventLine: ": OPENROUTER PROCESSING"))
         XCTAssertNil(try OpenRouterAPIClient.streamDelta(fromServerSentEventLine: "data: [DONE]"))
     }
 
+    @MainActor
     func testOpenRouterStreamParserThrowsMidStreamError() throws {
         XCTAssertThrowsError(
             try OpenRouterAPIClient.streamDelta(
@@ -57,6 +62,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testOpenRouterStreamParserDecodesToolCallDelta() throws {
         let delta = try XCTUnwrap(
             OpenRouterAPIClient.streamDelta(
@@ -71,6 +77,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
         XCTAssertEqual(toolCallDelta.argumentsFragment, #"{"query":"#)
     }
 
+    @MainActor
     func testOpenRouterStreamParserUsesServiceNameForInvalidPayload() throws {
         XCTAssertThrowsError(
             try OpenRouterAPIClient.streamDelta(
@@ -82,6 +89,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testOpenRouterProviderRendersContextInstructionsAsSystemMessage() async throws {
         let capture = RequestCapture { request in
             try Self.doneStreamResponse(for: request)
@@ -121,6 +129,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
         XCTAssertEqual(userMessage["content"] as? String, "Hello")
     }
 
+    @MainActor
     func testOpenRouterProviderRequiresToolCapableRoutingWhenSendingTools() async throws {
         let capture = RequestCapture { request in
             try Self.doneStreamResponse(for: request)
@@ -152,6 +161,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
         XCTAssertNotNil(payload["tools"])
     }
 
+    @MainActor
     func testOpenAICompatibleProviderRendersContextInstructionsAsSystemMessage() async throws {
         let capture = RequestCapture { request in
             try Self.doneStreamResponse(for: request)
@@ -189,6 +199,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
         XCTAssertEqual(userMessage["content"] as? String, "Hello")
     }
 
+    @MainActor
     func testOpenAIProviderRendersContextInstructionsAsSystemMessage() async throws {
         let capture = RequestCapture { request in
             try Self.doneStreamResponse(for: request)
@@ -215,6 +226,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
         XCTAssertEqual(requestMessages.first?["content"] as? String, "Always answer in Chinese.")
     }
 
+    @MainActor
     func testOpenAICompatibleProviderRejectsFileAttachmentsBeforeSendingRequest() async throws {
         let capture = RequestCapture { request in
             XCTFail("File attachments should be rejected before a request is sent.")
@@ -260,6 +272,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
         XCTAssertTrue(capture.requests.isEmpty)
     }
 
+    @MainActor
     func testOpenRouterChatMessageEncodesAssistantToolCallsWithNullContent() throws {
         let message = try OpenRouterChatMessage(
             message: ChatMessage(
@@ -285,6 +298,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
         XCTAssertNotNil(payload["tool_calls"])
     }
 
+    @MainActor
     func testOpenRouterClientRejectsRelativeAPIBase() async {
         let client = OpenRouterAPIClient()
 
@@ -296,6 +310,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testOpenRouterClientRejectsAPIBaseWithQuery() async {
         let client = OpenRouterAPIClient()
 
@@ -307,6 +322,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testOpenRouterClientFetchModelsUsesOfficialModelsEndpoint() async throws {
         let capture = RequestCapture { request in
             let url = try XCTUnwrap(request.url)
@@ -353,6 +369,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testOpenAIClientFetchModelsUsesStandardModelsEndpoint() async throws {
         let capture = RequestCapture { request in
             let url = try XCTUnwrap(request.url)
@@ -389,6 +406,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
         XCTAssertEqual(models, [LLMsProviderModel(id: "gpt-5.4")])
     }
 
+    @MainActor
     func testOpenRouterClientFetchModelsOmitsAuthorizationWhenAPIKeyIsBlank() async throws {
         let capture = RequestCapture { request in
             let url = try XCTUnwrap(request.url)
@@ -420,6 +438,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
         XCTAssertTrue(models.isEmpty)
     }
 
+    @MainActor
     func testOpenRouterClientFetchModelsIgnoresAdditionalOfficialModelFields() async throws {
         let capture = RequestCapture { request in
             let url = try XCTUnwrap(request.url)
@@ -478,6 +497,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
         ])
     }
 
+    @MainActor
     func testOpenRouterClientFetchModelsPropagatesServerStatusBody() async throws {
         let capture = RequestCapture { request in
             let url = try XCTUnwrap(request.url)
@@ -513,6 +533,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
         XCTAssertEqual(capture.requests.count, 1)
     }
 
+    @MainActor
     func testOpenRouterClientFetchModelsThrowsForMalformedJSON() async throws {
         let capture = RequestCapture { request in
             let url = try XCTUnwrap(request.url)
@@ -630,7 +651,7 @@ private final class RequestCapturingURLProtocol: URLProtocol {
 
     fileprivate static let captureIDHeader = "X-UniLLMs-Test-Capture-ID"
     private static let lock = NSLock()
-    private static var capturesByID: [String: RequestCapture] = [:]
+    nonisolated(unsafe) private static var capturesByID: [String: RequestCapture] = [:]
 
     fileprivate static func register(capture: RequestCapture, id: String) {
         lock.lock()

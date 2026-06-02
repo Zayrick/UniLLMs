@@ -2,10 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>NSCameraUsageDescription</key>
-	<string>Take photos to attach to your chat messages.</string>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Save photos captured in chat to your library.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -19,11 +15,32 @@
 					<string>Default Configuration</string>
 					<key>UISceneDelegateClassName</key>
 					<string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
-					<key>UISceneStoryboardFile</key>
-					<string>Main</string>
 				</dict>
 			</array>
 		</dict>
 	</dict>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Resources/KaTeXFonts/KaTeX_AMS-Regular.ttf</string>
+		<string>Resources/KaTeXFonts/KaTeX_Caligraphic-Bold.ttf</string>
+		<string>Resources/KaTeXFonts/KaTeX_Caligraphic-Regular.ttf</string>
+		<string>Resources/KaTeXFonts/KaTeX_Fraktur-Bold.ttf</string>
+		<string>Resources/KaTeXFonts/KaTeX_Fraktur-Regular.ttf</string>
+		<string>Resources/KaTeXFonts/KaTeX_Main-Bold.ttf</string>
+		<string>Resources/KaTeXFonts/KaTeX_Main-BoldItalic.ttf</string>
+		<string>Resources/KaTeXFonts/KaTeX_Main-Italic.ttf</string>
+		<string>Resources/KaTeXFonts/KaTeX_Main-Regular.ttf</string>
+		<string>Resources/KaTeXFonts/KaTeX_Math-BoldItalic.ttf</string>
+		<string>Resources/KaTeXFonts/KaTeX_Math-Italic.ttf</string>
+		<string>Resources/KaTeXFonts/KaTeX_SansSerif-Bold.ttf</string>
+		<string>Resources/KaTeXFonts/KaTeX_SansSerif-Italic.ttf</string>
+		<string>Resources/KaTeXFonts/KaTeX_SansSerif-Regular.ttf</string>
+		<string>Resources/KaTeXFonts/KaTeX_Script-Regular.ttf</string>
+		<string>Resources/KaTeXFonts/KaTeX_Size1-Regular.ttf</string>
+		<string>Resources/KaTeXFonts/KaTeX_Size2-Regular.ttf</string>
+		<string>Resources/KaTeXFonts/KaTeX_Size3-Regular.ttf</string>
+		<string>Resources/KaTeXFonts/KaTeX_Size4-Regular.ttf</string>
+		<string>Resources/KaTeXFonts/KaTeX_Typewriter-Regular.ttf</string>
+	</array>
 </dict>
 </plist>

@@ -8,6 +8,7 @@ import XCTest
 @testable import UniLLMs
 
 final class LLMsProviderCoreTests: XCTestCase {
+    @MainActor
     func testProviderKindCodableRoundTripPreservesRawValue() throws {
         let kind: LLMsProviderKind = "customProvider"
 
@@ -17,6 +18,7 @@ final class LLMsProviderCoreTests: XCTestCase {
         XCTAssertEqual(decoded.rawValue, "customProvider")
     }
 
+    @MainActor
     func testProviderConfigurationSubscriptReturnsEmptyForMissingKey() {
         var configuration = LLMsProviderConfiguration()
 
@@ -27,6 +29,7 @@ final class LLMsProviderCoreTests: XCTestCase {
         XCTAssertEqual(configuration.values, ["apiBase": "https://example.com/v1"])
     }
 
+    @MainActor
     func testProviderConfigurationDecodesLegacyFlatAndNestedStringValues() throws {
         let json = """
         {
@@ -50,6 +53,7 @@ final class LLMsProviderCoreTests: XCTestCase {
         ])
     }
 
+    @MainActor
     func testProviderRecordDisplayNameTrimsWhitespaceAndFallsBackToKind() {
         let named = LLMsProviderRecord(
             kind: LLMsProviderKind(rawValue: "openRouter"),
@@ -66,6 +70,7 @@ final class LLMsProviderCoreTests: XCTestCase {
         XCTAssertEqual(unnamed.displayName, "customKind")
     }
 
+    @MainActor
     func testConfigurationValueBindingReadsAndWritesProviderNameAndConfigValue() {
         var provider = LLMsProviderRecord(
             kind: .openRouter,

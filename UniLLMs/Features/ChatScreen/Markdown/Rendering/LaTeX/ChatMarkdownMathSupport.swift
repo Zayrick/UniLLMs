@@ -6,7 +6,7 @@
 //  Created by OpenAI on 2026/5/14.
 //
 
-import CoreText
+import Foundation
 import UIKit
 
 struct ChatMarkdownMathBlock: Equatable {
@@ -410,8 +410,6 @@ enum ChatMarkdownMathImageRenderer {
         traitCollection: UITraitCollection,
         displayStyle: Bool
     ) -> ChatMarkdownMathRenderedImage? {
-        ChatMarkdownKaTeXFontLoader.ensureFontsRegistered()
-
         let resolvedColor = textColor.resolvedColor(with: traitCollection)
         let parser = ChatMarkdownLatexParser(
             latex: latex,
@@ -447,20 +445,20 @@ enum ChatMarkdownMathImageRenderer {
     }
 }
 
-final class ChatMarkdownMathTextAttachment: NSTextAttachment {
+nonisolated final class ChatMarkdownMathTextAttachment: NSTextAttachment {
     private let renderedImage: ChatMarkdownMathRenderedImage
 
-    init(renderedImage: ChatMarkdownMathRenderedImage) {
+    nonisolated init(renderedImage: ChatMarkdownMathRenderedImage) {
         self.renderedImage = renderedImage
         super.init(data: nil, ofType: nil)
         image = renderedImage.image
     }
 
-    required init?(coder: NSCoder) {
+    nonisolated required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func attachmentBounds(
+    nonisolated override func attachmentBounds(
         for textContainer: NSTextContainer?,
         proposedLineFragment lineFrag: CGRect,
         glyphPosition position: CGPoint,
@@ -474,80 +472,6 @@ final class ChatMarkdownMathTextAttachment: NSTextAttachment {
             width: renderedImage.image.size.width,
             height: height
         )
-    }
-}
-
-private final class ChatMarkdownKaTeXFontLoader: NSObject {
-    private static let shared = ChatMarkdownKaTeXFontLoader()
-
-    private let lock = NSLock()
-    private var didRegister = false
-    private let fontNames = [
-        "KaTeX_AMS-Regular",
-        "KaTeX_Caligraphic-Bold",
-        "KaTeX_Caligraphic-Regular",
-        "KaTeX_Fraktur-Bold",
-        "KaTeX_Fraktur-Regular",
-        "KaTeX_Main-Bold",
-        "KaTeX_Main-BoldItalic",
-        "KaTeX_Main-Italic",
-        "KaTeX_Main-Regular",
-        "KaTeX_Math-BoldItalic",
-        "KaTeX_Math-Italic",
-        "KaTeX_SansSerif-Bold",
-        "KaTeX_SansSerif-Italic",
-        "KaTeX_SansSerif-Regular",
-        "KaTeX_Script-Regular",
-        "KaTeX_Size1-Regular",
-        "KaTeX_Size2-Regular",
-        "KaTeX_Size3-Regular",
-        "KaTeX_Size4-Regular",
-        "KaTeX_Typewriter-Regular"
-    ]
-
-    static func ensureFontsRegistered() {
-        shared.registerFontsIfNeeded()
-    }
-
-    private func registerFontsIfNeeded() {
-        lock.lock()
-        defer { lock.unlock() }
-
-        guard !didRegister else {
-            return
-        }
-
-        for fontName in fontNames {
-            for fontURL in fontURLs(for: fontName) {
-                registerFont(at: fontURL)
-            }
-        }
-        didRegister = true
-    }
-
-    private func fontURLs(for fontName: String) -> [URL] {
-        let bundles = [Bundle.main, Bundle(for: Self.self)]
-        var urls: [URL] = []
-        for bundle in bundles {
-            if let url = bundle.url(forResource: fontName, withExtension: "ttf", subdirectory: "KaTeXFonts") {
-                urls.append(url)
-            }
-            if let url = bundle.url(forResource: fontName, withExtension: "ttf", subdirectory: "Resources/KaTeXFonts") {
-                urls.append(url)
-            }
-            if let url = bundle.url(forResource: fontName, withExtension: "ttf") {
-                urls.append(url)
-            }
-        }
-        return urls
-    }
-
-    private func registerFont(at fontURL: URL) {
-        var error: Unmanaged<CFError>?
-        let success = CTFontManagerRegisterFontsForURL(fontURL as CFURL, .process, &error)
-        if !success {
-            _ = error?.takeRetainedValue()
-        }
     }
 }
 

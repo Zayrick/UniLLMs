@@ -56,7 +56,7 @@ final class StreamingMarkdownView: UIView {
         configureTraitObservation()
     }
 
-    deinit {
+    isolated deinit {
         displayLink?.invalidate()
     }
 

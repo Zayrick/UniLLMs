@@ -10,6 +10,7 @@
 //
 
 import Foundation
+import Synchronization
 import UniformTypeIdentifiers
 
 nonisolated enum ChatAttachmentStoreError: LocalizedError, Equatable {
@@ -23,22 +24,17 @@ nonisolated enum ChatAttachmentStoreError: LocalizedError, Equatable {
     }
 }
 
-nonisolated final class ChatAttachmentStore: @unchecked Sendable {
+nonisolated final class ChatAttachmentStore: Sendable {
     static let shared = ChatAttachmentStore()
 
-    private let fileManager: FileManager
     private let rootDirectory: URL
-    private let lock = NSLock()
+    private let lock = Mutex(())
 
-    init(
-        fileManager: FileManager = .default,
-        rootDirectory: URL? = nil
-    ) {
-        self.fileManager = fileManager
+    init(rootDirectory: URL? = nil) {
         if let rootDirectory {
             self.rootDirectory = rootDirectory
         } else {
-            let applicationSupport = (try? fileManager.url(
+            let applicationSupport = (try? FileManager.default.url(
                 for: .applicationSupportDirectory,
                 in: .userDomainMask,
                 appropriateFor: nil,
@@ -49,10 +45,7 @@ nonisolated final class ChatAttachmentStore: @unchecked Sendable {
                 .appendingPathComponent("ChatAttachments", isDirectory: true)
         }
 
-        try? fileManager.createDirectory(
-            at: self.rootDirectory,
-            withIntermediateDirectories: true
-        )
+        try? ensureRootDirectoryExists()
     }
 
     /// Copies the given file URL into the managed directory.
@@ -97,37 +90,35 @@ nonisolated final class ChatAttachmentStore: @unchecked Sendable {
     ) throws -> ChatAttachment {
         let resolvedContentType = contentType.isEmpty ? "application/octet-stream" : contentType
 
-        lock.lock()
-        defer { lock.unlock() }
+        return try lock.withLock { _ in
+            try ensureRootDirectoryExists()
+            let attachmentID = UUID()
+            let assetID = UUID()
+            let resolvedExtension = (preferredExtension?.isEmpty == false
+                ? preferredExtension
+                : Self.preferredExtension(forMIMEType: resolvedContentType)) ?? "bin"
+            let storedFilename = "\(assetID.uuidString).\(resolvedExtension)"
+            let destination = rootDirectory.appendingPathComponent(storedFilename)
+            try data.write(to: destination, options: .atomic)
 
-        try ensureRootDirectoryExists()
-        let attachmentID = UUID()
-        let assetID = UUID()
-        let resolvedExtension = (preferredExtension?.isEmpty == false
-            ? preferredExtension
-            : Self.preferredExtension(forMIMEType: resolvedContentType)) ?? "bin"
-        let storedFilename = "\(assetID.uuidString).\(resolvedExtension)"
-        let destination = rootDirectory.appendingPathComponent(storedFilename)
-        try data.write(to: destination, options: .atomic)
-
-        return ChatAttachment(
-            id: attachmentID,
-            assetID: assetID,
-            kind: kind,
-            filename: filename,
-            contentType: resolvedContentType,
-            relativePath: storedFilename
-        )
+            return ChatAttachment(
+                id: attachmentID,
+                assetID: assetID,
+                kind: kind,
+                filename: filename,
+                contentType: resolvedContentType,
+                relativePath: storedFilename
+            )
+        }
     }
 
     func fileURL(for attachment: ChatAttachment) -> URL? {
-        lock.lock()
-        defer { lock.unlock() }
-
-        guard let url = storedURL(for: attachment) else {
-            return nil
+        lock.withLock { _ in
+            guard let url = storedURL(for: attachment) else {
+                return nil
+            }
+            return FileManager.default.fileExists(atPath: url.path) ? url : nil
         }
-        return fileManager.fileExists(atPath: url.path) ? url : nil
     }
 
     func loadData(for attachment: ChatAttachment) throws -> Data {
@@ -146,21 +137,20 @@ nonisolated final class ChatAttachmentStore: @unchecked Sendable {
             return
         }
 
-        lock.lock()
-        defer { lock.unlock() }
+        try lock.withLock { _ in
+            let retainedAssetIDs = Set(retainedAttachments.map(\.assetID))
+            var deletedAssetIDs = Set<UUID>()
 
-        let retainedAssetIDs = Set(retainedAttachments.map(\.assetID))
-        var deletedAssetIDs = Set<UUID>()
-
-        for attachment in removedAttachments where !retainedAssetIDs.contains(attachment.assetID) {
-            guard let url = storedURL(for: attachment),
-                  fileManager.fileExists(atPath: url.path) else {
-                continue
+            for attachment in removedAttachments where !retainedAssetIDs.contains(attachment.assetID) {
+                guard let url = storedURL(for: attachment),
+                      FileManager.default.fileExists(atPath: url.path) else {
+                    continue
+                }
+                guard deletedAssetIDs.insert(attachment.assetID).inserted else {
+                    continue
+                }
+                try FileManager.default.removeItem(at: url)
             }
-            guard deletedAssetIDs.insert(attachment.assetID).inserted else {
-                continue
-            }
-            try fileManager.removeItem(at: url)
         }
     }
 
@@ -183,7 +173,7 @@ nonisolated final class ChatAttachmentStore: @unchecked Sendable {
     }
 
     private func ensureRootDirectoryExists() throws {
-        try fileManager.createDirectory(
+        try FileManager.default.createDirectory(
             at: rootDirectory,
             withIntermediateDirectories: true
         )

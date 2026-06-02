@@ -9,6 +9,7 @@ import XCTest
 
 @MainActor
 final class ChatContextBuilderTests: XCTestCase {
+    @MainActor
     func testBuildContextLoadsToolsBeforeRetrievingMemories() async {
         let session = ChatSession(title: "Session")
         let messages = [ChatMessage(role: .user, content: "Remember this.")]
@@ -41,6 +42,7 @@ final class ChatContextBuilderTests: XCTestCase {
         XCTAssertEqual(dynamicSource.loadCallCount, 1)
     }
 
+    @MainActor
     func testBuildContextSkipsToolLoadingWhenToolsAreExcluded() async {
         let retriever = RecordingMemoryRetriever(result: [])
         let dynamicSource = RecordingDynamicToolSource(tools: [
@@ -67,6 +69,7 @@ final class ChatContextBuilderTests: XCTestCase {
         XCTAssertEqual(dynamicSource.loadCallCount, 0)
     }
 
+    @MainActor
     func testBuildContextFallsBackToEmptyMemoriesWhenRetrieverFails() async {
         let retriever = RecordingMemoryRetriever(error: TestMemoryError.failed)
         let builder = ChatContextBuilder(
@@ -85,6 +88,7 @@ final class ChatContextBuilderTests: XCTestCase {
         XCTAssertEqual(retriever.capturedContexts.count, 1)
     }
 
+    @MainActor
     func testBuildContextIncludesSystemPromptForMemoryRetrievalAndResult() async {
         let prompt = SystemPromptRecord(
             title: "Translator",

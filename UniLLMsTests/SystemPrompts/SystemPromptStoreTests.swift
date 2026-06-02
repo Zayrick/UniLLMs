@@ -13,14 +13,20 @@ import XCTest
 final class SystemPromptStoreTests: XCTestCase {
     private var defaults: UserDefaults!
     private var suiteName: String!
-    private var store: UserDefaultsSystemPromptStore!
-    private var manager: SystemPromptManager!
+
+    @MainActor
+    private var store: UserDefaultsSystemPromptStore {
+        UserDefaultsSystemPromptStore(defaults: defaults, storageKey: "systemPrompts")
+    }
+
+    @MainActor
+    private var manager: SystemPromptManager {
+        SystemPromptManager(store: store)
+    }
 
     override func setUpWithError() throws {
         suiteName = "SystemPromptStoreTests.\(UUID().uuidString)"
         defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        store = UserDefaultsSystemPromptStore(defaults: defaults, storageKey: "systemPrompts")
-        manager = SystemPromptManager(store: store)
     }
 
     override func tearDownWithError() throws {
@@ -29,10 +35,9 @@ final class SystemPromptStoreTests: XCTestCase {
         }
         defaults = nil
         suiteName = nil
-        store = nil
-        manager = nil
     }
 
+    @MainActor
     func testSavingPromptPersistsTitleAndContent() throws {
         let prompt = makePrompt(title: "Translation Assistant", content: "Always answer in Chinese.")
 
@@ -43,6 +48,7 @@ final class SystemPromptStoreTests: XCTestCase {
         XCTAssertEqual(reloadedPrompt, prompt)
     }
 
+    @MainActor
     func testUpdatingPromptReplacesMatchingUUID() throws {
         let prompt = makePrompt(title: "Translation Assistant", content: "Always answer in Chinese.")
         var updatedPrompt = prompt
@@ -56,6 +62,7 @@ final class SystemPromptStoreTests: XCTestCase {
         XCTAssertEqual(manager.savedPrompts(), [updatedPrompt])
     }
 
+    @MainActor
     func testDeletingPromptRemovesMatchingUUIDOnly() throws {
         let first = makePrompt(
             title: "Translation Assistant",
@@ -73,6 +80,7 @@ final class SystemPromptStoreTests: XCTestCase {
         XCTAssertEqual(manager.savedPrompts(), [second])
     }
 
+    @MainActor
     func testDraftDoesNotPersistUntilSaved() {
         let draft = manager.makePromptDraft()
 
@@ -83,6 +91,7 @@ final class SystemPromptStoreTests: XCTestCase {
         XCTAssertEqual(manager.savedPrompts(), [draft])
     }
 
+    @MainActor
     func testPromptReturnsMatchingRecordByID() throws {
         let prompt = makePrompt(title: "Translation Assistant", content: "Always answer in Chinese.")
         let otherPrompt = makePrompt(title: "Code Review", content: "Review for correctness first.")
