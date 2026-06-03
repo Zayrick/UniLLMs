@@ -9,7 +9,25 @@
 import UIKit
 
 final class SettingsViewController: UITableViewController {
-    private enum Row: Int, CaseIterable {
+    private enum Section: Int, CaseIterable {
+        case general
+        case configuration
+
+        var title: String {
+            switch self {
+            case .general:
+                return String(localized: "settings.section.general")
+            case .configuration:
+                return String(localized: "settings.section.configuration")
+            }
+        }
+    }
+
+    private enum GeneralRow: Int, CaseIterable {
+        case backgroundRuntime
+    }
+
+    private enum ConfigurationRow: Int, CaseIterable {
         case providers
         case memories
         case tools
@@ -82,16 +100,72 @@ final class SettingsViewController: UITableViewController {
         dismiss(animated: true)
     }
 
+    @objc private func backgroundRuntimeSwitchChanged(_ sender: UISwitch) {
+        dependencies.appSettingsStore.isBackgroundRuntimeEnabled = sender.isOn
+    }
+
+    override func numberOfSections(in tableView: UITableView) -> Int {
+        Section.allCases.count
+    }
+
+    override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        Section(rawValue: section)?.title
+    }
+
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        Row.allCases.count
+        switch Section(rawValue: section) {
+        case .general:
+            return GeneralRow.allCases.count
+        case .configuration:
+            return ConfigurationRow.allCases.count
+        case nil:
+            return 0
+        }
     }
 
     override func tableView(
         _ tableView: UITableView,
         cellForRowAt indexPath: IndexPath
     ) -> UITableViewCell {
+        switch Section(rawValue: indexPath.section) {
+        case .general:
+            return generalCell(for: indexPath)
+        case .configuration:
+            return configurationCell(for: indexPath)
+        case nil:
+            return UITableViewCell(style: .default, reuseIdentifier: nil)
+        }
+    }
+
+    private func generalCell(for indexPath: IndexPath) -> UITableViewCell {
+        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        guard GeneralRow(rawValue: indexPath.row) == .backgroundRuntime else {
+            return cell
+        }
+
+        var contentConfiguration = cell.defaultContentConfiguration()
+        contentConfiguration.text = String(localized: "settings.background_runtime.title")
+        contentConfiguration.secondaryText = String(localized: "settings.background_runtime.detail")
+        contentConfiguration.image = UIImage(systemName: "arrow.triangle.2.circlepath.circle")
+        contentConfiguration.imageProperties.tintColor = .systemOrange
+        cell.contentConfiguration = contentConfiguration
+
+        let backgroundRuntimeSwitch = UISwitch()
+        backgroundRuntimeSwitch.isOn = dependencies.appSettingsStore.isBackgroundRuntimeEnabled
+        backgroundRuntimeSwitch.addTarget(
+            self,
+            action: #selector(backgroundRuntimeSwitchChanged(_:)),
+            for: .valueChanged
+        )
+        backgroundRuntimeSwitch.accessibilityLabel = contentConfiguration.text
+        cell.accessoryView = backgroundRuntimeSwitch
+        cell.selectionStyle = .none
+        return cell
+    }
+
+    private func configurationCell(for indexPath: IndexPath) -> UITableViewCell {
         let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
-        guard let row = Row(rawValue: indexPath.row) else {
+        guard let row = ConfigurationRow(rawValue: indexPath.row) else {
             return cell
         }
 
@@ -106,7 +180,8 @@ final class SettingsViewController: UITableViewController {
 
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        guard let row = Row(rawValue: indexPath.row) else {
+        guard Section(rawValue: indexPath.section) == .configuration,
+              let row = ConfigurationRow(rawValue: indexPath.row) else {
             return
         }
 

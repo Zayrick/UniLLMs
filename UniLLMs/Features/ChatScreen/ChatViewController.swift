@@ -67,6 +67,9 @@ final class ChatViewController: UIViewController {
     private var chatRuntime: ChatRuntime {
         dependencies.chatRuntime
     }
+    private var chatContinuationTaskCoordinator: ChatContinuationTaskCoordinator {
+        dependencies.chatContinuationTaskCoordinator
+    }
     private var chatHistoryStore: UserDefaultsChatStore {
         dependencies.chatHistoryStore
     }
@@ -122,6 +125,7 @@ final class ChatViewController: UIViewController {
     private var isSideMenuOpen = false
     private var selectedModelSelection: ChatModelSelection?
     private var activeResponseTask: Task<Void, Never>?
+    private var activeContinuationTask: ChatContinuationTask?
     private weak var activeResponseView: AssistantResponseTextView?
     private var pendingAttachments: [ChatAttachment] = []
     private let attachmentStore = ChatAttachmentStore.shared
@@ -154,6 +158,11 @@ final class ChatViewController: UIViewController {
 
     deinit {
         activeResponseTask?.cancel()
+        if let activeContinuationTask {
+            Task { @MainActor in
+                activeContinuationTask.finish(success: false)
+            }
+        }
         historyReloadTask?.cancel()
         historySelectionTask?.cancel()
         if let keyboardObservation {
@@ -1050,6 +1059,14 @@ final class ChatViewController: UIViewController {
             return
         }
 
+        let continuationTask: ChatContinuationTask?
+        do {
+            continuationTask = try beginResponseContinuationTaskIfNeeded()
+        } catch {
+            presentAttachmentError(error.localizedDescription)
+            return
+        }
+
         let responseStream: AsyncThrowingStream<ChatResponseDelta, Error>
         do {
             responseStream = try chatRuntime.startTurn(
@@ -1059,6 +1076,7 @@ final class ChatViewController: UIViewController {
                 replacingUserMessageID: messageID
             )
         } catch {
+            continuationTask?.finish(success: false)
             presentAttachmentError(error.localizedDescription)
             return
         }
@@ -1074,7 +1092,11 @@ final class ChatViewController: UIViewController {
         scrollMessagesToBottom(animated: false)
         mainPageView.layoutIfNeeded()
 
-        activateAssistantResponseStream(responseStream, responseView: responseView)
+        activateAssistantResponseStream(
+            responseStream,
+            responseView: responseView,
+            continuationTask: continuationTask
+        )
         refreshEditHistory(for: bubbleView)
         animateExistingMessages(from: existingMessageFrames)
         showAssistantLoadingIfNeeded(in: responseView)
@@ -1363,6 +1385,15 @@ final class ChatViewController: UIViewController {
             return
         }
 
+        let continuationTask: ChatContinuationTask?
+        do {
+            continuationTask = try beginResponseContinuationTaskIfNeeded()
+        } catch {
+            setAssistantResponseError(error.localizedDescription, in: responseView)
+            updateRightHeaderButtonState(animated: true)
+            return
+        }
+
         let responseStream: AsyncThrowingStream<ChatResponseDelta, Error>
         do {
             responseStream = try chatRuntime.startTurn(
@@ -1371,19 +1402,29 @@ final class ChatViewController: UIViewController {
                 userMessageID: userMessageID
             )
         } catch {
+            continuationTask?.finish(success: false)
             setAssistantResponseError(error.localizedDescription, in: responseView)
             updateRightHeaderButtonState(animated: true)
             return
         }
 
-        activateAssistantResponseStream(responseStream, responseView: responseView)
+        activateAssistantResponseStream(
+            responseStream,
+            responseView: responseView,
+            continuationTask: continuationTask
+        )
     }
 
     private func activateAssistantResponseStream(
         _ responseStream: AsyncThrowingStream<ChatResponseDelta, Error>,
-        responseView: AssistantResponseTextView
+        responseView: AssistantResponseTextView,
+        continuationTask: ChatContinuationTask?
     ) {
         activeResponseView = responseView
+        activeContinuationTask = continuationTask
+        activeContinuationTask?.onExpiration = { [weak self] in
+            self?.cancelAssistantResponseStream()
+        }
         composerView.isSendingEnabled = false
         composerView.setStreamingResponseActive(true, animated: true)
         setBackgroundFlowing(true, animated: true)
@@ -1408,7 +1449,7 @@ final class ChatViewController: UIViewController {
                         return
                     }
 
-                    self.finishAssistantResponseStream()
+                    self.finishAssistantResponseStream(success: true)
                 }
             } catch is CancellationError {
                 await MainActor.run {
@@ -1416,7 +1457,7 @@ final class ChatViewController: UIViewController {
                         return
                     }
 
-                    self.finishAssistantResponseStream()
+                    self.finishAssistantResponseStream(success: false)
                 }
             } catch {
                 await MainActor.run {
@@ -1427,11 +1468,19 @@ final class ChatViewController: UIViewController {
                     if let responseView {
                         self.setAssistantResponseError(error.localizedDescription, in: responseView)
                     }
-                    self.finishAssistantResponseStream()
+                    self.finishAssistantResponseStream(success: false)
                 }
             }
         }
         updateRightHeaderButtonState(animated: true)
+    }
+
+    private func beginResponseContinuationTaskIfNeeded() throws -> ChatContinuationTask? {
+        guard dependencies.appSettingsStore.isBackgroundRuntimeEnabled else {
+            return nil
+        }
+
+        return try chatContinuationTaskCoordinator.beginResponseTask()
     }
 
     private func cancelAssistantResponseStream() {
@@ -1445,6 +1494,7 @@ final class ChatViewController: UIViewController {
                 activeResponseView.setLoadingVisible(false)
             }
         }
+        activeContinuationTask?.finish(success: false)
         activeResponseTask.cancel()
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
@@ -1457,6 +1507,7 @@ final class ChatViewController: UIViewController {
             return
         }
 
+        activeContinuationTask?.report(delta: delta)
         applyAssistantResponseChange(to: responseView) {
             for part in delta.displayParts {
                 responseView.appendDisplayPart(part)
@@ -1495,13 +1546,15 @@ final class ChatViewController: UIViewController {
         mainPageView.setNeedsLayout()
     }
 
-    private func finishAssistantResponseStream() {
+    private func finishAssistantResponseStream(success: Bool) {
         if let activeResponseView {
             applyAssistantResponseChange(to: activeResponseView) {
                 activeResponseView.finishStreamingContent()
                 activeResponseView.setLoadingVisible(false)
             }
         }
+        activeContinuationTask?.finish(success: success)
+        activeContinuationTask = nil
         activeResponseView = nil
         activeResponseTask = nil
         composerView.isSendingEnabled = true

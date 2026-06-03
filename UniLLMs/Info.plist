@@ -2,10 +2,18 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>Zayrick.UniLLMs.chatTurn.*</string>
+	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Take photos to attach to your chat messages.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Save photos captured in chat to your library.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>processing</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

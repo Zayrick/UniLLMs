@@ -1,6 +1,78 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "background_runtime.error.registration_failed_format" : {
+      "comment" : "Error shown when the app cannot register a continued processing task. The placeholder is the task identifier.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unable to register background response task %@. Check BGTaskSchedulerPermittedIdentifiers."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法注册后台回复任务 %@。请检查 BGTaskSchedulerPermittedIdentifiers。"
+          }
+        }
+      }
+    },
+    "background_runtime.error.submission_failed_format" : {
+      "comment" : "Error shown when a continued processing task request cannot be submitted. The placeholder is the underlying error message.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unable to start background response task: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法启动后台回复任务：%@"
+          }
+        }
+      }
+    },
+    "background_runtime.task.subtitle.generating_response" : {
+      "comment" : "Subtitle displayed by the system UI while a chat response continues in the background.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Generating response"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在生成回复"
+          }
+        }
+      }
+    },
+    "background_runtime.task.title" : {
+      "comment" : "Title displayed by the system UI for a continued chat response task.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "UniLLMs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "UniLLMs"
+          }
+        }
+      }
+    },
     "assistant.copy_markdown" : {
       "comment" : "Accessibility label for copying assistant markdown.",
       "extractionState" : "manual",
@@ -3651,6 +3723,78 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "工具执行失败：%@"
+          }
+        }
+      }
+    },
+    "settings.background_runtime.detail" : {
+      "comment" : "Explanation for the settings switch that enables system background response generation.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Continue response generation through the system background task UI after the app leaves the foreground."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App 退到后台后，通过系统后台任务界面继续生成回复。"
+          }
+        }
+      }
+    },
+    "settings.background_runtime.title" : {
+      "comment" : "Settings switch title for enabling background response generation.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Run in Background"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "后台运行"
+          }
+        }
+      }
+    },
+    "settings.section.configuration" : {
+      "comment" : "Settings section title for configuration entry points.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Configuration"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配置"
+          }
+        }
+      }
+    },
+    "settings.section.general" : {
+      "comment" : "Settings section title for general app preferences.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "General"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "通用"
           }
         }
       }

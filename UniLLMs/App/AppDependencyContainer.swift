@@ -19,10 +19,12 @@ final class AppDependencyContainer {
     let toolCatalog: ToolCatalog
     let toolManager: ToolManager
     let systemPromptManager: SystemPromptManager
+    let appSettingsStore: any AppSettingsStore
     let memoryStore: any MemoryStore
     let memorySettingsStore: any MemorySettingsStore
     let memoryManager: MemoryManager
     let chatHistoryStore: UserDefaultsChatStore
+    let chatContinuationTaskCoordinator: ChatContinuationTaskCoordinator
     let chatRuntime: ChatRuntime
     let mcpServerManager: MCPServerManager
     let archiveStore: ArchiveStore
@@ -30,12 +32,14 @@ final class AppDependencyContainer {
     init(
         coreDataStack: CoreDataStack = CoreDataStack(),
         providerStore: LLMsProviderStore = .shared,
+        appSettingsStore: any AppSettingsStore = UserDefaultsAppSettingsStore.shared,
         systemPromptStore: any SystemPromptStore = UserDefaultsSystemPromptStore.shared,
         memoryStore: any MemoryStore = UserDefaultsMemoryStore.shared,
         memorySettingsStore: any MemorySettingsStore = UserDefaultsMemorySettingsStore.shared
     ) {
         self.coreDataStack = coreDataStack
         self.providerStore = providerStore
+        self.appSettingsStore = appSettingsStore
         self.memoryStore = memoryStore
         self.memorySettingsStore = memorySettingsStore
 
@@ -73,6 +77,7 @@ final class AppDependencyContainer {
         )
         toolManager = ToolManager(catalog: toolCatalog)
         archiveStore = InMemoryArchiveStore()
+        chatContinuationTaskCoordinator = ChatContinuationTaskCoordinator()
 
         let contextBuilder = ChatContextBuilder(
             memoryManager: memoryManager,
