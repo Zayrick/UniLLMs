@@ -78,7 +78,7 @@ final class StreamingMarkdownView: UIView {
         currentSegmentMarkdown = nil
 
         if !markdown.isEmpty {
-            completedSegmentRecords.append(appendRenderedSegment(markdown))
+            completedSegmentRecords.append(appendRenderedSegment(markdown, animation: .none))
         }
 
         notifyHeightChanged()
@@ -275,7 +275,7 @@ final class StreamingMarkdownView: UIView {
             }
 
             removeCurrentSegmentViews()
-            completedSegmentRecords.append(appendRenderedSegment(segment))
+            completedSegmentRecords.append(appendRenderedSegment(segment, animation: .streaming))
         }
 
         currentSegmentMarkdown = update.currentSegment
@@ -299,7 +299,9 @@ final class StreamingMarkdownView: UIView {
         let blocks = renderer.render(markdown: markdown)
         guard ChatMarkdownRenderedBlockViewReconciler.updateAllInPlaceIfPossible(
             currentSegmentRecords,
-            with: blocks
+            with: blocks,
+            allowsIdentityChange: true,
+            animation: .streaming
         ) else {
             return false
         }
@@ -340,12 +342,15 @@ final class StreamingMarkdownView: UIView {
     }
 
     @discardableResult
-    private func appendRenderedSegment(_ markdown: String) -> [ChatMarkdownRenderedBlockViewRecord] {
+    private func appendRenderedSegment(
+        _ markdown: String,
+        animation: ChatMarkdownRenderedBlockViewAnimation
+    ) -> [ChatMarkdownRenderedBlockViewRecord] {
         let renderer = makeRenderer()
         return ChatMarkdownRenderedBlockViewReconciler.append(
             renderer.render(markdown: markdown),
             to: stackView,
-            configuration: blockViewConfiguration(for: renderer)
+            configuration: blockViewConfiguration(for: renderer, animation: animation)
         )
     }
 
@@ -359,7 +364,7 @@ final class StreamingMarkdownView: UIView {
             in: stackView,
             startingAt: startIndex,
             allowsIdentityChange: true,
-            configuration: blockViewConfiguration(for: renderer)
+            configuration: blockViewConfiguration(for: renderer, animation: .streaming)
         )
     }
 
@@ -368,11 +373,13 @@ final class StreamingMarkdownView: UIView {
     }
 
     private func blockViewConfiguration(
-        for renderer: ChatMarkdownRenderer
+        for renderer: ChatMarkdownRenderer,
+        animation: ChatMarkdownRenderedBlockViewAnimation = .none
     ) -> ChatMarkdownRenderedBlockViewConfiguration {
         ChatMarkdownRenderedBlockViewConfiguration(
             style: renderer.style,
-            traitCollection: traitCollection
+            traitCollection: traitCollection,
+            animation: animation
         ) { [weak self] in
             self?.notifyHeightChanged()
         }

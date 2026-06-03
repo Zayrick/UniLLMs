@@ -8,10 +8,36 @@
 
 import UIKit
 
+enum ChatMarkdownRenderedBlockViewAnimation {
+    case none
+    case streaming
+
+    var isEnabled: Bool {
+        self == .streaming
+    }
+
+    var duration: TimeInterval {
+        0.18
+    }
+}
+
 struct ChatMarkdownRenderedBlockViewConfiguration {
     let style: ChatMarkdownRenderStyle
     let traitCollection: UITraitCollection
+    let animation: ChatMarkdownRenderedBlockViewAnimation
     let onNeedsHeightUpdate: (() -> Void)?
+
+    init(
+        style: ChatMarkdownRenderStyle,
+        traitCollection: UITraitCollection,
+        animation: ChatMarkdownRenderedBlockViewAnimation = .none,
+        onNeedsHeightUpdate: (() -> Void)? = nil
+    ) {
+        self.style = style
+        self.traitCollection = traitCollection
+        self.animation = animation
+        self.onNeedsHeightUpdate = onNeedsHeightUpdate
+    }
 }
 
 struct ChatMarkdownRenderedBlockViewRecord {
@@ -73,7 +99,9 @@ enum ChatMarkdownRenderedBlockViewReconciler {
                 continue
             }
             records.append(record)
+            prepareInsertedViewIfNeeded(record.view, configuration: configuration)
             stackView.addArrangedSubview(record.view)
+            animateInsertedViewIfNeeded(record.view, configuration: configuration)
         }
         return records
     }
@@ -101,7 +129,8 @@ enum ChatMarkdownRenderedBlockViewReconciler {
                let updated = update(
                    existing,
                    with: block,
-                   allowsIdentityChange: allowsIdentityChange
+                   allowsIdentityChange: allowsIdentityChange,
+                   configuration: configuration
                ) {
                 ensureView(updated.view, at: desiredIndex, in: stackView)
                 nextRecords.append(updated)
@@ -115,7 +144,9 @@ enum ChatMarkdownRenderedBlockViewReconciler {
             guard let record = makeRecord(for: block, configuration: configuration) else {
                 continue
             }
+            prepareInsertedViewIfNeeded(record.view, configuration: configuration)
             insertView(record.view, at: desiredIndex, in: stackView)
+            animateInsertedViewIfNeeded(record.view, configuration: configuration)
             nextRecords.append(record)
         }
 
@@ -129,20 +160,26 @@ enum ChatMarkdownRenderedBlockViewReconciler {
 
     static func updateAllInPlaceIfPossible(
         _ records: [ChatMarkdownRenderedBlockViewRecord],
-        with blocks: [ChatMarkdownRenderedBlock]
+        with blocks: [ChatMarkdownRenderedBlock],
+        allowsIdentityChange: Bool = false,
+        animation: ChatMarkdownRenderedBlockViewAnimation = .none
     ) -> Bool {
         let blocks = renderableBlocks(from: blocks)
         guard records.count == blocks.count,
               zip(records, blocks).allSatisfy({ record, block in
                   record.kind == block.viewKind &&
-                      record.identity == ChatMarkdownRenderedBlockViewIdentity(block) &&
+                      (allowsIdentityChange || record.identity == ChatMarkdownRenderedBlockViewIdentity(block)) &&
                       block.supportsInPlaceUpdate
               }) else {
             return false
         }
 
         for (record, block) in zip(records, blocks) {
-            guard update(record, withAlreadyValidatedBlock: block) != nil else {
+            guard update(
+                record,
+                withAlreadyValidatedBlock: block,
+                animatedTextChanges: animation.isEnabled
+            ) != nil else {
                 return false
             }
         }
@@ -173,26 +210,35 @@ enum ChatMarkdownRenderedBlockViewReconciler {
     private static func update(
         _ record: ChatMarkdownRenderedBlockViewRecord,
         with block: ChatMarkdownRenderedBlock,
-        allowsIdentityChange: Bool
+        allowsIdentityChange: Bool,
+        configuration: ChatMarkdownRenderedBlockViewConfiguration
     ) -> ChatMarkdownRenderedBlockViewRecord? {
         guard record.kind == block.viewKind,
               (allowsIdentityChange || record.identity == ChatMarkdownRenderedBlockViewIdentity(block)),
               block.supportsInPlaceUpdate else {
             return nil
         }
-        return update(record, withAlreadyValidatedBlock: block)
+        return update(
+            record,
+            withAlreadyValidatedBlock: block,
+            animatedTextChanges: configuration.animation.isEnabled
+        )
     }
 
     private static func update(
         _ record: ChatMarkdownRenderedBlockViewRecord,
-        withAlreadyValidatedBlock block: ChatMarkdownRenderedBlock
+        withAlreadyValidatedBlock block: ChatMarkdownRenderedBlock,
+        animatedTextChanges: Bool
     ) -> ChatMarkdownRenderedBlockViewRecord? {
         switch block {
         case let .text(attributedText):
             guard let textView = record.view as? ChatMarkdownTextView else {
                 return nil
             }
-            textView.replaceMarkdownAttributedText(attributedText)
+            textView.replaceMarkdownAttributedText(
+                attributedText,
+                animated: animatedTextChanges
+            )
             return updatedRecord(from: record, for: block)
 
         case let .codeBlock(codeBlock):
@@ -361,6 +407,37 @@ enum ChatMarkdownRenderedBlockViewReconciler {
 
     private static func clampedIndex(_ index: Int, in stackView: UIStackView) -> Int {
         max(0, min(index, stackView.arrangedSubviews.count))
+    }
+
+    private static func prepareInsertedViewIfNeeded(
+        _ view: UIView,
+        configuration: ChatMarkdownRenderedBlockViewConfiguration
+    ) {
+        guard configuration.animation.isEnabled,
+              !UIAccessibility.isReduceMotionEnabled else {
+            return
+        }
+
+        view.alpha = 0.0
+    }
+
+    private static func animateInsertedViewIfNeeded(
+        _ view: UIView,
+        configuration: ChatMarkdownRenderedBlockViewConfiguration
+    ) {
+        guard configuration.animation.isEnabled,
+              !UIAccessibility.isReduceMotionEnabled else {
+            view.alpha = 1.0
+            return
+        }
+
+        UIView.animate(
+            withDuration: configuration.animation.duration,
+            delay: 0.0,
+            options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut]
+        ) {
+            view.alpha = 1.0
+        }
     }
 }
 

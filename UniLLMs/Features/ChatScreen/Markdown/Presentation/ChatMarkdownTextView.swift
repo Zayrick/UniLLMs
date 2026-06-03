@@ -9,11 +9,18 @@
 import UIKit
 
 final class ChatMarkdownTextView: UITextView {
+    private enum Fade {
+        static let duration: TimeInterval = 0.18
+        static let cleanupDelay: TimeInterval = 0.05
+        static let minimumLayerSize: CGFloat = 0.5
+    }
+
     private let markdownTextStorage: NSTextStorage
     private let markdownLayoutManager: ChatMarkdownLayoutManager
     private let markdownTextContainer: NSTextContainer
 
     private var currentAttributedText = NSAttributedString()
+    private var textFadeMaskGeneration = 0
 
     init(attributedText: NSAttributedString) {
         let textStorage = NSTextStorage()
@@ -42,11 +49,13 @@ final class ChatMarkdownTextView: UITextView {
             forCharacterRange: NSRange(location: 0, length: markdownTextStorage.length),
             actualCharacterRange: nil
         )
+        removeTextFadeMask()
         invalidateIntrinsicContentSize()
         setNeedsDisplay()
     }
 
     private func setMarkdownAttributedText(_ attributedText: NSAttributedString) {
+        removeTextFadeMask()
         markdownTextStorage.setAttributedString(attributedText)
         accessibilityLabel = attributedText.chatAccessibilityString
         currentAttributedText = attributedText
@@ -57,18 +66,28 @@ final class ChatMarkdownTextView: UITextView {
     /// Reconcile text storage without assigning `attributedText` wholesale.
     /// UIKit treats a whole attributedText assignment as new content; keeping
     /// TextKit storage alive avoids link-color churn and preserves layout state.
-    func replaceMarkdownAttributedText(_ newText: NSAttributedString) {
+    func replaceMarkdownAttributedText(
+        _ newText: NSAttributedString,
+        animated: Bool = false
+    ) {
         guard !currentAttributedText.isEqual(to: newText) else {
             return
         }
 
-        if canAppendOnly(newText) {
+        let canAppendOnly = canAppendOnly(newText)
+        let appendedRange = NSRange(
+            location: currentAttributedText.length,
+            length: max(0, newText.length - currentAttributedText.length)
+        )
+
+        if canAppendOnly {
             let tailRange = NSRange(
                 location: currentAttributedText.length,
                 length: newText.length - currentAttributedText.length
             )
             markdownTextStorage.append(newText.attributedSubstring(from: tailRange))
         } else {
+            removeTextFadeMask()
             markdownTextStorage.setAttributedString(newText)
         }
 
@@ -76,6 +95,10 @@ final class ChatMarkdownTextView: UITextView {
         currentAttributedText = newText
         invalidateIntrinsicContentSize()
         setNeedsDisplay()
+
+        if animated, canAppendOnly {
+            animateAppendedText(in: appendedRange)
+        }
     }
 
     private func canAppendOnly(_ newText: NSAttributedString) -> Bool {
@@ -100,6 +123,184 @@ final class ChatMarkdownTextView: UITextView {
         setContentCompressionResistancePriority(.required, for: .vertical)
         setContentHuggingPriority(.required, for: .vertical)
         translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    private func animateAppendedText(in characterRange: NSRange) {
+        guard characterRange.length > 0,
+              !UIAccessibility.isReduceMotionEnabled,
+              bounds.width > 0.0,
+              bounds.height > 0.0 else {
+            removeTextFadeMask()
+            return
+        }
+
+        layoutIfNeeded()
+        markdownLayoutManager.ensureLayout(for: markdownTextContainer)
+
+        let glyphRange = markdownLayoutManager.glyphRange(
+            forCharacterRange: characterRange,
+            actualCharacterRange: nil
+        )
+        guard glyphRange.length > 0 else {
+            removeTextFadeMask()
+            return
+        }
+
+        var firstChangedLineFrame: CGRect?
+        var firstChangedFadeFrame: CGRect?
+        var fadeFrames: [CGRect] = []
+        let origin = textContainerOrigin
+
+        markdownLayoutManager.enumerateLineFragments(
+            forGlyphRange: glyphRange
+        ) { lineFragmentRect, usedRect, textContainer, lineGlyphRange, _ in
+            let lineChangedGlyphRange = NSIntersectionRange(glyphRange, lineGlyphRange)
+            guard lineChangedGlyphRange.length > 0 else {
+                return
+            }
+
+            let changedRect = self.markdownLayoutManager.boundingRect(
+                forGlyphRange: lineChangedGlyphRange,
+                in: textContainer
+            ).offsetBy(dx: origin.x, dy: origin.y)
+            let lineFrame = lineFragmentRect.offsetBy(dx: origin.x, dy: origin.y)
+            let usedFrame = usedRect.offsetBy(dx: origin.x, dy: origin.y)
+            let fadeFrame = self.fadeFrame(
+                changedRect: changedRect,
+                lineFrame: lineFrame,
+                usedFrame: usedFrame
+            )
+
+            if firstChangedLineFrame == nil {
+                firstChangedLineFrame = lineFrame
+                firstChangedFadeFrame = fadeFrame
+            }
+
+            if fadeFrame.width > Fade.minimumLayerSize,
+               fadeFrame.height > Fade.minimumLayerSize {
+                fadeFrames.append(fadeFrame)
+            }
+        }
+
+        guard !fadeFrames.isEmpty else {
+            removeTextFadeMask()
+            return
+        }
+
+        textFadeMaskGeneration += 1
+        let generation = textFadeMaskGeneration
+        let maskLayer = CALayer()
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        maskLayer.frame = bounds
+        if let firstChangedLineFrame {
+            addOpaqueMaskLayer(
+                to: maskLayer,
+                frame: CGRect(
+                    x: 0.0,
+                    y: 0.0,
+                    width: bounds.width,
+                    height: max(0.0, firstChangedLineFrame.minY)
+                )
+            )
+
+            if let firstChangedFadeFrame {
+                addOpaqueMaskLayer(
+                    to: maskLayer,
+                    frame: CGRect(
+                        x: 0.0,
+                        y: firstChangedLineFrame.minY,
+                        width: max(0.0, firstChangedFadeFrame.minX),
+                        height: firstChangedLineFrame.height
+                    )
+                )
+            }
+        }
+
+        for fadeFrame in fadeFrames {
+            let fadeLayer = CALayer()
+            fadeLayer.backgroundColor = UIColor.black.cgColor
+            fadeLayer.frame = fadeFrame
+            fadeLayer.opacity = 1.0
+            maskLayer.addSublayer(fadeLayer)
+
+            let animation = CABasicAnimation(keyPath: "opacity")
+            animation.fromValue = 0.0
+            animation.toValue = 1.0
+            animation.duration = Fade.duration
+            animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            animation.fillMode = .both
+            animation.isRemovedOnCompletion = true
+            fadeLayer.add(animation, forKey: "chatMarkdownFadeIn")
+        }
+
+        layer.mask = maskLayer
+        CATransaction.commit()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + Fade.duration + Fade.cleanupDelay) { [weak self] in
+            guard let self, self.textFadeMaskGeneration == generation else {
+                return
+            }
+            self.layer.mask = nil
+        }
+    }
+
+    private func fadeFrame(
+        changedRect: CGRect,
+        lineFrame: CGRect,
+        usedFrame: CGRect
+    ) -> CGRect {
+        let effectiveChangedRect = changedRect.isNull || !changedRect.hasFiniteCoordinates
+            ? usedFrame
+            : changedRect
+        let y = max(0.0, min(lineFrame.minY, bounds.height))
+        let height = max(
+            0.0,
+            min(lineFrame.height, bounds.height - y)
+        )
+        let minX = max(
+            0.0,
+            min(effectiveChangedRect.minX, bounds.width)
+        )
+        let maxX = max(
+            minX,
+            min(max(effectiveChangedRect.maxX, usedFrame.maxX), bounds.width)
+        )
+        return CGRect(x: minX, y: y, width: maxX - minX, height: height)
+    }
+
+    private func addOpaqueMaskLayer(to maskLayer: CALayer, frame: CGRect) {
+        guard frame.width > Fade.minimumLayerSize,
+              frame.height > Fade.minimumLayerSize else {
+            return
+        }
+
+        let layer = CALayer()
+        layer.backgroundColor = UIColor.black.cgColor
+        layer.frame = frame
+        maskLayer.addSublayer(layer)
+    }
+
+    private func removeTextFadeMask() {
+        textFadeMaskGeneration += 1
+        layer.mask = nil
+    }
+
+    private var textContainerOrigin: CGPoint {
+        CGPoint(
+            x: textContainerInset.left - contentOffset.x,
+            y: textContainerInset.top - contentOffset.y
+        )
+    }
+}
+
+private extension CGRect {
+    var hasFiniteCoordinates: Bool {
+        origin.x.isFinite &&
+            origin.y.isFinite &&
+            size.width.isFinite &&
+            size.height.isFinite
     }
 }
 

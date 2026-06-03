@@ -30,6 +30,18 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "![Alt](https://example.com/image.png)\nNext")
     }
 
+    func testMarkdownStreamSegmenterKeepsInlineFormattingTailMutableUntilBoundary() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        var update = segmenter.append("This is **bo")
+        XCTAssertTrue(update.completedSegments.isEmpty)
+        XCTAssertEqual(update.currentSegment, "This is **bo")
+
+        update = segmenter.append("ld**\n\nNext")
+        XCTAssertEqual(update.completedSegments, ["This is **bold**\n"])
+        XCTAssertEqual(update.currentSegment, "Next")
+    }
+
     func testMarkdownStreamSegmenterCompletesDisplayLatexBlock() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
