@@ -3727,38 +3727,20 @@
         }
       }
     },
-    "settings.background_runtime.detail" : {
-      "comment" : "Explanation for the settings switch that enables system background response generation.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Continue response generation through the system background task UI after the app leaves the foreground."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "App 退到后台后，通过系统后台任务界面继续生成回复。"
-          }
-        }
-      }
-    },
     "settings.background_runtime.title" : {
-      "comment" : "Settings switch title for enabling background response generation.",
+      "comment" : "Settings switch title for showing response progress in a system Live Activity.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Run in Background"
+            "value" : "Live Activity (Beta)"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "后台运行"
+            "value" : "实时活动（beta）"
           }
         }
       }

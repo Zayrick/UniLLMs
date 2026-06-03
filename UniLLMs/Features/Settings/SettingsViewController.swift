@@ -138,14 +138,13 @@ final class SettingsViewController: UITableViewController {
     }
 
     private func generalCell(for indexPath: IndexPath) -> UITableViewCell {
-        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
         guard GeneralRow(rawValue: indexPath.row) == .backgroundRuntime else {
             return cell
         }
 
         var contentConfiguration = cell.defaultContentConfiguration()
         contentConfiguration.text = String(localized: "settings.background_runtime.title")
-        contentConfiguration.secondaryText = String(localized: "settings.background_runtime.detail")
         contentConfiguration.image = UIImage(systemName: "arrow.triangle.2.circlepath.circle")
         contentConfiguration.imageProperties.tintColor = .systemOrange
         cell.contentConfiguration = contentConfiguration
