@@ -564,6 +564,10 @@ private struct HTMLTextMode {
         if let linkURL {
             attributes[.link] = linkURL
         }
+        ChatMarkdownFontTraits.applyItalicObliquenessIfNeeded(
+            to: &attributes,
+            requestedTraits: symbolicTraits
+        )
 
         return attributes
     }

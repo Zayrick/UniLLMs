@@ -44,13 +44,34 @@ final class ChatMarkdownInlineRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(attributedText.string, "A code B")
     }
 
-    func testMarkdownNestedStrongEmphasisCombinesFontTraits() throws {
+    func testMarkdownEmphasisAppliesItalicObliqueness() throws {
+        let attributedText = renderMarkdownText("*Italic text*")
+
+        try assertItalicPresentation(attributedText, containing: "Italic text")
+    }
+
+    func testMarkdownChineseEmphasisAppliesItalicObliqueness() throws {
+        let attributedText = renderMarkdownText("*中文斜体*")
+
+        try assertItalicPresentation(attributedText, containing: "中文斜体")
+    }
+
+    func testMarkdownNestedStrongEmphasisCombinesBoldAndItalicPresentation() throws {
         let attributedText = renderMarkdownText("***Bold italic***")
         let font = try XCTUnwrap(attributedText.font(containing: "Bold italic"))
         let traits = font.fontDescriptor.symbolicTraits
 
         XCTAssertTrue(traits.contains(.traitBold))
-        XCTAssertTrue(traits.contains(.traitItalic))
+        try assertItalicPresentation(attributedText, containing: "Bold italic")
+    }
+
+    func testMarkdownStrongContainingEmphasisPreservesBoldAndItalicPresentation() throws {
+        let attributedText = renderMarkdownText("**Bold and _italic_**")
+        let font = try XCTUnwrap(attributedText.font(containing: "italic"))
+        let traits = font.fontDescriptor.symbolicTraits
+
+        XCTAssertTrue(traits.contains(.traitBold))
+        try assertItalicPresentation(attributedText, containing: "italic")
     }
 
     func testMarkdownNestedInlineCodePreservesOuterModes() throws {
@@ -72,5 +93,35 @@ final class ChatMarkdownInlineRenderingTests: ChatMarkdownRenderingTestCase {
                 effectiveRange: nil
             ) as? UIColor
         )
+    }
+
+    func testMarkdownEmphasisContainingInlineCodePreservesItalicPresentation() throws {
+        let attributedText = renderMarkdownText("*`id`*")
+        let codeRange = try XCTUnwrap(attributedText.range(of: "id"))
+
+        try assertItalicPresentation(attributedText, containing: "id")
+        XCTAssertNotNil(
+            attributedText.attribute(
+                .chatInlineCodeBackgroundColor,
+                at: codeRange.location,
+                effectiveRange: nil
+            ) as? UIColor
+        )
+    }
+
+    private func assertItalicPresentation(
+        _ attributedText: NSAttributedString,
+        containing text: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let range = try XCTUnwrap(attributedText.range(of: text), file: file, line: line)
+        let obliqueness = try XCTUnwrap(
+            attributedText.attribute(.obliqueness, at: range.location, effectiveRange: nil) as? NSNumber,
+            file: file,
+            line: line
+        )
+
+        XCTAssertGreaterThan(obliqueness.doubleValue, 0.0, file: file, line: line)
     }
 }

@@ -119,6 +119,10 @@ private struct ChatMarkdownInlineRenderingMode {
         if let linkURL {
             attributes[.link] = linkURL
         }
+        ChatMarkdownFontTraits.applyItalicObliquenessIfNeeded(
+            to: &attributes,
+            requestedTraits: symbolicTraits
+        )
 
         return attributes
     }
@@ -441,6 +445,10 @@ private final class ChatMarkdownInlineCodeRenderer {
         if let linkURL = mode.linkURL {
             attributes[.link] = linkURL
         }
+        ChatMarkdownFontTraits.applyItalicObliquenessIfNeeded(
+            to: &attributes,
+            requestedTraits: mode.symbolicTraits
+        )
 
         return attributes
     }
