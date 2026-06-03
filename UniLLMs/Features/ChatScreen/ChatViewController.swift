@@ -57,7 +57,7 @@ final class ChatViewController: UIViewController {
     }
 
     private var dependencies = AppEnvironment.shared.dependencies
-    private let rootBackgroundView = AppGradientBackgroundView()
+    private let rootBackgroundView = UIView()
     private var providerStore: LLMsProviderStore {
         dependencies.providerStore
     }
@@ -205,6 +205,8 @@ final class ChatViewController: UIViewController {
 
     private func configureRootBackground() {
         rootBackgroundView.translatesAutoresizingMaskIntoConstraints = false
+        rootBackgroundView.isOpaque = true
+        rootBackgroundView.backgroundColor = .appBackgroundMiddle
         view.addSubview(rootBackgroundView)
 
         NSLayoutConstraint.activate([
@@ -1564,7 +1566,6 @@ final class ChatViewController: UIViewController {
     }
 
     private func setBackgroundFlowing(_ isFlowing: Bool, animated: Bool) {
-        rootBackgroundView.setFlowing(isFlowing, animated: animated)
         backgroundView.setFlowing(isFlowing, animated: animated)
     }
 
