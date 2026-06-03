@@ -1386,6 +1386,7 @@ final class ChatViewController: UIViewController {
         activeResponseView = responseView
         composerView.isSendingEnabled = false
         composerView.setStreamingResponseActive(true, animated: true)
+        setBackgroundFlowing(true, animated: true)
 
         activeResponseTask = Task { [weak self, weak responseView] in
             do {
@@ -1505,7 +1506,13 @@ final class ChatViewController: UIViewController {
         activeResponseTask = nil
         composerView.isSendingEnabled = true
         composerView.setStreamingResponseActive(false, animated: true)
+        setBackgroundFlowing(false, animated: true)
         updateRightHeaderButtonState(animated: true)
+    }
+
+    private func setBackgroundFlowing(_ isFlowing: Bool, animated: Bool) {
+        rootBackgroundView.setFlowing(isFlowing, animated: animated)
+        backgroundView.setFlowing(isFlowing, animated: animated)
     }
 
     private func updateMainPageShadowPath(cornerRadius: CGFloat? = nil) {
