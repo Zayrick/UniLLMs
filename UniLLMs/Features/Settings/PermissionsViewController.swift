@@ -264,8 +264,8 @@ final class PermissionsViewController: UITableViewController {
         }
 
         AVCaptureDevice.requestAccess(for: .video) { [weak self] _ in
-            Task { @MainActor in
-                self?.reloadPermissionRows()
+            Task { @MainActor [viewController = self] in
+                viewController?.reloadPermissionRows()
             }
         }
     }
