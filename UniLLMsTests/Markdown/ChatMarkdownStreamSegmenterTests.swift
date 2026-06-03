@@ -150,6 +150,24 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
         XCTAssertEqual(update.currentSegment, "After")
     }
 
+    func testMarkdownStreamSegmenterDoesNotTreatLazyLineAsQuotedFenceBodyAfterQuotedCode() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append("> ```swift\n> let value = 1\nlet outside = 2\n\nAfter")
+
+        XCTAssertEqual(update.completedSegments, ["> ```swift\n> let value = 1\n", "let outside = 2\n"])
+        XCTAssertEqual(update.currentSegment, "After")
+    }
+
+    func testMarkdownStreamSegmenterDoesNotTreatLazyLineAsQuotedListFenceBody() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append("> - ```swift\n>   let value = 1\nlet outside = 2\n\nAfter")
+
+        XCTAssertEqual(update.completedSegments, ["> - ```swift\n>   let value = 1\n", "let outside = 2\n"])
+        XCTAssertEqual(update.currentSegment, "After")
+    }
+
     func testMarkdownStreamSegmenterCompletesTableWhenNextSegmentStarts() {
         var segmenter = ChatMarkdownStreamSegmenter()
 
@@ -231,6 +249,28 @@ final class ChatMarkdownStreamSegmenterTests: XCTestCase {
 
         XCTAssertTrue(update.completedSegments.isEmpty)
         XCTAssertEqual(update.currentSegment, "$$\nx\n    $$\ntail")
+    }
+
+    func testMarkdownStreamSegmenterKeepsIndentedListDisplayMathInListSegment() {
+        var segmenter = ChatMarkdownStreamSegmenter()
+
+        let update = segmenter.append(
+            """
+            - $$
+              x
+              $$
+
+            After
+            """
+        )
+
+        XCTAssertEqual(
+            update.completedSegments,
+            [
+                "- $$\n  x\n  $$\n"
+            ]
+        )
+        XCTAssertEqual(update.currentSegment, "After")
     }
 
     func testMarkdownStreamSegmenterKeepsNonPipeTableBodyRowsInTable() {

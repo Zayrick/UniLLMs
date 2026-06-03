@@ -80,6 +80,93 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(fallbackCodeBlock.code, "plain")
     }
 
+    func testMarkdownBlockQuoteNestedCodeBlockRendersAsIndentedCodeBlockCard() throws {
+        let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
+        let blocks = renderer.render(
+            markdown: """
+            > Before
+            >
+            > ```swift
+            > let value = 1
+            > ```
+            >
+            > After
+            """
+        )
+
+        guard blocks.count == 1,
+              case let .blockQuote(blockQuoteBlock) = blocks[0] else {
+            XCTFail("Expected block quote to render as a container")
+            return
+        }
+        guard blockQuoteBlock.children.count == 3,
+              case let .text(beforeText) = blockQuoteBlock.children[0],
+              case let .codeBlock(codeBlock) = blockQuoteBlock.children[1],
+              case let .text(afterText) = blockQuoteBlock.children[2] else {
+            XCTFail("Expected quoted text, code block card, and trailing quoted text")
+            return
+        }
+
+        XCTAssertEqual(beforeText.string.trimmingCharacters(in: .whitespacesAndNewlines), "Before")
+        XCTAssertEqual(codeBlock.displayLanguage, "swift")
+        XCTAssertEqual(codeBlock.code, "let value = 1")
+        XCTAssertEqual(afterText.string.trimmingCharacters(in: .whitespacesAndNewlines), "After")
+    }
+
+    func testMarkdownListNestedCodeBlockRendersAsCodeBlockChild() throws {
+        let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
+        let blocks = renderer.render(
+            markdown: """
+            - Item
+              ```swift
+              let value = 1
+              ```
+            """
+        )
+
+        guard blocks.count == 1,
+              case let .list(listBlock) = blocks[0],
+              listBlock.items.count == 1,
+              listBlock.items[0].children.count == 2,
+              case let .text(itemText) = listBlock.items[0].children[0],
+              case let .codeBlock(codeBlock) = listBlock.items[0].children[1] else {
+            XCTFail("Expected list item to preserve nested code block card")
+            return
+        }
+
+        XCTAssertEqual(itemText.string, "Item")
+        XCTAssertEqual(codeBlock.displayLanguage, "swift")
+        XCTAssertEqual(codeBlock.code, "let value = 1")
+    }
+
+    func testMarkdownBlockQuoteListNestedCodeBlockRendersAsIndentedCodeBlockCard() throws {
+        let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
+        let blocks = renderer.render(
+            markdown: """
+            > - Item
+            >   ```swift
+            >   let value = 1
+            >   ```
+            """
+        )
+
+        guard blocks.count == 1,
+              case let .blockQuote(blockQuoteBlock) = blocks[0],
+              blockQuoteBlock.children.count == 1,
+              case let .list(listBlock) = blockQuoteBlock.children[0],
+              listBlock.items.count == 1,
+              listBlock.items[0].children.count == 2,
+              case let .text(itemText) = listBlock.items[0].children[0],
+              case let .codeBlock(codeBlock) = listBlock.items[0].children[1] else {
+            XCTFail("Expected quoted list item to preserve nested code block card")
+            return
+        }
+
+        XCTAssertEqual(itemText.string, "Item")
+        XCTAssertEqual(codeBlock.displayLanguage, "swift")
+        XCTAssertEqual(codeBlock.code, "let value = 1")
+    }
+
     func testMarkdownStandaloneImageRendersAsDedicatedBlock() throws {
         let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let blocks = renderer.render(
@@ -116,12 +203,20 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
     }
 
     func testMarkdownTaskListUsesSymbolAttachmentWithReadableAccessibilityText() throws {
-        let rendered = renderMarkdownText("- [ ] Todo")
+        let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
+        let blocks = renderer.render(markdown: "- [ ] Todo")
 
-        let attachment = rendered.attribute(.attachment, at: 0, effectiveRange: nil) as? NSTextAttachment
-        XCTAssertNotNil(attachment)
-        XCTAssertTrue(rendered.chatAccessibilityString.contains("Unchecked"))
-        XCTAssertFalse(rendered.chatAccessibilityString.contains("\u{fffc}"))
+        guard blocks.count == 1,
+              case let .list(listBlock) = blocks[0],
+              listBlock.items.count == 1,
+              case .checkbox(isChecked: false) = listBlock.items[0].marker,
+              listBlock.items[0].children.count == 1,
+              case let .text(todoText) = listBlock.items[0].children[0] else {
+            XCTFail("Expected task list to render as a list block with an unchecked marker")
+            return
+        }
+
+        XCTAssertEqual(todoText.string, "Todo")
     }
 
     func testMarkdownBareURLUsesRendererLinkAttribute() throws {
@@ -225,29 +320,53 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
     }
 
     func testMarkdownNestedListRendersIncreasingIndents() throws {
-        let attributedText = renderMarkdownText("- Parent\n  - Child\n    - Grandchild")
+        let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
+        let blocks = renderer.render(markdown: "- Parent\n  - Child\n    - Grandchild")
 
-        let parentStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Parent"))
-        let childStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Child"))
-        let grandchildStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Grandchild"))
+        guard blocks.count == 1,
+              case let .list(parentList) = blocks[0],
+              parentList.items.count == 1,
+              parentList.items[0].children.count == 2,
+              case let .text(parentText) = parentList.items[0].children[0],
+              case let .list(childList) = parentList.items[0].children[1],
+              childList.items.count == 1,
+              childList.items[0].children.count == 2,
+              case let .text(childText) = childList.items[0].children[0],
+              case let .list(grandchildList) = childList.items[0].children[1],
+              grandchildList.items.count == 1,
+              grandchildList.items[0].children.count == 1,
+              case let .text(grandchildText) = grandchildList.items[0].children[0] else {
+            XCTFail("Expected nested Markdown lists to render as nested list blocks")
+            return
+        }
 
-        XCTAssertGreaterThan(childStyle.firstLineHeadIndent, parentStyle.firstLineHeadIndent)
-        XCTAssertGreaterThan(grandchildStyle.firstLineHeadIndent, childStyle.firstLineHeadIndent)
-        XCTAssertGreaterThan(childStyle.headIndent, parentStyle.headIndent)
-        XCTAssertGreaterThan(grandchildStyle.headIndent, childStyle.headIndent)
+        XCTAssertEqual(parentText.string, "Parent")
+        XCTAssertEqual(childText.string, "Child")
+        XCTAssertEqual(grandchildText.string, "Grandchild")
     }
 
     func testMarkdownBlockQuotePreservesNestedListIndents() throws {
-        let attributedText = renderMarkdownText("> - Parent\n>   - Child\n>     - Grandchild")
+        let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
+        let blocks = renderer.render(markdown: "> - Parent\n>   - Child\n>     - Grandchild")
 
-        let parentStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Parent"))
-        let childStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Child"))
-        let grandchildStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Grandchild"))
+        guard blocks.count == 1,
+              case let .blockQuote(blockQuoteBlock) = blocks[0],
+              blockQuoteBlock.children.count == 1,
+              case let .list(parentList) = blockQuoteBlock.children[0],
+              parentList.items.count == 1,
+              parentList.items[0].children.count == 2,
+              case let .list(childList) = parentList.items[0].children[1],
+              childList.items.count == 1,
+              childList.items[0].children.count == 2,
+              case let .list(grandchildList) = childList.items[0].children[1],
+              grandchildList.items.count == 1 else {
+            XCTFail("Expected quoted nested list to render as a block quote containing nested list blocks")
+            return
+        }
 
-        XCTAssertGreaterThan(childStyle.firstLineHeadIndent, parentStyle.firstLineHeadIndent)
-        XCTAssertGreaterThan(grandchildStyle.firstLineHeadIndent, childStyle.firstLineHeadIndent)
-        XCTAssertGreaterThan(childStyle.headIndent, parentStyle.headIndent)
-        XCTAssertGreaterThan(grandchildStyle.headIndent, childStyle.headIndent)
+        XCTAssertFalse(parentList.isOrdered)
+        XCTAssertFalse(childList.isOrdered)
+        XCTAssertFalse(grandchildList.isOrdered)
     }
 
     func testMarkdownNestedBlockQuoteRendersIncreasingIndents() throws {
@@ -282,56 +401,128 @@ final class ChatMarkdownBlockRenderingTests: ChatMarkdownRenderingTestCase {
     }
 
     func testMarkdownListContinuationPreservesNestedBlockQuoteIndent() throws {
-        let attributedText = renderMarkdownText("- Item\n  > Quote")
+        let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
+        let blocks = renderer.render(markdown: "- Item\n  > Quote")
 
-        let itemStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Item"))
-        let quoteStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Quote"))
+        guard blocks.count == 1,
+              case let .list(listBlock) = blocks[0],
+              listBlock.items.count == 1,
+              listBlock.items[0].children.count == 2,
+              case let .text(itemText) = listBlock.items[0].children[0],
+              case let .text(quoteText) = listBlock.items[0].children[1] else {
+            XCTFail("Expected list item to contain text and a nested quote text block")
+            return
+        }
 
-        XCTAssertGreaterThan(quoteStyle.firstLineHeadIndent, itemStyle.headIndent)
-        XCTAssertGreaterThan(quoteStyle.headIndent, itemStyle.headIndent)
+        XCTAssertEqual(itemText.string, "Item")
+        XCTAssertEqual(quoteText.string.trimmingCharacters(in: .whitespacesAndNewlines), "Quote")
     }
 
     func testMarkdownListContinuationOffsetsNestedBlockQuoteBarPosition() throws {
-        let attributedText = renderMarkdownText("- Item\n  > Quote")
+        let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
+        let blocks = renderer.render(markdown: "- Item\n  > Quote")
 
-        let itemStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Item"))
-        let positions = try XCTUnwrap(attributedText.blockQuoteBarPositions(containing: "Quote"))
-
-        XCTAssertEqual(positions.count, 1)
-        XCTAssertEqual(
-            positions[0],
-            itemStyle.headIndent + ChatMarkdownBlockQuoteStyle.barLeading,
-            accuracy: 0.001
-        )
-    }
-
-    func testMarkdownBlockQuoteKeepsOuterBarBeforeNestedListMarker() throws {
-        let attributedText = renderMarkdownText("> - Item")
-
-        let itemStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Item"))
-        let positions = try XCTUnwrap(attributedText.blockQuoteBarPositions(containing: "Item"))
+        guard blocks.count == 1,
+              case let .list(listBlock) = blocks[0],
+              listBlock.items.count == 1,
+              listBlock.items[0].children.count == 2,
+              case let .text(quoteText) = listBlock.items[0].children[1] else {
+            XCTFail("Expected list item to preserve nested quote text")
+            return
+        }
+        let positions = try XCTUnwrap(quoteText.blockQuoteBarPositions(containing: "Quote"))
 
         XCTAssertEqual(positions.count, 1)
         XCTAssertEqual(positions[0], ChatMarkdownBlockQuoteStyle.barLeading, accuracy: 0.001)
-        XCTAssertGreaterThan(itemStyle.firstLineHeadIndent, positions[0])
+    }
+
+    func testMarkdownBlockQuoteKeepsOuterBarBeforeNestedListMarker() throws {
+        let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
+        let blocks = renderer.render(markdown: "> - Item")
+
+        guard blocks.count == 1,
+              case let .blockQuote(blockQuoteBlock) = blocks[0],
+              blockQuoteBlock.children.count == 1,
+              case let .list(listBlock) = blockQuoteBlock.children[0],
+              listBlock.items.count == 1,
+              listBlock.items[0].children.count == 1,
+              case let .text(itemText) = listBlock.items[0].children[0] else {
+            XCTFail("Expected block quote to contain a nested list block")
+            return
+        }
+
+        XCTAssertEqual(itemText.string, "Item")
+    }
+
+    func testMarkdownBlockQuoteNestedTablePreservesCellInlineStyles() throws {
+        let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
+        let blocks = renderer.render(
+            markdown: """
+            > | Value | Code |
+            > | :-- | :-- |
+            > | ***Cell*** | `id` |
+            """
+        )
+
+        guard blocks.count == 1,
+              case let .blockQuote(blockQuoteBlock) = blocks[0],
+              blockQuoteBlock.children.count == 1,
+              case let .table(tableData) = blockQuoteBlock.children[0] else {
+            XCTFail("Expected quoted table to render as an indented table block")
+            return
+        }
+
+        let attributedText = tableData.rows[1][0].attributedText
+        let cellFont = try XCTUnwrap(attributedText.font(containing: "Cell"))
+        let cellTraits = cellFont.fontDescriptor.symbolicTraits
+        let codeText = tableData.rows[1][1].attributedText
+        let codeRange = try XCTUnwrap(codeText.range(of: "id"))
+
+        XCTAssertTrue(cellTraits.contains(.traitBold))
+        XCTAssertTrue(cellTraits.contains(.traitItalic))
+        XCTAssertNotNil(
+            codeText.attribute(
+                .chatInlineCodeBackgroundColor,
+                at: codeRange.location,
+                effectiveRange: nil
+            ) as? UIColor
+        )
     }
 
     func testMarkdownOrderedListUsesStableContentIndentAcrossDigitWidths() throws {
-        let attributedText = renderMarkdownText("9. Nine\n10. Ten")
+        let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
+        let blocks = renderer.render(markdown: "9. Nine\n10. Ten")
 
-        let nineStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Nine"))
-        let tenStyle = try XCTUnwrap(attributedText.paragraphStyle(containing: "Ten"))
+        guard blocks.count == 1,
+              case let .list(listBlock) = blocks[0],
+              listBlock.isOrdered,
+              listBlock.items.count == 2,
+              case let .text(firstMarker) = listBlock.items[0].marker,
+              case let .text(secondMarker) = listBlock.items[1].marker else {
+            XCTFail("Expected ordered list to render as one ordered list block")
+            return
+        }
 
-        XCTAssertEqual(nineStyle.headIndent, tenStyle.headIndent)
+        XCTAssertEqual(firstMarker, "9.")
+        XCTAssertEqual(secondMarker, "10.")
     }
 
     func testMarkdownTaskListRendersCheckboxMarkers() throws {
-        let attributedText = renderMarkdownText("- [x] Done\n- [ ] Todo")
+        let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
+        let blocks = renderer.render(markdown: "- [x] Done\n- [ ] Todo")
 
-        XCTAssertEqual(attributedText.textAttachmentCount, 2)
-        XCTAssertTrue(attributedText.string.contains("Done"))
-        XCTAssertTrue(attributedText.string.contains("Todo"))
-        XCTAssertFalse(attributedText.string.contains("[x]"))
-        XCTAssertFalse(attributedText.string.contains("[ ]"))
+        guard blocks.count == 1,
+              case let .list(listBlock) = blocks[0],
+              listBlock.items.count == 2,
+              case .checkbox(isChecked: true) = listBlock.items[0].marker,
+              case .checkbox(isChecked: false) = listBlock.items[1].marker,
+              case let .text(doneText) = listBlock.items[0].children[0],
+              case let .text(todoText) = listBlock.items[1].children[0] else {
+            XCTFail("Expected task list checkbox markers and text children")
+            return
+        }
+
+        XCTAssertEqual(doneText.string, "Done")
+        XCTAssertEqual(todoText.string, "Todo")
     }
 }

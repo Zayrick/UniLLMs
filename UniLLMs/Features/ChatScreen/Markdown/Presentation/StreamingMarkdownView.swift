@@ -33,7 +33,6 @@ final class StreamingMarkdownView: UIView {
     private var displayLink: CADisplayLink?
     private var displayLinkProxy: DisplayLinkProxy?
     private var framesToSkip: Int = 0
-    private var lastRenderDuration: CFTimeInterval = 0
 
     init(style: ChatMarkdownRenderStyle = .assistant) {
         self.style = style
@@ -65,7 +64,7 @@ final class StreamingMarkdownView: UIView {
             return
         }
 
-        appendPendingMarkdown(string)
+        appendPendingChunk(string)
         startDisplayLinkIfNeeded()
     }
 
@@ -173,11 +172,11 @@ final class StreamingMarkdownView: UIView {
 
         let start = CACurrentMediaTime()
         applyStreamUpdate(segmenter.append(chunk), notify: notify)
-        lastRenderDuration = CACurrentMediaTime() - start
+        let renderDuration = CACurrentMediaTime() - start
 
         let frameBudget: CFTimeInterval = 1.0 / 60.0
-        if lastRenderDuration > frameBudget {
-            framesToSkip = min(Int(lastRenderDuration / frameBudget), 6)
+        if renderDuration > frameBudget {
+            framesToSkip = min(Int(renderDuration / frameBudget), 6)
         } else {
             framesToSkip = 0
         }
@@ -234,10 +233,6 @@ final class StreamingMarkdownView: UIView {
         let chunk = pendingMarkdownChunks[pendingChunkIndex]
         let start = pendingChunkStartIndex ?? chunk.startIndex
         return start < chunk.endIndex ? chunk : nil
-    }
-
-    private func appendPendingMarkdown(_ string: String) {
-        appendPendingChunk(string)
     }
 
     private func appendPendingChunk(_ chunk: String) {
@@ -449,7 +444,21 @@ private extension ChatMarkdownRenderedBlock {
             )
         case .table, .details:
             return self
-        case .mathBlock, .image:
+        case let .blockQuote(blockQuoteBlock):
+            let children = blockQuoteBlock.children.compactMap(\.currentSegmentRenderableBlock)
+            return children.isEmpty ? nil : .blockQuote(ChatMarkdownBlockQuoteBlock(children: children))
+        case let .list(listBlock):
+            let items = listBlock.items.compactMap { item -> ChatMarkdownListItemBlock? in
+                let children = item.children.compactMap(\.currentSegmentRenderableBlock)
+                guard !children.isEmpty else {
+                    return nil
+                }
+                return ChatMarkdownListItemBlock(marker: item.marker, children: children)
+            }
+            return items.isEmpty ? nil : .list(ChatMarkdownListBlock(isOrdered: listBlock.isOrdered, items: items))
+        case .mathBlock:
+            return self
+        case .image:
             return nil
         }
     }

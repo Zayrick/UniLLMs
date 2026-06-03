@@ -56,12 +56,18 @@ final class ChatMarkdownTableRenderer {
     }
 
     private func renderPlainText(_ tableData: ChatMarkdownTableData) -> NSMutableAttributedString {
-        let text = tableData.rows
-            .map { row in
-                row.map(\.accessibilityText).joined(separator: "  ")
+        let result = NSMutableAttributedString()
+
+        for row in tableData.rows {
+            for (columnIndex, cell) in row.enumerated() {
+                if columnIndex > 0 {
+                    result.append(NSAttributedString(string: "  ", attributes: context.bodyAttributes()))
+                }
+                result.append(cell.attributedText)
             }
-            .joined(separator: "\n")
-        let result = NSMutableAttributedString(string: text + "\n", attributes: context.bodyAttributes())
+            result.append(NSAttributedString(string: "\n", attributes: context.bodyAttributes()))
+        }
+
         context.apply([.paragraphStyle: tableParagraphStyle], to: result)
         return result
     }

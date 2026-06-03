@@ -270,6 +270,7 @@ enum ChatMarkdownMathBlockSplitter {
         in lines: [MarkdownLineSlice]
     ) -> (block: ChatMarkdownMathBlock, nextIndex: Int)? {
         guard index < lines.count,
+              canStartTopLevelDisplayMath(lines[index].withoutTrailingNewline),
               isDisplayMathOpeningLine(lines[index].withoutTrailingNewline) else {
             return nil
         }
@@ -296,6 +297,17 @@ enum ChatMarkdownMathBlockSplitter {
         }
 
         return nil
+    }
+
+    private static func canStartTopLevelDisplayMath(_ line: String) -> Bool {
+        !startsWithWhitespace(line)
+    }
+
+    private static func startsWithWhitespace(_ line: String) -> Bool {
+        guard let first = line.first else {
+            return false
+        }
+        return first == " " || first == "\t"
     }
 
     private static func isDisplayMathOpeningLine(_ line: String) -> Bool {

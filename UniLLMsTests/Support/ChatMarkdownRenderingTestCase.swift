@@ -39,6 +39,10 @@ class ChatMarkdownRenderingTestCase: XCTestCase {
                 XCTFail("Expected Markdown to render only text blocks.", file: file, line: line)
             case .details:
                 XCTFail("Expected Markdown to render only text blocks.", file: file, line: line)
+            case .blockQuote:
+                XCTFail("Expected Markdown to render only text blocks.", file: file, line: line)
+            case .list:
+                XCTFail("Expected Markdown to render only text blocks.", file: file, line: line)
             }
         }
 

@@ -263,6 +263,40 @@ final class ChatMarkdownHTMLRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(imageBlock.altText, "Diagram")
     }
 
+    func testMarkdownHTMLDetailsPreservesListNestedCodeBlock() throws {
+        let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
+        let blocks = renderer.render(
+            markdown: """
+            <details>
+            <summary>More info</summary>
+
+            - Item
+              ```swift
+              let value = 1
+              ```
+
+            </details>
+            """
+        )
+
+        guard blocks.count == 1,
+              case let .details(detailsBlock) = blocks[0],
+              detailsBlock.children.count == 1,
+              case let .list(listBlock) = detailsBlock.children[0],
+              listBlock.items.count == 1,
+              listBlock.items[0].children.count == 2,
+              case let .text(itemText) = listBlock.items[0].children[0],
+              case let .codeBlock(codeBlock) = listBlock.items[0].children[1] else {
+            XCTFail("Expected details body list item to preserve nested code block")
+            return
+        }
+
+        XCTAssertEqual(detailsBlock.summary, "More info")
+        XCTAssertEqual(itemText.string, "Item")
+        XCTAssertEqual(codeBlock.displayLanguage, "swift")
+        XCTAssertEqual(codeBlock.code, "let value = 1")
+    }
+
     func testMarkdownHTMLDetailsWithoutSummaryUsesDefaultSummaryAndKeepsBody() throws {
         let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
         let blocks = renderer.render(

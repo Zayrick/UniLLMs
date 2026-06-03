@@ -27,6 +27,8 @@ enum ChatMarkdownRenderedBlockViewKind: Equatable {
     case table
     case image
     case details
+    case blockQuote
+    case list
 }
 
 struct ChatMarkdownRenderedBlockViewIdentity: Equatable {
@@ -50,6 +52,10 @@ struct ChatMarkdownRenderedBlockViewIdentity: Equatable {
             return "image:\(imageBlock.source):\(imageBlock.altText)"
         case let .details(detailsBlock):
             return "details:\(detailsBlock.summary):\(detailsBlock.children.identityValue)"
+        case let .blockQuote(blockQuoteBlock):
+            return "blockquote:\(blockQuoteBlock.children.identityValue)"
+        case let .list(listBlock):
+            return "list:\(listBlock.isOrdered):\(listBlock.items.identityValue)"
         }
     }
 }
@@ -210,6 +216,20 @@ enum ChatMarkdownRenderedBlockViewReconciler {
             detailsView.update(detailsBlock: detailsBlock)
             return updatedRecord(from: record, for: block)
 
+        case let .blockQuote(blockQuoteBlock):
+            guard let blockQuoteView = record.view as? ChatMarkdownBlockQuoteView else {
+                return nil
+            }
+            blockQuoteView.update(blockQuoteBlock: blockQuoteBlock)
+            return updatedRecord(from: record, for: block)
+
+        case let .list(listBlock):
+            guard let listView = record.view as? ChatMarkdownListView else {
+                return nil
+            }
+            listView.update(listBlock: listBlock)
+            return updatedRecord(from: record, for: block)
+
         case .mathBlock, .image:
             return nil
         }
@@ -294,6 +314,30 @@ enum ChatMarkdownRenderedBlockViewReconciler {
                 kind: .details,
                 identity: ChatMarkdownRenderedBlockViewIdentity(block)
             )
+        case let .blockQuote(blockQuoteBlock):
+            let blockQuoteView = ChatMarkdownBlockQuoteView(
+                blockQuoteBlock: blockQuoteBlock,
+                style: configuration.style,
+                traitCollection: configuration.traitCollection
+            )
+            blockQuoteView.onNeedsHeightUpdate = configuration.onNeedsHeightUpdate
+            return ChatMarkdownRenderedBlockViewRecord(
+                view: blockQuoteView,
+                kind: .blockQuote,
+                identity: ChatMarkdownRenderedBlockViewIdentity(block)
+            )
+        case let .list(listBlock):
+            let listView = ChatMarkdownListView(
+                listBlock: listBlock,
+                style: configuration.style,
+                traitCollection: configuration.traitCollection
+            )
+            listView.onNeedsHeightUpdate = configuration.onNeedsHeightUpdate
+            return ChatMarkdownRenderedBlockViewRecord(
+                view: listView,
+                kind: .list,
+                identity: ChatMarkdownRenderedBlockViewIdentity(block)
+            )
         }
     }
 
@@ -335,6 +379,10 @@ extension ChatMarkdownRenderedBlock {
             return .image
         case .details:
             return .details
+        case .blockQuote:
+            return .blockQuote
+        case .list:
+            return .list
         }
     }
 
@@ -342,14 +390,14 @@ extension ChatMarkdownRenderedBlock {
         switch self {
         case let .text(attributedText):
             return attributedText.length > 0 ? self : nil
-        case .codeBlock, .mathBlock, .table, .image, .details:
+        case .codeBlock, .mathBlock, .table, .image, .details, .blockQuote, .list:
             return self
         }
     }
 
     fileprivate var supportsInPlaceUpdate: Bool {
         switch self {
-        case .text, .codeBlock, .table, .details:
+        case .text, .codeBlock, .table, .details, .blockQuote, .list:
             return true
         case .mathBlock, .image:
             return false
@@ -362,6 +410,29 @@ private extension Array where Element == ChatMarkdownRenderedBlock {
         map { ChatMarkdownRenderedBlockViewIdentity($0) }
             .map(\.value)
             .joined(separator: "\u{1F}")
+    }
+}
+
+private extension Array where Element == ChatMarkdownListItemBlock {
+    var identityValue: String {
+        map(\.identityValue).joined(separator: "\u{1C}")
+    }
+}
+
+private extension ChatMarkdownListItemBlock {
+    var identityValue: String {
+        "\(marker.identityValue):\(children.identityValue)"
+    }
+}
+
+private extension ChatMarkdownListMarker {
+    var identityValue: String {
+        switch self {
+        case let .text(text):
+            return "text:\(text)"
+        case let .checkbox(isChecked):
+            return "checkbox:\(isChecked)"
+        }
     }
 }
 

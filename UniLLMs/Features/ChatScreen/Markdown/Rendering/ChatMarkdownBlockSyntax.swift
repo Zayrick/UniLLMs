@@ -39,6 +39,45 @@ enum ChatMarkdownBlockSyntax {
         fenceInfo(in: line, allowsInfoString: false)
     }
 
+    static func lineAfterListMarker(_ line: String) -> String? {
+        guard let indentedLine = lineAfterOptionalBlockIndent(line) else {
+            return nil
+        }
+        guard !indentedLine.isEmpty else {
+            return nil
+        }
+
+        if let first = indentedLine.first,
+           first == "-" || first == "+" || first == "*" {
+            let nextIndex = indentedLine.index(after: indentedLine.startIndex)
+            guard nextIndex < indentedLine.endIndex,
+                  indentedLine[nextIndex].isWhitespace else {
+                return nil
+            }
+            return String(indentedLine[nextIndex...])
+        }
+
+        var index = indentedLine.startIndex
+        var digitCount = 0
+        while index < indentedLine.endIndex,
+              indentedLine[index].isNumber,
+              digitCount < 9 {
+            digitCount += 1
+            index = indentedLine.index(after: index)
+        }
+        guard digitCount > 0,
+              index < indentedLine.endIndex,
+              indentedLine[index] == "." || indentedLine[index] == ")" else {
+            return nil
+        }
+        let markerEnd = indentedLine.index(after: index)
+        guard markerEnd < indentedLine.endIndex,
+              indentedLine[markerEnd].isWhitespace else {
+            return nil
+        }
+        return String(indentedLine[markerEnd...])
+    }
+
     private static func fenceInfo(
         in line: String,
         allowsInfoString: Bool

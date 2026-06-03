@@ -65,7 +65,29 @@ struct ChatMarkdownRenderer {
 
         while index < children.count {
             let child = children[index]
-            if let table = child as? Table {
+            if let unorderedList = child as? UnorderedList {
+                flushTextBlock(result, to: &blocks)
+                let listBlock = renderListBlock(
+                    unorderedList,
+                    context: context,
+                    blockRenderer: blockRenderer,
+                    htmlTableRenderer: htmlTableRenderer
+                )
+                if !listBlock.items.isEmpty {
+                    blocks.append(.list(listBlock))
+                }
+            } else if let orderedList = child as? OrderedList {
+                flushTextBlock(result, to: &blocks)
+                let listBlock = renderListBlock(
+                    orderedList,
+                    context: context,
+                    blockRenderer: blockRenderer,
+                    htmlTableRenderer: htmlTableRenderer
+                )
+                if !listBlock.items.isEmpty {
+                    blocks.append(.list(listBlock))
+                }
+            } else if let table = child as? Table {
                 flushTextBlock(result, to: &blocks)
                 let tableData = blockRenderer.renderTableData(table)
                 if !tableData.isEmpty {
@@ -100,6 +122,22 @@ struct ChatMarkdownRenderer {
             } else if let imageBlock = standaloneImageBlock(from: child) {
                 flushTextBlock(result, to: &blocks)
                 blocks.append(.image(imageBlock))
+            } else if let quote = child as? BlockQuote,
+                      shouldRenderBlockQuoteAsContainer(
+                          quote,
+                          blockRenderer: blockRenderer,
+                          htmlTableRenderer: htmlTableRenderer
+                      ) {
+                flushTextBlock(result, to: &blocks)
+                let children = renderBlocks(
+                    from: Array(quote.children),
+                    context: context,
+                    blockRenderer: blockRenderer,
+                    htmlTableRenderer: htmlTableRenderer
+                )
+                if !children.isEmpty {
+                    blocks.append(.blockQuote(ChatMarkdownBlockQuoteBlock(children: children)))
+                }
             } else {
                 let renderedText = blockRenderer.renderBlock(child)
                 context.trimTrailingNewlines(in: renderedText)
@@ -213,12 +251,128 @@ struct ChatMarkdownRenderer {
         )
     }
 
+    private func renderListBlock(
+        _ list: UnorderedList,
+        context: ChatMarkdownRenderingContext,
+        blockRenderer: ChatMarkdownBlockRenderer,
+        htmlTableRenderer: ChatMarkdownHTMLTableRenderer
+    ) -> ChatMarkdownListBlock {
+        ChatMarkdownListBlock(
+            isOrdered: false,
+            items: renderListItems(
+                Array(list.listItems),
+                startIndex: nil,
+                context: context,
+                blockRenderer: blockRenderer,
+                htmlTableRenderer: htmlTableRenderer
+            )
+        )
+    }
+
+    private func renderListBlock(
+        _ list: OrderedList,
+        context: ChatMarkdownRenderingContext,
+        blockRenderer: ChatMarkdownBlockRenderer,
+        htmlTableRenderer: ChatMarkdownHTMLTableRenderer
+    ) -> ChatMarkdownListBlock {
+        ChatMarkdownListBlock(
+            isOrdered: true,
+            items: renderListItems(
+                Array(list.listItems),
+                startIndex: Int(list.startIndex),
+                context: context,
+                blockRenderer: blockRenderer,
+                htmlTableRenderer: htmlTableRenderer
+            )
+        )
+    }
+
+    private func renderListItems(
+        _ listItems: [ListItem],
+        startIndex: Int?,
+        context: ChatMarkdownRenderingContext,
+        blockRenderer: ChatMarkdownBlockRenderer,
+        htmlTableRenderer: ChatMarkdownHTMLTableRenderer
+    ) -> [ChatMarkdownListItemBlock] {
+        var orderedIndex = startIndex ?? 0
+        return listItems.map { item in
+            let marker: ChatMarkdownListMarker
+            if let checkbox = item.checkbox {
+                marker = .checkbox(isChecked: checkbox == .checked)
+                if startIndex != nil {
+                    orderedIndex += 1
+                }
+            } else if startIndex != nil {
+                marker = .text("\(orderedIndex).")
+                orderedIndex += 1
+            } else {
+                marker = .text("-")
+            }
+
+            let children = renderBlocks(
+                from: Array(item.children),
+                context: context,
+                blockRenderer: blockRenderer,
+                htmlTableRenderer: htmlTableRenderer
+            )
+            return ChatMarkdownListItemBlock(marker: marker, children: children)
+        }
+    }
+
     private func detailsOpening(in markup: any Markup) -> ChatMarkdownDetailsOpening? {
         guard let htmlBlock = markup as? HTMLBlock else {
             return nil
         }
 
         return ChatMarkdownHTMLSupport.detailsOpening(fromHTML: htmlBlock.rawHTML)
+    }
+
+    private func shouldRenderBlockQuoteAsContainer(
+        _ quote: BlockQuote,
+        blockRenderer: ChatMarkdownBlockRenderer,
+        htmlTableRenderer: ChatMarkdownHTMLTableRenderer
+    ) -> Bool {
+        Array(quote.children).contains {
+            shouldRenderAsNestedBlock(
+                $0,
+                blockRenderer: blockRenderer,
+                htmlTableRenderer: htmlTableRenderer
+            )
+        }
+    }
+
+    private func shouldRenderAsNestedBlock(
+        _ markup: any Markup,
+        blockRenderer: ChatMarkdownBlockRenderer,
+        htmlTableRenderer: ChatMarkdownHTMLTableRenderer
+    ) -> Bool {
+        if markup is CodeBlock ||
+            markup is Table ||
+            markup is UnorderedList ||
+            markup is OrderedList {
+            return true
+        }
+
+        if let paragraph = markup as? Paragraph {
+            return blockRenderer.renderDisplayMathBlock(paragraph) != nil
+                || standaloneImageBlock(from: paragraph) != nil
+        }
+
+        if let htmlBlock = markup as? HTMLBlock {
+            return htmlTableRenderer.renderTableData(fromHTML: htmlBlock.rawHTML) != nil
+                || ChatMarkdownHTMLSupport.imageBlock(fromHTML: htmlBlock.rawHTML) != nil
+                || ChatMarkdownHTMLSupport.detailsOpening(fromHTML: htmlBlock.rawHTML) != nil
+        }
+
+        if let nestedQuote = markup as? BlockQuote {
+            return shouldRenderBlockQuoteAsContainer(
+                nestedQuote,
+                blockRenderer: blockRenderer,
+                htmlTableRenderer: htmlTableRenderer
+            )
+        }
+
+        return false
     }
 
     private func standaloneImageBlock(from markup: any Markup) -> ChatMarkdownImageBlock? {

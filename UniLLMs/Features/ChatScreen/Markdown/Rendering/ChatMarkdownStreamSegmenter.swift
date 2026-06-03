@@ -214,9 +214,11 @@ struct ChatMarkdownStreamSegmenter {
     }
 
     private static func blockQuoteEnd(in lines: [Line], finishing: Bool) -> SegmentEnd? {
+        var openQuotedFence: (marker: Character, count: Int)?
         var lazyState = nextLazyBlockQuoteState(
             afterQuotedLine: lines[0].text,
-            current: .paragraph
+            current: .paragraph,
+            openFence: &openQuotedFence
         )
 
         for index in lines.indices.dropFirst() {
@@ -229,8 +231,15 @@ struct ChatMarkdownStreamSegmenter {
                 return SegmentEnd(segmentLineCount: index, consumedLineCount: index + 1)
             }
             if isBlockQuoteLine(line.text) {
-                lazyState = nextLazyBlockQuoteState(afterQuotedLine: line.text, current: lazyState)
+                lazyState = nextLazyBlockQuoteState(
+                    afterQuotedLine: line.text,
+                    current: lazyState,
+                    openFence: &openQuotedFence
+                )
                 continue
+            }
+            if openQuotedFence != nil {
+                return SegmentEnd(segmentLineCount: index, consumedLineCount: index)
             }
             if isLazyBlockQuoteContinuation(line.text, state: lazyState) {
                 lazyState = nextLazyBlockQuoteState(afterLazyLine: line.text, current: lazyState)
@@ -406,7 +415,7 @@ struct ChatMarkdownStreamSegmenter {
     private static func isInterruptingBlockStart(at index: Int, in lines: [Line]) -> Bool {
         let line = lines[index]
         if isFencedCodeOpening(line.text) ||
-            isDisplayMathOpening(line.text) ||
+            isDisplayMathOpening(line.text, allowsIndentedOpening: false) ||
             isBlockQuoteLine(line.text) ||
             startsHTMLBlock(line.text) ||
             isListStart(line.text, canInterruptParagraph: true) ||
@@ -928,7 +937,13 @@ struct ChatMarkdownStreamSegmenter {
         openingFenceInfo(in: line) != nil
     }
 
-    private static func isDisplayMathOpening(_ line: String) -> Bool {
+    private static func isDisplayMathOpening(
+        _ line: String,
+        allowsIndentedOpening: Bool = true
+    ) -> Bool {
+        if !allowsIndentedOpening, startsWithWhitespace(line) {
+            return false
+        }
         guard let indentedLine = lineAfterOptionalBlockIndent(line) else {
             return false
         }
@@ -1022,7 +1037,7 @@ struct ChatMarkdownStreamSegmenter {
 
     private static func isInterruptingLazyBlockQuoteContinuation(_ line: String) -> Bool {
         isFencedCodeOpening(line) ||
-            isDisplayMathOpening(line) ||
+            isDisplayMathOpening(line, allowsIndentedOpening: false) ||
             isBlockQuoteLine(line) ||
             startsHTMLBlock(line) ||
             isListStart(line) ||
@@ -1036,7 +1051,7 @@ struct ChatMarkdownStreamSegmenter {
         }
 
         if isFencedCodeOpening(line) ||
-            isDisplayMathOpening(line) ||
+            isDisplayMathOpening(line, allowsIndentedOpening: false) ||
             isBlockQuoteLine(line) ||
             htmlBlockEndCondition(for: line, allowsType7: true) != nil ||
             isSingleLineBlock(line) ||
@@ -1050,11 +1065,27 @@ struct ChatMarkdownStreamSegmenter {
 
     private static func nextLazyBlockQuoteState(
         afterQuotedLine line: String,
-        current: LazyBlockQuoteState
+        current: LazyBlockQuoteState,
+        openFence: inout (marker: Character, count: Int)?
     ) -> LazyBlockQuoteState {
         guard let contentLine = blockQuoteContentLine(line) else {
             return current
         }
+
+        if let fence = openFence {
+            if let closingFence = closingFenceInfo(in: contentLine),
+               closingFence.marker == fence.marker,
+               closingFence.count >= fence.count {
+                openFence = nil
+            }
+            return .unavailable
+        }
+
+        if let openingFence = openingFenceInfoAllowingListMarker(in: contentLine) {
+            openFence = openingFence
+            return .unavailable
+        }
+
         return lineAllowsLazyBlockQuoteContinuationAfterMarker(contentLine)
             ? .paragraph
             : .unavailable
@@ -1074,7 +1105,7 @@ struct ChatMarkdownStreamSegmenter {
 
     private static func isTableBreakingBlockStart(_ line: String) -> Bool {
         isFencedCodeOpening(line) ||
-            isDisplayMathOpening(line) ||
+            isDisplayMathOpening(line, allowsIndentedOpening: false) ||
             isBlockQuoteLine(line) ||
             htmlBlockEndCondition(for: line, allowsType7: true) != nil ||
             isIndentedCodeLine(line) ||
@@ -1087,6 +1118,17 @@ struct ChatMarkdownStreamSegmenter {
         ChatMarkdownBlockSyntax.openingFenceInfo(in: line)
     }
 
+    private static func openingFenceInfoAllowingListMarker(in line: String) -> (marker: Character, count: Int)? {
+        if let openingFence = openingFenceInfo(in: line) {
+            return openingFence
+        }
+
+        guard let listContentLine = ChatMarkdownBlockSyntax.lineAfterListMarker(line) else {
+            return nil
+        }
+        return openingFenceInfo(in: listContentLine)
+    }
+
     private static func closingFenceInfo(in line: String) -> (marker: Character, count: Int)? {
         ChatMarkdownBlockSyntax.closingFenceInfo(in: line)
     }
@@ -1097,6 +1139,13 @@ struct ChatMarkdownStreamSegmenter {
 
     private static func isIndentedCodeLine(_ line: String) -> Bool {
         lineAfterOptionalBlockIndent(line) == nil
+    }
+
+    private static func startsWithWhitespace(_ line: String) -> Bool {
+        guard let first = line.first else {
+            return false
+        }
+        return first == " " || first == "\t"
     }
 
     private static func isHTMLDeclarationStart(_ line: String) -> Bool {

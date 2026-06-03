@@ -40,6 +40,25 @@ struct ChatMarkdownDetailsBlock {
     let children: [ChatMarkdownRenderedBlock]
 }
 
+struct ChatMarkdownBlockQuoteBlock {
+    let children: [ChatMarkdownRenderedBlock]
+}
+
+enum ChatMarkdownListMarker: Equatable {
+    case text(String)
+    case checkbox(isChecked: Bool)
+}
+
+struct ChatMarkdownListItemBlock {
+    let marker: ChatMarkdownListMarker
+    let children: [ChatMarkdownRenderedBlock]
+}
+
+struct ChatMarkdownListBlock {
+    let isOrdered: Bool
+    let items: [ChatMarkdownListItemBlock]
+}
+
 enum ChatMarkdownRenderedBlock {
     case text(NSAttributedString)
     case codeBlock(ChatMarkdownCodeBlock)
@@ -47,4 +66,6 @@ enum ChatMarkdownRenderedBlock {
     case table(ChatMarkdownTableData)
     case image(ChatMarkdownImageBlock)
     case details(ChatMarkdownDetailsBlock)
+    case blockQuote(ChatMarkdownBlockQuoteBlock)
+    case list(ChatMarkdownListBlock)
 }

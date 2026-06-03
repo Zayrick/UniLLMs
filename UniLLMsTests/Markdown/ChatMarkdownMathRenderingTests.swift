@@ -147,6 +147,54 @@ final class ChatMarkdownMathRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(mathBlock.latex, "\\ce{2H2 + O2 -> 2H2O}")
     }
 
+    func testMarkdownDisplayLatexInsideListRendersAsNestedAttachment() throws {
+        let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
+        let blocks = renderer.render(
+            markdown: """
+            - $$
+              x+1
+              $$
+            """
+        )
+
+        guard blocks.count == 1,
+              case let .list(listBlock) = blocks[0],
+              listBlock.items.count == 1,
+              listBlock.items[0].children.count == 1,
+              case let .mathBlock(mathBlock) = listBlock.items[0].children[0] else {
+            XCTFail("Expected display math inside list item to render as a nested math block")
+            return
+        }
+
+        XCTAssertEqual(mathBlock.latex, "x+1")
+    }
+
+    func testMarkdownDisplayLatexAfterBlankInsideListRendersAsNestedAttachment() throws {
+        let renderer = ChatMarkdownRenderer(traitCollection: markdownRendererTraits)
+        let blocks = renderer.render(
+            markdown: """
+            - Item
+
+              $$
+              x+1
+              $$
+            """
+        )
+
+        guard blocks.count == 1,
+              case let .list(listBlock) = blocks[0],
+              listBlock.items.count == 1,
+              listBlock.items[0].children.count == 2,
+              case let .text(itemText) = listBlock.items[0].children[0],
+              case let .mathBlock(mathBlock) = listBlock.items[0].children[1] else {
+            XCTFail("Expected blank-separated display math to stay nested inside the list item")
+            return
+        }
+
+        XCTAssertEqual(itemText.string, "Item")
+        XCTAssertEqual(mathBlock.latex, "x+1")
+    }
+
     func testMarkdownMathSplitterKeepsMathInsideFenceWithInvalidClosingFence() {
         let segments = ChatMarkdownMathBlockSplitter.segments(
             in: """
@@ -161,6 +209,40 @@ final class ChatMarkdownMathRenderingTests: ChatMarkdownRenderingTestCase {
         XCTAssertEqual(segments.count, 1)
         guard case .markdown = segments[0] else {
             XCTFail("Expected invalid closing fence to keep display math inside fenced code")
+            return
+        }
+    }
+
+    func testMarkdownMathSplitterKeepsIndentedListDisplayMathInMarkdownSegment() {
+        let segments = ChatMarkdownMathBlockSplitter.segments(
+            in: """
+            - $$
+              x
+              $$
+            """
+        )
+
+        XCTAssertEqual(segments.count, 1)
+        guard case .markdown = segments[0] else {
+            XCTFail("Expected indented list display math to stay inside the Markdown segment")
+            return
+        }
+    }
+
+    func testMarkdownMathSplitterKeepsBlankSeparatedIndentedListDisplayMathInMarkdownSegment() {
+        let segments = ChatMarkdownMathBlockSplitter.segments(
+            in: """
+            - Item
+
+              $$
+              x
+              $$
+            """
+        )
+
+        XCTAssertEqual(segments.count, 1)
+        guard case .markdown = segments[0] else {
+            XCTFail("Expected blank-separated list display math to stay inside the Markdown segment")
             return
         }
     }
