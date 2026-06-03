@@ -31,6 +31,7 @@ final class SettingsViewController: UITableViewController {
         case providers
         case memories
         case tools
+        case permissions
         case systemPrompts
 
         var title: String {
@@ -41,6 +42,8 @@ final class SettingsViewController: UITableViewController {
                 return String(localized: .settingsRowMemoriesTitle)
             case .tools:
                 return String(localized: .settingsRowToolsTitle)
+            case .permissions:
+                return String(localized: "settings.row.permissions.title")
             case .systemPrompts:
                 return String(localized: .settingsRowSystemPromptsTitle)
             }
@@ -54,6 +57,8 @@ final class SettingsViewController: UITableViewController {
                 return "brain.head.profile"
             case .tools:
                 return "hammer"
+            case .permissions:
+                return "key"
             case .systemPrompts:
                 return "text.quote"
             }
@@ -67,6 +72,8 @@ final class SettingsViewController: UITableViewController {
                 return .systemTeal
             case .tools:
                 return .systemGreen
+            case .permissions:
+                return .systemIndigo
             case .systemPrompts:
                 return .systemPurple
             }
@@ -198,6 +205,11 @@ final class SettingsViewController: UITableViewController {
         case .tools:
             navigationController?.pushViewController(
                 ToolsViewController(dependencies: dependencies),
+                animated: true
+            )
+        case .permissions:
+            navigationController?.pushViewController(
+                PermissionsViewController(),
                 animated: true
             )
         case .systemPrompts:
