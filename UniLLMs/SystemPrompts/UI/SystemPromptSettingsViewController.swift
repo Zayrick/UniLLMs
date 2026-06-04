@@ -273,39 +273,42 @@ final class SystemPromptSettingsViewController: UITableViewController {
     }
 
     private func memoryFilterCell() -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.memoryConfigurationCell)
-            ?? UITableViewCell(style: .default, reuseIdentifier: ReuseIdentifier.memoryConfigurationCell)
-        var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = String(localized: .memoriesMemoryFilter)
-        contentConfiguration.image = UIImage(systemName: "line.3.horizontal.decrease.circle")
-        contentConfiguration.imageProperties.tintColor = .systemTeal
-        cell.contentConfiguration = contentConfiguration
-        cell.accessoryView = menuButton(
-            title: memoryInjectionSettings.filter.title,
-            menu: memoryFilterMenu(),
-            accessibilityLabel: String(localized: .memoriesAccessibilityInjectionFilter)
-        )
-        cell.accessoryType = .none
-        cell.selectionStyle = .none
+        let cell = memoryConfigurationCell()
+        configureMemoryFilterCell(cell)
         return cell
     }
 
     private func memoryLimitCell() -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.memoryConfigurationCell)
-            ?? UITableViewCell(style: .default, reuseIdentifier: ReuseIdentifier.memoryConfigurationCell)
-        var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = String(localized: .memoriesMemoryLimit)
-        contentConfiguration.image = UIImage(systemName: "number.circle")
-        contentConfiguration.imageProperties.tintColor = .systemTeal
-        cell.contentConfiguration = contentConfiguration
-        cell.accessoryView = menuButton(
-            title: memoryLimitMenuTitle,
+        let cell = memoryConfigurationCell()
+        configureMemoryLimitCell(cell)
+        return cell
+    }
+
+    private func memoryConfigurationCell() -> MemoryConfigurationCell {
+        tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.memoryConfigurationCell) as? MemoryConfigurationCell
+            ?? MemoryConfigurationCell(reuseIdentifier: ReuseIdentifier.memoryConfigurationCell)
+    }
+
+    private func configureMemoryFilterCell(_ cell: MemoryConfigurationCell) {
+        cell.configure(
+            title: String(localized: .memoriesMemoryFilter),
+            symbolName: "line.3.horizontal.decrease.circle",
+            tintColor: .systemTeal,
+            menuTitle: memoryInjectionSettings.filter.title,
+            menu: memoryFilterMenu(),
+            accessibilityLabel: String(localized: .memoriesAccessibilityInjectionFilter)
+        )
+    }
+
+    private func configureMemoryLimitCell(_ cell: MemoryConfigurationCell) {
+        cell.configure(
+            title: String(localized: .memoriesMemoryLimit),
+            symbolName: "number.circle",
+            tintColor: .systemTeal,
+            menuTitle: memoryLimitMenuTitle,
             menu: memoryLimitMenu(),
             accessibilityLabel: String(localized: .memoriesAccessibilityInjectionLimit)
         )
-        cell.accessoryType = .none
-        cell.selectionStyle = .none
-        return cell
     }
 
     private func customPromptsCell() -> UITableViewCell {
@@ -338,37 +341,6 @@ final class SystemPromptSettingsViewController: UITableViewController {
         var updatedSettings = memoryInjectionSettings
         updatedSettings.isEnabled = sender.isOn
         saveMemoryInjectionSettings(updatedSettings)
-    }
-
-    private func menuButton(
-        title: String,
-        menu: UIMenu,
-        accessibilityLabel: String
-    ) -> UIButton {
-        let button = UIButton(configuration: .plain())
-        configureMenuButton(
-            button,
-            title: title,
-            menu: menu,
-            accessibilityLabel: accessibilityLabel
-        )
-        return button
-    }
-
-    private func configureMenuButton(
-        _ button: UIButton,
-        title: String,
-        menu: UIMenu,
-        accessibilityLabel: String
-    ) {
-        var configuration = button.configuration ?? .plain()
-        configuration.title = title
-        button.configuration = configuration
-        button.menu = menu
-        button.showsMenuAsPrimaryAction = true
-        button.changesSelectionAsPrimaryAction = true
-        button.accessibilityLabel = accessibilityLabel
-        button.sizeToFit()
     }
 
     private func memoryFilterMenu() -> UIMenu {
@@ -430,6 +402,7 @@ final class SystemPromptSettingsViewController: UITableViewController {
         dependencies.memoryManager.saveMemoryInjectionSettings(settings)
         updateVisibleAutomaticContextCell(row: .memory)
         updateMemoryConfigurationSection(wasVisible: wasMemoryConfigurationVisible)
+        updateVisibleMemoryConfigurationCells()
     }
 
     private func updateVisibleAutomaticContextCell(row: AutomaticContextRow) {
@@ -449,35 +422,21 @@ final class SystemPromptSettingsViewController: UITableViewController {
     }
 
     private func updateVisibleMemoryConfigurationCells() {
-        updateVisibleMemoryConfigurationMenuButton(row: .filter) { button in
-            configureMenuButton(
-                button,
-                title: memoryInjectionSettings.filter.title,
-                menu: memoryFilterMenu(),
-                accessibilityLabel: String(localized: .memoriesAccessibilityInjectionFilter)
-            )
-        }
-        updateVisibleMemoryConfigurationMenuButton(row: .maximumMemories) { button in
-            configureMenuButton(
-                button,
-                title: memoryLimitMenuTitle,
-                menu: memoryLimitMenu(),
-                accessibilityLabel: String(localized: .memoriesAccessibilityInjectionLimit)
-            )
-        }
+        updateVisibleMemoryConfigurationCell(row: .filter, configure: configureMemoryFilterCell)
+        updateVisibleMemoryConfigurationCell(row: .maximumMemories, configure: configureMemoryLimitCell)
     }
 
-    private func updateVisibleMemoryConfigurationMenuButton(
+    private func updateVisibleMemoryConfigurationCell(
         row: MemoryConfigurationRow,
-        configure: (UIButton) -> Void
+        configure: (MemoryConfigurationCell) -> Void
     ) {
         guard let indexPath = indexPath(for: row),
               let cell = tableView.cellForRow(at: indexPath),
-              let button = cell.accessoryView as? UIButton else {
+              let memoryConfigurationCell = cell as? MemoryConfigurationCell else {
             return
         }
 
-        configure(button)
+        configure(memoryConfigurationCell)
     }
 
     private func updateVisibleCustomPromptCell() {
@@ -613,5 +572,94 @@ final class SystemPromptSettingsViewController: UITableViewController {
                 promptCount
             )
         }
+    }
+}
+
+private final class MemoryConfigurationCell: UITableViewCell {
+    private enum Metrics {
+        static let symbolSize: CGFloat = 24
+        static let horizontalSpacing: CGFloat = 12
+        static let menuSpacing: CGFloat = 8
+    }
+
+    private let rowStackView = UIStackView()
+    private let symbolImageView = UIImageView()
+    private let titleLabel = UILabel()
+    private let menuButton = UIButton(configuration: .plain())
+
+    init(reuseIdentifier: String?) {
+        super.init(style: .default, reuseIdentifier: reuseIdentifier)
+        configureLayout()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configureLayout()
+    }
+
+    func configure(
+        title: String,
+        symbolName: String,
+        tintColor: UIColor,
+        menuTitle: String,
+        menu: UIMenu,
+        accessibilityLabel: String
+    ) {
+        titleLabel.text = title
+        symbolImageView.image = UIImage(systemName: symbolName)
+        symbolImageView.tintColor = tintColor
+
+        var configuration = menuButton.configuration ?? .plain()
+        configuration.title = menuTitle
+        configuration.titleLineBreakMode = .byTruncatingTail
+        menuButton.configuration = configuration
+        menuButton.menu = menu
+        menuButton.accessibilityLabel = accessibilityLabel
+        menuButton.accessibilityValue = menuTitle
+    }
+
+    private func configureLayout() {
+        selectionStyle = .none
+        accessoryType = .none
+
+        rowStackView.axis = .horizontal
+        rowStackView.alignment = .center
+        rowStackView.spacing = Metrics.horizontalSpacing
+        rowStackView.translatesAutoresizingMaskIntoConstraints = false
+
+        symbolImageView.contentMode = .scaleAspectFit
+        symbolImageView.setContentHuggingPriority(.required, for: .horizontal)
+        symbolImageView.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        titleLabel.font = .preferredFont(forTextStyle: .body)
+        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.textColor = .label
+        titleLabel.numberOfLines = 1
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        menuButton.showsMenuAsPrimaryAction = true
+        menuButton.changesSelectionAsPrimaryAction = true
+        menuButton.contentHorizontalAlignment = .trailing
+        menuButton.titleLabel?.numberOfLines = 1
+        menuButton.setContentHuggingPriority(.required, for: .horizontal)
+        menuButton.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+
+        rowStackView.addArrangedSubview(symbolImageView)
+        rowStackView.addArrangedSubview(titleLabel)
+        rowStackView.setCustomSpacing(Metrics.menuSpacing, after: titleLabel)
+        rowStackView.addArrangedSubview(menuButton)
+        contentView.addSubview(rowStackView)
+
+        NSLayoutConstraint.activate([
+            rowStackView.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            rowStackView.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            rowStackView.topAnchor.constraint(equalTo: contentView.layoutMarginsGuide.topAnchor),
+            rowStackView.bottomAnchor.constraint(equalTo: contentView.layoutMarginsGuide.bottomAnchor),
+
+            symbolImageView.widthAnchor.constraint(equalToConstant: Metrics.symbolSize),
+            symbolImageView.heightAnchor.constraint(equalToConstant: Metrics.symbolSize)
+        ])
     }
 }
