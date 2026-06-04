@@ -15,6 +15,7 @@ final class ChatViewController: UIViewController {
     private enum HeaderLayout {
         static var defaultModuleSelectionTitle: String { String(localized: .chatSelectModel) }
         static let emptyConversationButtonSystemName = "app.dashed"
+        static let privateConversationActiveButtonSystemName = "lock.app.dashed"
         static let newConversationButtonSystemName = "plus.message"
         static let buttonSize: CGFloat = 44.0
         static let horizontalInset: CGFloat = 16.0
@@ -91,7 +92,7 @@ final class ChatViewController: UIViewController {
     )
     private let rightHeaderButton = ChatViewController.makeHeaderButton(
         systemName: HeaderLayout.emptyConversationButtonSystemName,
-        accessibilityLabel: String(localized: .chatLayout)
+        accessibilityLabel: String(localized: .chatPrivateChat)
     )
     private let messagesScrollView = UIScrollView()
     private lazy var messagesScrollCoordinator = MessagesScrollCoordinator(
@@ -128,6 +129,7 @@ final class ChatViewController: UIViewController {
     private var activeContinuationTask: ChatContinuationTask?
     private weak var activeResponseView: AssistantResponseTextView?
     private var pendingAttachments: [ChatAttachment] = []
+    private var privateModeAttachmentReferences: [ChatAttachment] = []
     private let attachmentStore = ChatAttachmentStore.shared
     private var attachmentPreviewItem: AttachmentPreviewItem?
 
@@ -165,6 +167,9 @@ final class ChatViewController: UIViewController {
         }
         historyReloadTask?.cancel()
         historySelectionTask?.cancel()
+        if chatRuntime.isPrivacyModeEnabled {
+            discardPrivateModeAttachments(including: chatRuntime.currentConversationAttachments)
+        }
         if let keyboardObservation {
             NotificationCenter.default.removeObserver(keyboardObservation)
         }
@@ -309,7 +314,7 @@ final class ChatViewController: UIViewController {
 
         leftHeaderButton.addTarget(self, action: #selector(toggleSideMenu), for: .touchUpInside)
         moduleSelectionPillButton.addTarget(self, action: #selector(presentModelSelection), for: .touchUpInside)
-        rightHeaderButton.addTarget(self, action: #selector(startNewConversation), for: .touchUpInside)
+        rightHeaderButton.addTarget(self, action: #selector(rightHeaderButtonPressed), for: .touchUpInside)
         updateRightHeaderButtonState(animated: false)
 
         NSLayoutConstraint.activate([
@@ -683,13 +688,48 @@ final class ChatViewController: UIViewController {
         present(navigationController, animated: true)
     }
 
-    @objc private func startNewConversation() {
+    @objc private func rightHeaderButtonPressed() {
+        if hasChatContent {
+            startNewConversation()
+        } else {
+            togglePrivacyMode()
+        }
+    }
+
+    private func startNewConversation() {
         guard activeResponseTask == nil,
               hasChatContent else {
             return
         }
 
-        chatRuntime.resetConversation()
+        let shouldKeepPrivacyMode = chatRuntime.isPrivacyModeEnabled
+        if chatRuntime.isPrivacyModeEnabled {
+            clearPendingAttachments(deleteFiles: true)
+        }
+        let discardedAttachments = chatRuntime.resetConversation(privacyMode: shouldKeepPrivacyMode)
+        discardPrivateModeAttachments(including: discardedAttachments)
+        removeChatContent()
+        reloadSelectedSystemPrompt()
+        messagesScrollCoordinator.lockToBottom()
+        updateRightHeaderButtonState(animated: true)
+        reloadHistorySessions(selectedSessionID: nil)
+    }
+
+    private func togglePrivacyMode() {
+        guard activeResponseTask == nil,
+              !hasChatContent else {
+            return
+        }
+
+        if chatRuntime.isPrivacyModeEnabled {
+            clearPendingAttachments(deleteFiles: true)
+            let discardedAttachments = chatRuntime.resetConversation(privacyMode: false)
+            discardPrivateModeAttachments(including: discardedAttachments)
+        } else {
+            clearPendingAttachments(deleteFiles: true)
+            chatRuntime.resetConversation(privacyMode: true)
+        }
+
         removeChatContent()
         reloadSelectedSystemPrompt()
         messagesScrollCoordinator.lockToBottom()
@@ -862,6 +902,7 @@ final class ChatViewController: UIViewController {
 
     private func appendPendingAttachments(_ attachments: [ChatAttachment]) {
         guard !attachments.isEmpty else { return }
+        recordPrivateModeAttachments(attachments)
         pendingAttachments.append(contentsOf: attachments)
         refreshComposerAttachmentPreview()
     }
@@ -870,14 +911,54 @@ final class ChatViewController: UIViewController {
         guard let index = pendingAttachments.firstIndex(where: { $0.id == id }) else {
             return
         }
-        pendingAttachments.remove(at: index)
+        let attachment = pendingAttachments.remove(at: index)
+        deletePendingAttachments([attachment])
         refreshComposerAttachmentPreview()
     }
 
-    private func clearPendingAttachments() {
+    private func clearPendingAttachments(deleteFiles: Bool = false) {
         guard !pendingAttachments.isEmpty else { return }
+        let attachments = pendingAttachments
         pendingAttachments.removeAll()
+        if deleteFiles {
+            deletePendingAttachments(attachments)
+        }
         refreshComposerAttachmentPreview()
+    }
+
+    private func recordPrivateModeAttachments(_ attachments: [ChatAttachment]) {
+        guard chatRuntime.isPrivacyModeEnabled else {
+            return
+        }
+
+        privateModeAttachmentReferences.append(contentsOf: attachments)
+    }
+
+    private func deletePendingAttachments(_ attachments: [ChatAttachment]) {
+        guard !attachments.isEmpty else {
+            return
+        }
+
+        privateModeAttachmentReferences.removeAll { privateAttachment in
+            attachments.contains { $0.assetID == privateAttachment.assetID }
+        }
+        try? attachmentStore.deleteUnreferencedAttachments(
+            removing: attachments,
+            referencedBy: chatRuntime.currentConversationAttachments + pendingAttachments
+        )
+    }
+
+    private func discardPrivateModeAttachments(including attachments: [ChatAttachment] = []) {
+        let attachmentsToDelete = privateModeAttachmentReferences + attachments
+        guard !attachmentsToDelete.isEmpty else {
+            return
+        }
+
+        privateModeAttachmentReferences.removeAll()
+        try? attachmentStore.deleteUnreferencedAttachments(
+            removing: attachmentsToDelete,
+            referencedBy: []
+        )
     }
 
     private func selectSystemPrompt(_ prompt: SystemPromptRecord) {
@@ -1630,7 +1711,11 @@ final class ChatViewController: UIViewController {
                 return
             }
 
-            self.chatRuntime.loadConversation(session: session, events: events)
+            if self.chatRuntime.isPrivacyModeEnabled {
+                self.clearPendingAttachments(deleteFiles: true)
+            }
+            let discardedAttachments = self.chatRuntime.loadConversation(session: session, events: events)
+            self.discardPrivateModeAttachments(including: discardedAttachments)
             self.renderConversationTimeline(events)
             self.reloadSelectedSystemPrompt()
             self.messagesScrollCoordinator.lockToBottom()
@@ -1657,7 +1742,8 @@ final class ChatViewController: UIViewController {
             }
 
             if session.id == self.chatRuntime.currentSessionID {
-                self.chatRuntime.resetConversation()
+                let discardedAttachments = self.chatRuntime.resetConversation()
+                self.discardPrivateModeAttachments(including: discardedAttachments)
                 self.removeChatContent()
                 self.reloadSelectedSystemPrompt()
                 self.messagesScrollCoordinator.lockToBottom()
@@ -1855,12 +1941,30 @@ final class ChatViewController: UIViewController {
 
     private func updateRightHeaderButtonState(animated: Bool) {
         let isGeneratingResponse = activeResponseTask != nil
-        let systemName = hasChatContent
-            ? HeaderLayout.newConversationButtonSystemName
-            : HeaderLayout.emptyConversationButtonSystemName
+        let isPrivateModeEnabled = chatRuntime.isPrivacyModeEnabled
+        let hasContent = hasChatContent
+        let systemName: String
+        if hasContent {
+            systemName = HeaderLayout.newConversationButtonSystemName
+        } else if isPrivateModeEnabled {
+            systemName = HeaderLayout.privateConversationActiveButtonSystemName
+        } else {
+            systemName = HeaderLayout.emptyConversationButtonSystemName
+        }
         let accessibilityLabel = isGeneratingResponse
             ? String(localized: .chatGeneratingResponse)
-            : (hasChatContent ? String(localized: .chatNewChat) : String(localized: .chatLayout))
+            : (
+                hasContent
+                ? String(localized: .chatNewChat)
+                : (isPrivateModeEnabled ? String(localized: .chatPrivateChatActive) : String(localized: .chatPrivateChat))
+            )
+        let accessibilityHint = isGeneratingResponse || hasContent
+            ? nil
+            : (
+                isPrivateModeEnabled
+                ? String(localized: .chatPrivateChatActiveHint)
+                : String(localized: .chatPrivateChatHint)
+            )
         let image = isGeneratingResponse
             ? nil
             : UIImage(
@@ -1875,8 +1979,11 @@ final class ChatViewController: UIViewController {
             var configuration = self.rightHeaderButton.configuration
             configuration?.image = image
             configuration?.showsActivityIndicator = isGeneratingResponse
+            configuration?.baseForegroundColor = isPrivateModeEnabled && !hasContent ? .systemBlue : .label
             self.rightHeaderButton.configuration = configuration
             self.rightHeaderButton.accessibilityLabel = accessibilityLabel
+            self.rightHeaderButton.accessibilityHint = accessibilityHint
+            self.rightHeaderButton.isSelected = isPrivateModeEnabled && !hasContent
             self.rightHeaderButton.isEnabled = true
         }
 

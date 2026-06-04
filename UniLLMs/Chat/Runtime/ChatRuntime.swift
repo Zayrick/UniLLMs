@@ -73,6 +73,7 @@ final class ChatRuntime {
     private var conversationTimeline: [ChatTimelineEvent] = []
     private var activeTurnID: UUID?
     private var historyPersistenceTask: Task<Void, Never>?
+    private(set) var isPrivacyModeEnabled = false
 
     init(
         providerStore: LLMsProviderStore,
@@ -98,6 +99,10 @@ final class ChatRuntime {
 
     var selectedSystemPromptID: UUID? {
         currentSession.selectedSystemPromptID
+    }
+
+    var currentConversationAttachments: [ChatAttachment] {
+        ChatTimelineEvent.attachments(from: conversationTimeline)
     }
 
     func selectedSystemPrompt() -> SystemPromptRecord? {
@@ -301,19 +306,31 @@ final class ChatRuntime {
         }
     }
 
-    func resetConversation() {
+    @discardableResult
+    func resetConversation(privacyMode: Bool = false) -> [ChatAttachment] {
+        let discardedPrivateAttachments = isPrivacyModeEnabled
+            ? ChatTimelineEvent.attachments(from: conversationTimeline)
+            : []
         conversationTimeline = []
         currentSession = ChatSession(title: String(localized: .chatNewChat))
+        isPrivacyModeEnabled = privacyMode
+        return discardedPrivateAttachments
     }
 
-    func loadConversation(session: ChatSession, events: [ChatTimelineEvent]) {
+    @discardableResult
+    func loadConversation(session: ChatSession, events: [ChatTimelineEvent]) -> [ChatAttachment] {
         guard activeTurnID == nil else {
-            return
+            return []
         }
 
+        let discardedPrivateAttachments = isPrivacyModeEnabled
+            ? ChatTimelineEvent.attachments(from: conversationTimeline)
+            : []
         currentSession = session
         conversationTimeline = ChatTimelineEvent.sortedChronologically(events)
+        isPrivacyModeEnabled = false
         discardUnavailableSystemPromptSelection(persistIfCleared: true)
+        return discardedPrivateAttachments
     }
 
     private func archivedCurrentBranch(
@@ -375,6 +392,13 @@ final class ChatRuntime {
 
     private func persistCurrentHistorySnapshot() {
         guard let historyStore else {
+            return
+        }
+        guard !isPrivacyModeEnabled else {
+            NotificationCenter.default.post(
+                name: Self.historyDidChangeNotification,
+                object: nil
+            )
             return
         }
 

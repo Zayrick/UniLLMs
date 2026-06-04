@@ -9,6 +9,50 @@ import XCTest
 
 @MainActor
 final class ChatRuntimeTests: LLMsProviderStoreTestCase {
+    func testPrivateConversationDoesNotPersistSuccessfulTurn() async throws {
+        let adapter = CapturingRuntimeProvider()
+        let (runtime, historyStore) = makeRuntime(
+            adapter: adapter,
+            systemPromptStore: InMemorySystemPromptStore(prompts: [])
+        )
+
+        runtime.resetConversation(privacyMode: true)
+        XCTAssertTrue(runtime.isPrivacyModeEnabled)
+
+        let stream = try runtime.startTurn(prompt: "Keep this private")
+        for try await _ in stream {}
+        await runtime.waitForPendingHistoryPersistence()
+
+        XCTAssertEqual(adapter.requests.count, 1)
+        let sessions = try await historyStore.fetchSessions()
+        XCTAssertTrue(sessions.isEmpty)
+    }
+
+    func testStartingPrivateConversationLeavesExistingHistoryIntact() async throws {
+        let adapter = CapturingRuntimeProvider()
+        let (runtime, historyStore) = makeRuntime(
+            adapter: adapter,
+            systemPromptStore: InMemorySystemPromptStore(prompts: [])
+        )
+
+        let normalTurn = try runtime.startTurn(prompt: "Save this")
+        for try await _ in normalTurn {}
+        await runtime.waitForPendingHistoryPersistence()
+
+        let savedSessions = try await historyStore.fetchSessions()
+        let savedSession = try XCTUnwrap(savedSessions.first)
+
+        runtime.resetConversation(privacyMode: true)
+        let privateTurn = try runtime.startTurn(prompt: "Do not save this")
+        for try await _ in privateTurn {}
+        await runtime.waitForPendingHistoryPersistence()
+
+        let sessions = try await historyStore.fetchSessions()
+        XCTAssertEqual(sessions, [savedSession])
+        let events = try await historyStore.fetchEvents(sessionID: savedSession.id)
+        XCTAssertEqual(ChatTimelineEvent.messages(from: events).map(\.content), ["Save this", "Done."])
+    }
+
     func testSelectingSystemPromptWithoutMessagesDoesNotCreateHistorySession() async throws {
         let prompt = SystemPromptRecord(title: "Translator", content: "Always answer in Chinese.")
         let promptStore = InMemorySystemPromptStore(prompts: [prompt])

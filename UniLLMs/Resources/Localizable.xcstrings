@@ -487,20 +487,74 @@
         }
       }
     },
-    "chat.layout" : {
-      "comment" : "Accessibility label for the empty conversation layout button.",
+    "chat.private_chat" : {
+      "comment" : "Accessibility label for the chat header button that starts a private chat.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Layout"
+            "value" : "Private Chat"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "布局"
+            "value" : "隐私对话"
+          }
+        }
+      }
+    },
+    "chat.private_chat_active" : {
+      "comment" : "Accessibility label for the chat header button while private chat mode is active.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Private Chat On"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隐私模式已开启"
+          }
+        }
+      }
+    },
+    "chat.private_chat_active_hint" : {
+      "comment" : "Accessibility hint for leaving private chat mode and discarding the private chat.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Leaves private mode and discards this chat."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "退出隐私模式并丢弃本次对话。"
+          }
+        }
+      }
+    },
+    "chat.private_chat_hint" : {
+      "comment" : "Accessibility hint for starting a private chat that is not saved to chat history.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Starts a chat that will not be saved."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开始一段不会保存的对话。"
           }
         }
       }
