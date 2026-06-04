@@ -218,6 +218,16 @@ nonisolated struct OpenRouterAPIClient {
         var stream: Bool
         var tools: [OpenRouterChatTool]?
         var provider: ProviderPreferences?
+        var sessionID: String?
+
+        nonisolated private enum CodingKeys: String, CodingKey {
+            case model
+            case messages
+            case stream
+            case tools
+            case provider
+            case sessionID = "session_id"
+        }
     }
 
     nonisolated private struct ProviderPreferences: Encodable {
@@ -309,14 +319,16 @@ nonisolated struct OpenRouterAPIClient {
         apiKey: String,
         model: String,
         messages: [OpenRouterChatMessage],
-        tools: [OpenRouterChatTool] = []
+        tools: [OpenRouterChatTool] = [],
+        sessionID: String? = nil
     ) -> AsyncThrowingStream<OpenRouterChatStreamDelta, Error> {
         streamChatCompletion(
             apiBase: apiBase,
             authorizationHeader: Self.bearerAuthorizationHeader(apiKey: apiKey),
             model: model,
             messages: messages,
-            tools: tools
+            tools: tools,
+            sessionID: sessionID
         )
     }
 
@@ -325,7 +337,8 @@ nonisolated struct OpenRouterAPIClient {
         authorizationHeader: String,
         model: String,
         messages: [OpenRouterChatMessage],
-        tools: [OpenRouterChatTool]
+        tools: [OpenRouterChatTool],
+        sessionID: String?
     ) -> AsyncThrowingStream<OpenRouterChatStreamDelta, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
@@ -335,7 +348,8 @@ nonisolated struct OpenRouterAPIClient {
                         authorizationHeader: authorizationHeader,
                         model: model,
                         messages: messages,
-                        tools: tools
+                        tools: tools,
+                        sessionID: sessionID
                     )
                     let (bytes, response) = try await session.bytes(for: request)
                     guard let httpResponse = response as? HTTPURLResponse else {
@@ -433,7 +447,8 @@ nonisolated struct OpenRouterAPIClient {
         authorizationHeader: String,
         model: String,
         messages: [OpenRouterChatMessage],
-        tools: [OpenRouterChatTool]
+        tools: [OpenRouterChatTool],
+        sessionID: String?
     ) throws -> URLRequest {
         var request = URLRequest(url: try chatCompletionsURL(apiBase: apiBase))
         request.httpMethod = "POST"
@@ -451,7 +466,8 @@ nonisolated struct OpenRouterAPIClient {
                 messages: messages,
                 stream: true,
                 tools: tools.isEmpty ? nil : tools,
-                provider: tools.isEmpty ? nil : ProviderPreferences(requireParameters: true)
+                provider: tools.isEmpty ? nil : ProviderPreferences(requireParameters: true),
+                sessionID: sessionID
             )
         )
         return request

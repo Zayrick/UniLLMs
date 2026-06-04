@@ -289,10 +289,62 @@ nonisolated struct ChatContext: Equatable {
     }
 }
 
+nonisolated struct ChatProviderSessionIdentifier: Equatable, Hashable {
+    var rawValue: String
+
+    init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    init(sessionID: UUID) {
+        rawValue = "chat-\(sessionID.uuidString.lowercased())"
+    }
+
+    func value(maxLength: Int) -> String? {
+        let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedValue.isEmpty,
+              trimmedValue.count <= maxLength else {
+            return nil
+        }
+
+        return trimmedValue
+    }
+}
+
+nonisolated struct ChatProviderRequestContext: Equatable {
+    var sessionIdentifier: ChatProviderSessionIdentifier?
+
+    init(sessionIdentifier: ChatProviderSessionIdentifier? = nil) {
+        self.sessionIdentifier = sessionIdentifier
+    }
+
+    init(session: ChatSession?) {
+        sessionIdentifier = session.map {
+            ChatProviderSessionIdentifier(sessionID: $0.id)
+        }
+    }
+}
+
 nonisolated struct ChatRequest: Equatable {
     var modelID: String
     var messages: [ChatMessage]
     var context: ChatContext
+
+    /// Provider-neutral metadata adapters can map onto their own session,
+    /// conversation, routing, or observability primitives.
+    var providerContext: ChatProviderRequestContext
+
+    init(
+        modelID: String,
+        messages: [ChatMessage],
+        context: ChatContext,
+        providerContext: ChatProviderRequestContext? = nil
+    ) {
+        self.modelID = modelID
+        self.messages = messages
+        self.context = context
+        self.providerContext = providerContext ?? ChatProviderRequestContext(session: context.session)
+    }
 }
 
 nonisolated struct ChatResponse: Equatable {

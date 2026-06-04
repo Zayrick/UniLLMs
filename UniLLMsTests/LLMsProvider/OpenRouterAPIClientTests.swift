@@ -152,6 +152,37 @@ final class OpenRouterAPIClientTests: XCTestCase {
         XCTAssertNotNil(payload["tools"])
     }
 
+    func testOpenRouterProviderSendsChatSessionIDAsOpenRouterSessionID() async throws {
+        let capture = RequestCapture { request in
+            try Self.doneStreamResponse(for: request)
+        }
+        let session = makeCapturingSession(capture: capture)
+        let provider = OpenRouterProvider(apiClient: OpenRouterAPIClient(session: session))
+        let chatSessionID = try XCTUnwrap(UUID(uuidString: "2F0D942C-77F0-4308-86B8-B3010E8D1378"))
+        defer {
+            capture.invalidate()
+        }
+
+        for try await _ in provider.streamChat(
+            request: ChatRequest(
+                modelID: "openai/gpt-4o-mini",
+                messages: [ChatMessage(role: .user, content: "Hello")],
+                context: ChatContext(
+                    session: ChatSession(id: chatSessionID),
+                    messages: [ChatMessage(role: .user, content: "Hello")]
+                )
+            ),
+            configuration: provider.defaultConfiguration
+        ) {}
+
+        let request = try XCTUnwrap(capture.requests.first)
+        let payload = try Self.chatRequestPayload(from: request)
+        XCTAssertEqual(
+            payload["session_id"] as? String,
+            "chat-2f0d942c-77f0-4308-86b8-b3010e8d1378"
+        )
+    }
+
     func testOpenAICompatibleProviderRendersContextInstructionsAsSystemMessage() async throws {
         let capture = RequestCapture { request in
             try Self.doneStreamResponse(for: request)

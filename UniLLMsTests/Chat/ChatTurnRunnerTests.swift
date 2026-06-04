@@ -155,6 +155,49 @@ final class ChatTurnRunnerTests: LLMsProviderStoreTestCase {
         XCTAssertEqual(adapter.requests.count, 2)
         XCTAssertEqual(adapter.requests.last?.messages.last?.toolCallID, "call_1")
     }
+
+    func testChatTurnRunnerKeepsProviderSessionIdentifierAcrossToolLoop() async throws {
+        let adapter = CapturingToolLoopProvider()
+        let providerManager = makeProviderManager(adapters: [adapter])
+        let runner = ChatTurnRunner(
+            responseStreamer: ChatResponseStreamer(providerManager: providerManager),
+            toolManager: ToolManager(
+                catalog: ToolCatalog(
+                    registry: ToolRegistry(tools: [ErrorStatusTool()]),
+                    isEnabled: { true }
+                )
+            )
+        )
+        let provider = LLMsProviderRecord(
+            kind: CapturingToolLoopProvider.providerKind,
+            name: "Tool Loop Capture",
+            configuration: LLMsProviderConfiguration()
+        )
+        let tool = ErrorStatusTool()
+        let sessionID = try XCTUnwrap(UUID(uuidString: "D78361F6-D8F0-4A7B-9092-C7C10CE8C2D8"))
+        let context = ChatContext(
+            session: ChatSession(id: sessionID),
+            messages: [
+                ChatMessage(role: .user, content: "Use the tool.")
+            ],
+            availableTools: [tool.definition]
+        )
+
+        for try await _ in runner.streamResponse(
+            provider: provider,
+            modelID: "test-model",
+            context: context
+        ) {}
+
+        XCTAssertEqual(adapter.requests.count, 2)
+        XCTAssertEqual(
+            adapter.requests.map { $0.providerContext.sessionIdentifier?.rawValue },
+            [
+                "chat-d78361f6-d8f0-4a7b-9092-c7c10ce8c2d8",
+                "chat-d78361f6-d8f0-4a7b-9092-c7c10ce8c2d8"
+            ]
+        )
+    }
 }
 
 private struct ToolLoopTestProvider: LLMsProviderAdapter {
