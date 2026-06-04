@@ -16,7 +16,7 @@ final class AssistantResponseTextView: UIView {
         static let sectionSpacing: CGFloat = 8.0
         static let loadingSpacing: CGFloat = 7.0
         static let copyButtonSideLength: CGFloat = 30.0
-        static let copyIconPointSize: CGFloat = 14.0
+        static let copyIconPointSize: CGFloat = 12.0
         static let copyAppearTranslationY: CGFloat = -8.0
         static let copyAppearAnimationDuration: TimeInterval = 0.46
         static let copyAppearAnimationDampingRatio: CGFloat = 0.88
@@ -565,7 +565,7 @@ final class AssistantResponseTextView: UIView {
 
     private final class CopyMarkdownButton: UIButton {
         private enum SymbolName {
-            static let copy = "doc.on.doc"
+            static let copy = "square.on.square"
             static let copied = "checkmark"
         }
 
