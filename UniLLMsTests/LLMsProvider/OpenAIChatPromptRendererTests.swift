@@ -36,10 +36,14 @@ final class OpenAIChatPromptRendererTests: XCTestCase {
         )
 
         XCTAssertEqual(messages.map(\.role), [.system, .user])
-        XCTAssertEqual(
-            messages.first?.content,
-            .text("Always answer in Chinese.\n\nMemory: Use metric units.\n\nMemory: Prefer short answers.")
-        )
+        guard case let .text(systemContent)? = messages.first?.content else {
+            XCTFail("Expected text system message.")
+            return
+        }
+        XCTAssertTrue(systemContent.hasPrefix("Always answer in Chinese.\n\nmemories:\n"))
+        XCTAssertTrue(systemContent.contains("\n-"))
+        XCTAssertTrue(systemContent.contains("Use metric units."))
+        XCTAssertTrue(systemContent.contains("Prefer short answers."))
         XCTAssertEqual(messages.dropFirst().first?.content, .text("Hello"))
     }
 

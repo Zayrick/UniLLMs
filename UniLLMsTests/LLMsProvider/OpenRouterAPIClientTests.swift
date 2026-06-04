@@ -117,7 +117,10 @@ final class OpenRouterAPIClientTests: XCTestCase {
         XCTAssertEqual(requestMessages.map { $0["role"] as? String }, ["system", "user"])
         let systemMessage = try XCTUnwrap(requestMessages.first)
         let userMessage = try XCTUnwrap(requestMessages.dropFirst().first)
-        XCTAssertEqual(systemMessage["content"] as? String, "Always answer in Chinese.\n\nMemory: Use metric units.")
+        let systemContent = try XCTUnwrap(systemMessage["content"] as? String)
+        XCTAssertTrue(systemContent.hasPrefix("Always answer in Chinese.\n\nmemories:\n"))
+        XCTAssertTrue(systemContent.contains("\n-"))
+        XCTAssertTrue(systemContent.contains("Use metric units."))
         XCTAssertEqual(userMessage["content"] as? String, "Hello")
     }
 
