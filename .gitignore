@@ -55,6 +55,9 @@ fastlane/test_output/
 .vscode/
 .idea/
 
+# Local reference material
+Reference/
+
 # Local secrets and environment overrides
 .env
 .env.*

@@ -3745,6 +3745,258 @@
         }
       }
     },
+    "about.email.title" : {
+      "comment" : "About screen row title for contacting the project by email.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Email"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "联系邮箱"
+          }
+        }
+      }
+    },
+    "about.license.detail" : {
+      "comment" : "About screen detail for the open-source license row.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GNU Affero General Public License v3.0."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GNU Affero 通用公共许可证第 3 版。"
+          }
+        }
+      }
+    },
+    "about.license.title" : {
+      "comment" : "About screen row title for opening the project license.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Source License"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开源协议"
+          }
+        }
+      }
+    },
+    "about.open_source.title" : {
+      "comment" : "About screen row title for opening the source repository.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Source"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开源地址"
+          }
+        }
+      }
+    },
+    "about.privacy_policy.detail" : {
+      "comment" : "About screen detail for the privacy policy row.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How UniLLMs handles local data, providers, tools, and permissions."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "说明 UniLLMs 如何处理本地数据、服务商、工具与权限。"
+          }
+        }
+      }
+    },
+    "about.privacy_policy.title" : {
+      "comment" : "About screen row title for opening the privacy policy.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Privacy Policy"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隐私政策"
+          }
+        }
+      }
+    },
+    "about.section.contact" : {
+      "comment" : "About screen section title for contact links.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Contact"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "联系"
+          }
+        }
+      }
+    },
+    "about.section.legal" : {
+      "comment" : "About screen section title for legal information.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Legal"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "法律"
+          }
+        }
+      }
+    },
+    "about.section.project" : {
+      "comment" : "About screen section title for project information.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Project"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "项目"
+          }
+        }
+      }
+    },
+    "about.summary.detail" : {
+      "comment" : "About screen summary detail for the UniLLMs project.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An AGPLv3 open-source LLM chat client for configuring providers, conversations, memories, prompts, tools, and attachments on device."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一款采用 AGPLv3 开源协议的 LLM 对话客户端，用于在设备上配置模型服务商、对话、记忆、提示词、工具与附件。"
+          }
+        }
+      }
+    },
+    "about.summary.title" : {
+      "comment" : "About screen project summary title.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "UniLLMs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "UniLLMs"
+          }
+        }
+      }
+    },
+    "about.title" : {
+      "comment" : "About screen navigation title.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About UniLLMs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关于 UniLLMs"
+          }
+        }
+      }
+    },
+    "privacy.body" : {
+      "comment" : "Full privacy policy text shown in the About screen.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Privacy Policy\n\nLast updated: June 4, 2026\n\n1. Scope\nThis policy applies to UniLLMs for iOS. UniLLMs is an AGPLv3 open-source LLM chat client that lets you configure model providers, conversations, memories, prompts, tools, MCP servers, and attachments on your device.\n\n2. Data We Do Not Collect\nThe UniLLMs project and its maintainers do not operate an analytics service for this app and do not collect personal information, usage telemetry, advertising identifiers, crash reports, or diagnostic logs from your device. The app does not use tracking for advertising or profiling.\n\n3. Data Stored Locally\nYour conversations, provider configurations, API keys, model metadata, memories, system prompts, tool settings, MCP server settings, and app preferences are stored on your device using Apple platform storage. This information remains under your control unless you choose to send it to a configured service or include it in an Apple backup, device transfer, or other system-level service you enable.\n\n4. Cloud Model Providers and Tools\nWhen you send a message through a cloud or OpenAI-compatible provider, UniLLMs sends the selected conversation content and the required context to the provider you configured. This may include messages, attachments, system prompts, memory context, tool definitions, tool results, and model settings needed to complete the request. The provider processes that data under its own terms and privacy policy. Built-in providers may include OpenRouter, OpenAI, Anthropic, Gemini, Pollinations, or other OpenAI-compatible services you add.\n\n5. User-Configured Integrations\nIf you configure MCP servers, custom API bases, or third-party tools, UniLLMs may send requests and receive responses from those endpoints as part of the features you enable. You are responsible for reviewing the trustworthiness, access controls, logging behavior, retention terms, and privacy policies of services you configure.\n\n6. Media and Permissions\nUniLLMs accesses camera or photo picker content only when you choose to attach media in a conversation and grant the relevant system permission. Selected media may be stored locally with the conversation and may be sent to the selected model provider when included in a request.\n\n7. Security\nUniLLMs avoids logging secrets or full authorization headers in application code. You should still protect your device, backups, API keys, and configured endpoints. Do not enter secrets into providers or tools you do not trust.\n\n8. Open Source, License, and Contact\nThe UniLLMs application source code is available at https://github.com/Zayrick/UniLLMs under the GNU Affero General Public License v3.0 (AGPL-3.0). The license governs the software code; any personal provider configurations, API keys, prompts, memories, conversations, or attachments you create remain your own content unless you choose to share them. For privacy questions, contact tvefxt@gmail.com.\n\n9. Policy Updates\nWe may update this policy as the app changes. Updated text will be provided in the app or project repository."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隐私政策\n\n最后更新：2026年6月4日\n\n一、适用范围\n本政策适用于 UniLLMs iOS App。UniLLMs 是一款采用 AGPLv3 开源协议的 LLM 对话客户端，用于在你的设备上配置模型服务商、对话、记忆、提示词、工具、MCP 服务和附件。\n\n二、我们不收集的数据\nUniLLMs 项目及维护者不为本 App 运营分析服务，也不会从你的设备收集个人信息、使用遥测、广告标识符、崩溃报告或诊断日志。本 App 不用于广告追踪或画像。\n\n三、本地存储的数据\n你的对话、服务商配置、API 密钥、模型元数据、记忆、系统提示词、工具设置、MCP 服务设置和 App 偏好会使用 Apple 平台存储保存在你的设备上。除非你主动发送给已配置服务，或通过你启用的 Apple 备份、设备迁移等系统级服务处理，否则这些信息由你控制。\n\n四、云端模型服务与工具\n当你通过云端或 OpenAI 兼容服务商发送消息时，UniLLMs 会将选定对话内容及完成请求所需的上下文发送给你配置的服务商。这可能包括消息、附件、系统提示词、记忆上下文、工具定义、工具结果和模型设置。服务商将根据其自身条款和隐私政策处理这些数据。内置或可配置的服务可能包括 OpenRouter、OpenAI、Anthropic、Gemini、Pollinations 或你添加的其他 OpenAI 兼容服务。\n\n五、用户配置的集成\n如果你配置 MCP 服务、自定义 API 地址或第三方工具，UniLLMs 会在你启用相关功能时与这些端点收发请求。你需要自行审查所配置服务的可信度、访问控制、日志行为、保留期限及隐私政策。\n\n六、媒体与权限\nUniLLMs 仅在你主动为对话添加媒体并授权相关系统权限时访问相机或照片选择器内容。你选择的媒体可能随对话保存在本地，也可能在被纳入请求时发送给所选模型服务商。\n\n七、安全\nUniLLMs 的应用代码会避免记录密钥或完整授权头。你仍应妥善保护设备、备份、API 密钥和已配置端点。请不要把密钥输入给你不信任的服务商或工具。\n\n八、开源、协议与联系\nUniLLMs 应用源码以 GNU Affero 通用公共许可证第 3 版（AGPL-3.0）开源，地址为 https://github.com/Zayrick/UniLLMs。该协议约束软件代码；你创建的个人服务商配置、API 密钥、提示词、记忆、对话或附件仍属于你自己的内容，除非你选择分享。隐私相关问题可通过 tvefxt@gmail.com 联系。\n\n九、政策更新\n我们可能会随 App 变化更新本政策。更新后的文本会在 App 或项目仓库中提供。"
+          }
+        }
+      }
+    },
+    "privacy.title" : {
+      "comment" : "Privacy policy screen navigation title.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Privacy Policy"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隐私政策"
+          }
+        }
+      }
+    },
     "settings.background_runtime.title" : {
       "comment" : "Settings switch title for showing response progress in a system Live Activity.",
       "extractionState" : "manual",
@@ -3939,6 +4191,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "权限"
+          }
+        }
+      }
+    },
+    "settings.row.about.title" : {
+      "comment" : "Settings row that opens app and project information.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About Us"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关于我们"
           }
         }
       }

@@ -32,7 +32,7 @@ final class SettingsViewController: UITableViewController {
             case .capabilities:
                 return [.memories, .tools]
             case .appAndSystem:
-                return [.backgroundRuntime, .permissions]
+                return [.backgroundRuntime, .permissions, .about]
             }
         }
     }
@@ -44,6 +44,7 @@ final class SettingsViewController: UITableViewController {
         case tools
         case backgroundRuntime
         case permissions
+        case about
 
         var title: String {
             switch self {
@@ -59,6 +60,8 @@ final class SettingsViewController: UITableViewController {
                 return String(localized: "settings.background_runtime.title")
             case .permissions:
                 return String(localized: "settings.row.permissions.title")
+            case .about:
+                return String(localized: "settings.row.about.title")
             }
         }
 
@@ -76,6 +79,8 @@ final class SettingsViewController: UITableViewController {
                 return "arrow.triangle.2.circlepath.circle"
             case .permissions:
                 return "key"
+            case .about:
+                return "info.circle"
             }
         }
 
@@ -93,6 +98,8 @@ final class SettingsViewController: UITableViewController {
                 return .systemOrange
             case .permissions:
                 return .systemIndigo
+            case .about:
+                return .systemGray
             }
         }
     }
@@ -151,7 +158,7 @@ final class SettingsViewController: UITableViewController {
         switch row {
         case .backgroundRuntime:
             return backgroundRuntimeCell(for: row)
-        case .providers, .systemPrompts, .memories, .tools, .permissions:
+        case .providers, .systemPrompts, .memories, .tools, .permissions, .about:
             return navigationCell(for: row)
         }
     }
@@ -222,6 +229,11 @@ final class SettingsViewController: UITableViewController {
         case .permissions:
             navigationController?.pushViewController(
                 PermissionsViewController(),
+                animated: true
+            )
+        case .about:
+            navigationController?.pushViewController(
+                AboutViewController(),
                 animated: true
             )
         case .systemPrompts:
