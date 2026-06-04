@@ -76,6 +76,29 @@ final class ChatPromptAssemblerTests: XCTestCase {
         XCTAssertEqual(promptParts.messages, originalMessages)
     }
 
+    func testInstructionTextCombinesSystemPromptCurrentDateAndMemories() {
+        let currentDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let prompt = SystemPromptRecord(
+            title: "Translator",
+            content: "Always answer in Chinese."
+        )
+        let memory = MemoryRecord(scope: .user, text: "Use metric units.")
+
+        let promptParts = ChatPromptAssembler().assemblePrompt(
+            from: ChatContext(
+                systemPrompt: prompt,
+                currentDate: currentDate,
+                memories: [memory]
+            )
+        )
+
+        XCTAssertEqual(promptParts.instructions.map(\.kind), [.systemPrompt, .currentDate, .memory])
+        let currentDateInstruction = promptParts.instructions[1]
+        XCTAssertEqual(currentDateInstruction.createdAt, currentDate)
+        XCTAssertTrue(currentDateInstruction.content.hasPrefix("current_datetime: "))
+        XCTAssertTrue(promptParts.instructionText?.contains("\n\ncurrent_datetime: ") == true)
+    }
+
     func testMemoryInstructionFormatsMultipleMemoriesAsYAMLLikeArray() {
         let olderDate = Date(timeIntervalSince1970: 100)
         let newerDate = Date(timeIntervalSince1970: 200)

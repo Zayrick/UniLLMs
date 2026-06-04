@@ -271,6 +271,7 @@ nonisolated struct ChatContext: Equatable {
     var session: ChatSession?
     var messages: [ChatMessage]
     var systemPrompt: SystemPromptRecord?
+    var currentDate: Date?
     var memories: [MemoryRecord]
     var availableTools: [ToolDefinition]
 
@@ -278,12 +279,14 @@ nonisolated struct ChatContext: Equatable {
         session: ChatSession? = nil,
         messages: [ChatMessage] = [],
         systemPrompt: SystemPromptRecord? = nil,
+        currentDate: Date? = nil,
         memories: [MemoryRecord] = [],
         availableTools: [ToolDefinition] = []
     ) {
         self.session = session
         self.messages = messages
         self.systemPrompt = systemPrompt
+        self.currentDate = currentDate
         self.memories = memories
         self.availableTools = availableTools
     }

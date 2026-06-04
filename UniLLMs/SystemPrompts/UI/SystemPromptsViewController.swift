@@ -51,7 +51,9 @@ final class SystemPromptsViewController: UITableViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        title = isSelectingPrompt ? String(localized: .systemPromptsChoosePrompt) : String(localized: .settingsRowSystemPromptsTitle)
+        title = isSelectingPrompt
+            ? String(localized: .systemPromptsChoosePrompt)
+            : String(localized: "system_prompts.custom.title")
         configureCancelButtonIfNeeded()
         configureAddButton()
         configureClearButtonIfNeeded()

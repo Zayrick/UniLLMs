@@ -93,6 +93,25 @@ final class SystemPromptStoreTests: XCTestCase {
         XCTAssertNil(manager.prompt(id: UUID()))
     }
 
+    func testSystemPromptInjectionSettingsPersistCurrentDatePreference() {
+        let settingsStore = UserDefaultsSystemPromptSettingsStore(
+            defaults: defaults,
+            storageKey: "systemPromptSettings"
+        )
+
+        XCTAssertFalse(settingsStore.loadInjectionSettings().isCurrentDateEnabled)
+
+        settingsStore.saveInjectionSettings(
+            SystemPromptInjectionSettings(isCurrentDateEnabled: true)
+        )
+
+        let reloadedStore = UserDefaultsSystemPromptSettingsStore(
+            defaults: defaults,
+            storageKey: "systemPromptSettings"
+        )
+        XCTAssertTrue(reloadedStore.loadInjectionSettings().isCurrentDateEnabled)
+    }
+
     private func makePrompt(
         id: UUID = UUID(),
         title: String,

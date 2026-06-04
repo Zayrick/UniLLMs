@@ -19,6 +19,7 @@ final class AppDependencyContainer {
     let toolCatalog: ToolCatalog
     let toolManager: ToolManager
     let systemPromptManager: SystemPromptManager
+    let systemPromptSettingsStore: any SystemPromptSettingsStore
     let appSettingsStore: any AppSettingsStore
     let memoryStore: any MemoryStore
     let memorySettingsStore: any MemorySettingsStore
@@ -34,12 +35,14 @@ final class AppDependencyContainer {
         providerStore: LLMsProviderStore = .shared,
         appSettingsStore: any AppSettingsStore = UserDefaultsAppSettingsStore.shared,
         systemPromptStore: any SystemPromptStore = UserDefaultsSystemPromptStore.shared,
+        systemPromptSettingsStore: any SystemPromptSettingsStore = UserDefaultsSystemPromptSettingsStore.shared,
         memoryStore: any MemoryStore = UserDefaultsMemoryStore.shared,
         memorySettingsStore: any MemorySettingsStore = UserDefaultsMemorySettingsStore.shared
     ) {
         self.coreDataStack = coreDataStack
         self.providerStore = providerStore
         self.appSettingsStore = appSettingsStore
+        self.systemPromptSettingsStore = systemPromptSettingsStore
         self.memoryStore = memoryStore
         self.memorySettingsStore = memorySettingsStore
 
@@ -81,7 +84,8 @@ final class AppDependencyContainer {
 
         let contextBuilder = ChatContextBuilder(
             memoryManager: memoryManager,
-            toolCatalog: toolCatalog
+            toolCatalog: toolCatalog,
+            systemPromptSettingsStore: systemPromptSettingsStore
         )
         let responseStreamer = ChatResponseStreamer(providerManager: providerManager)
         let turnRunner = ChatTurnRunner(

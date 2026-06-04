@@ -226,7 +226,7 @@ final class SettingsViewController: UITableViewController {
             )
         case .systemPrompts:
             navigationController?.pushViewController(
-                SystemPromptsViewController(dependencies: dependencies),
+                SystemPromptSettingsViewController(dependencies: dependencies),
                 animated: true
             )
         case .backgroundRuntime:

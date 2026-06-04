@@ -293,7 +293,11 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
         let toolCatalog = ToolCatalog(registry: ToolRegistry(tools: []), isEnabled: { true })
         let contextBuilder = ChatContextBuilder(
             memoryManager: MemoryManager(retriever: EmptyRuntimeMemoryRetriever()),
-            toolCatalog: toolCatalog
+            toolCatalog: toolCatalog,
+            systemPromptSettingsStore: UserDefaultsSystemPromptSettingsStore(
+                defaults: defaults,
+                storageKey: "systemPromptSettings"
+            )
         )
         let responseStreamer = ChatResponseStreamer(providerManager: providerManager)
         let turnRunner = ChatTurnRunner(

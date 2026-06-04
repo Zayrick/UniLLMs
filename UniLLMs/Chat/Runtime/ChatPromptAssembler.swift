@@ -12,6 +12,7 @@ import Yams
 nonisolated struct ChatInstruction: Equatable {
     nonisolated enum Kind: Equatable {
         case systemPrompt
+        case currentDate
         case memory
     }
 
@@ -66,6 +67,9 @@ nonisolated struct ChatPromptAssembler {
         if let instruction = systemPromptInstruction(from: context.systemPrompt) {
             instructions.append(instruction)
         }
+        if let instruction = currentDateInstruction(from: context.currentDate) {
+            instructions.append(instruction)
+        }
         if let instruction = memoryInstruction(from: context.memories) {
             instructions.append(instruction)
         }
@@ -86,6 +90,18 @@ nonisolated struct ChatPromptAssembler {
             kind: .systemPrompt,
             content: content,
             createdAt: prompt.updatedAt
+        )
+    }
+
+    nonisolated private static func currentDateInstruction(from currentDate: Date?) -> ChatInstruction? {
+        guard let currentDate else {
+            return nil
+        }
+
+        return ChatInstruction(
+            kind: .currentDate,
+            content: currentDateInstructionContent(from: currentDate),
+            createdAt: currentDate
         )
     }
 
@@ -113,6 +129,15 @@ nonisolated struct ChatPromptAssembler {
             text: text,
             createdAt: memory.createdAt
         )
+    }
+
+    nonisolated private static func currentDateInstructionContent(from currentDate: Date) -> String {
+        let formattedDate = ISO8601DateFormatter.string(
+            from: currentDate,
+            timeZone: .current,
+            formatOptions: [.withInternetDateTime, .withColonSeparatorInTimeZone]
+        )
+        return "current_datetime: \(formattedDate)"
     }
 
     nonisolated private static func memoryInstructionContent(from memories: [IncludedMemory]) throws -> String {

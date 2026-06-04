@@ -23,7 +23,8 @@ final class ChatContextBuilderTests: XCTestCase {
                 registry: ToolRegistry(tools: []),
                 isEnabled: { true },
                 dynamicSources: [dynamicSource]
-            )
+            ),
+            systemPromptSettingsStore: InMemorySystemPromptSettingsStore()
         )
 
         let context = await builder.buildContext(
@@ -52,7 +53,8 @@ final class ChatContextBuilderTests: XCTestCase {
                 registry: ToolRegistry(tools: []),
                 isEnabled: { true },
                 dynamicSources: [dynamicSource]
-            )
+            ),
+            systemPromptSettingsStore: InMemorySystemPromptSettingsStore()
         )
 
         let context = await builder.buildContext(
@@ -71,7 +73,8 @@ final class ChatContextBuilderTests: XCTestCase {
         let retriever = RecordingMemoryRetriever(error: TestMemoryError.failed)
         let builder = ChatContextBuilder(
             memoryManager: MemoryManager(retriever: retriever),
-            toolCatalog: ToolCatalog(registry: ToolRegistry(tools: []), isEnabled: { true })
+            toolCatalog: ToolCatalog(registry: ToolRegistry(tools: []), isEnabled: { true }),
+            systemPromptSettingsStore: InMemorySystemPromptSettingsStore()
         )
 
         let context = await builder.buildContext(
@@ -93,7 +96,8 @@ final class ChatContextBuilderTests: XCTestCase {
         let retriever = RecordingMemoryRetriever(result: [])
         let builder = ChatContextBuilder(
             memoryManager: MemoryManager(retriever: retriever),
-            toolCatalog: ToolCatalog(registry: ToolRegistry(tools: []), isEnabled: { true })
+            toolCatalog: ToolCatalog(registry: ToolRegistry(tools: []), isEnabled: { true }),
+            systemPromptSettingsStore: InMemorySystemPromptSettingsStore()
         )
 
         let context = await builder.buildContext(
@@ -106,10 +110,53 @@ final class ChatContextBuilderTests: XCTestCase {
         XCTAssertEqual(context.systemPrompt, prompt)
         XCTAssertEqual(retriever.capturedContexts.first?.systemPrompt, prompt)
     }
+
+    func testBuildContextIncludesCurrentDateWhenEnabled() async {
+        let currentDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let retriever = RecordingMemoryRetriever(result: [])
+        let builder = ChatContextBuilder(
+            memoryManager: MemoryManager(retriever: retriever),
+            toolCatalog: ToolCatalog(registry: ToolRegistry(tools: []), isEnabled: { true }),
+            systemPromptSettingsStore: InMemorySystemPromptSettingsStore(
+                settings: SystemPromptInjectionSettings(isCurrentDateEnabled: true)
+            ),
+            clock: FixedClock(now: currentDate)
+        )
+
+        let context = await builder.buildContext(
+            session: nil,
+            messages: [],
+            systemPrompt: nil,
+            includeTools: false
+        )
+
+        XCTAssertEqual(context.currentDate, currentDate)
+        XCTAssertEqual(retriever.capturedContexts.first?.currentDate, currentDate)
+    }
 }
 
 private enum TestMemoryError: Error {
     case failed
+}
+
+private struct FixedClock: AppClock {
+    var now: Date
+}
+
+private final class InMemorySystemPromptSettingsStore: SystemPromptSettingsStore {
+    private var settings: SystemPromptInjectionSettings
+
+    init(settings: SystemPromptInjectionSettings = SystemPromptInjectionSettings()) {
+        self.settings = settings
+    }
+
+    func loadInjectionSettings() -> SystemPromptInjectionSettings {
+        settings
+    }
+
+    func saveInjectionSettings(_ settings: SystemPromptInjectionSettings) {
+        self.settings = settings
+    }
 }
 
 private final class RecordingMemoryRetriever: MemoryRetriever {

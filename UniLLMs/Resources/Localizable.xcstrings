@@ -4213,6 +4213,222 @@
         }
       }
     },
+    "system_prompts.count.format" : {
+      "comment" : "Custom system prompt count summary.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%ld custom prompts"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%ld 个提示词"
+          }
+        }
+      }
+    },
+    "system_prompts.count.none" : {
+      "comment" : "Custom system prompt count summary for zero.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No custom prompts"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无自定义提示词"
+          }
+        }
+      }
+    },
+    "system_prompts.count.one" : {
+      "comment" : "Custom system prompt count summary for one.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 custom prompt"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 个提示词"
+          }
+        }
+      }
+    },
+    "system_prompts.custom.title" : {
+      "comment" : "Title for user-created reusable system prompts.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom Prompts"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自定义提示词"
+          }
+        }
+      }
+    },
+    "system_prompts.settings.footer.automatic_context" : {
+      "comment" : "Footer explaining automatic system prompt context settings.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "These items are added to each request so replies can use them when relevant."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "发送消息时附上这些信息，让回答可按需参考。"
+          }
+        }
+      }
+    },
+    "system_prompts.settings.row.current_date.detail" : {
+      "comment" : "Detail text for the current date automatic context switch.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Let replies know the current date and time."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "让回答知道现在的日期和时间。"
+          }
+        }
+      }
+    },
+    "system_prompts.settings.row.current_date.title" : {
+      "comment" : "Title for the current date automatic context switch.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Current Time"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前时间"
+          }
+        }
+      }
+    },
+    "system_prompts.settings.row.memory.detail" : {
+      "comment" : "Detail text for the memory automatic context switch.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Let replies reference saved preferences and details."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "让回答参考已保存的偏好和信息。"
+          }
+        }
+      }
+    },
+    "system_prompts.settings.row.memory.title" : {
+      "comment" : "Title for the memory automatic context switch.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memory"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "记忆"
+          }
+        }
+      }
+    },
+    "system_prompts.settings.section.automatic_context" : {
+      "comment" : "Section title for context automatically included in prompts.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto Include"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动带入"
+          }
+        }
+      }
+    },
+    "system_prompts.settings.section.custom_prompts" : {
+      "comment" : "Section title for user-created reusable system prompts.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom Prompts"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自定义提示词"
+          }
+        }
+      }
+    },
+    "system_prompts.settings.section.memory_context" : {
+      "comment" : "Section title for memory automatic context controls.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memory Include Settings"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "记忆带入设置"
+          }
+        }
+      }
+    },
     "system_prompts.add_prompt" : {
       "comment" : "Action for adding a system prompt.",
       "extractionState" : "manual",

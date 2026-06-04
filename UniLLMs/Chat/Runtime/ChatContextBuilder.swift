@@ -11,13 +11,19 @@ import Foundation
 final class ChatContextBuilder {
     private let memoryManager: MemoryManager
     private let toolCatalog: ToolCatalog
+    private let systemPromptSettingsStore: any SystemPromptSettingsStore
+    private let clock: any AppClock
 
     init(
         memoryManager: MemoryManager,
-        toolCatalog: ToolCatalog
+        toolCatalog: ToolCatalog,
+        systemPromptSettingsStore: any SystemPromptSettingsStore = UserDefaultsSystemPromptSettingsStore.shared,
+        clock: any AppClock = SystemAppClock()
     ) {
         self.memoryManager = memoryManager
         self.toolCatalog = toolCatalog
+        self.systemPromptSettingsStore = systemPromptSettingsStore
+        self.clock = clock
     }
 
     func buildContext(
@@ -27,10 +33,14 @@ final class ChatContextBuilder {
         includeTools: Bool
     ) async -> ChatContext {
         let availableTools = includeTools ? await toolCatalog.loadAvailableTools() : []
+        let currentDate = systemPromptSettingsStore.loadInjectionSettings().isCurrentDateEnabled
+            ? clock.now
+            : nil
         let baseContext = ChatContext(
             session: session,
             messages: messages,
             systemPrompt: systemPrompt,
+            currentDate: currentDate,
             memories: [],
             availableTools: availableTools
         )
@@ -39,6 +49,7 @@ final class ChatContextBuilder {
             session: session,
             messages: messages,
             systemPrompt: systemPrompt,
+            currentDate: currentDate,
             memories: memories,
             availableTools: availableTools
         )
