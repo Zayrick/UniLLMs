@@ -3943,24 +3943,6 @@
         }
       }
     },
-    "about.section.project" : {
-      "comment" : "About screen section title for project information.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Project"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "项目"
-          }
-        }
-      }
-    },
     "about.summary.detail" : {
       "comment" : "About screen summary detail for the UniLLMs project.",
       "extractionState" : "manual",

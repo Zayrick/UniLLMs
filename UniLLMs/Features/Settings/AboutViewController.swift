@@ -2,21 +2,18 @@
 //  AboutViewController.swift
 //  UniLLMs
 //
-//  Displays project, contact, open-source, and policy information.
+//  Displays app, contact, open-source, and policy information.
 //
 
 import UIKit
 
 final class AboutViewController: UITableViewController {
     private enum Section: Int, CaseIterable {
-        case project
         case contact
         case legal
 
         var title: String {
             switch self {
-            case .project:
-                return String(localized: "about.section.project")
             case .contact:
                 return String(localized: "about.section.contact")
             case .legal:
@@ -26,8 +23,6 @@ final class AboutViewController: UITableViewController {
 
         var rows: [Row] {
             switch self {
-            case .project:
-                return [.summary]
             case .contact:
                 return [.email, .openSource]
             case .legal:
@@ -37,7 +32,6 @@ final class AboutViewController: UITableViewController {
     }
 
     private enum Row {
-        case summary
         case email
         case openSource
         case privacyPolicy
@@ -45,8 +39,6 @@ final class AboutViewController: UITableViewController {
 
         var title: String {
             switch self {
-            case .summary:
-                return String(localized: "about.summary.title")
             case .email:
                 return String(localized: "about.email.title")
             case .openSource:
@@ -60,8 +52,6 @@ final class AboutViewController: UITableViewController {
 
         var detail: String {
             switch self {
-            case .summary:
-                return String(localized: "about.summary.detail")
             case .email:
                 return Constants.contactEmail
             case .openSource:
@@ -75,8 +65,6 @@ final class AboutViewController: UITableViewController {
 
         var symbolName: String {
             switch self {
-            case .summary:
-                return "app"
             case .email:
                 return "envelope"
             case .openSource:
@@ -90,8 +78,6 @@ final class AboutViewController: UITableViewController {
 
         var iconTintColor: UIColor {
             switch self {
-            case .summary:
-                return .systemBlue
             case .email:
                 return .systemGreen
             case .openSource:
@@ -105,8 +91,6 @@ final class AboutViewController: UITableViewController {
 
         var accessoryType: UITableViewCell.AccessoryType {
             switch self {
-            case .summary:
-                return .none
             case .email, .openSource, .privacyPolicy, .license:
                 return .disclosureIndicator
             }
@@ -114,8 +98,6 @@ final class AboutViewController: UITableViewController {
 
         var selectionStyle: UITableViewCell.SelectionStyle {
             switch self {
-            case .summary:
-                return .none
             case .email, .openSource, .privacyPolicy, .license:
                 return .default
             }
@@ -124,11 +106,19 @@ final class AboutViewController: UITableViewController {
 
     private enum Constants {
         static let contactEmail = "tvefxt@gmail.com"
+        static let headerImageName = "AboutAppIcon"
         static let sourceRepositoryDisplay = "Zayrick/UniLLMs"
         static let contactEmailURL = URL(string: "mailto:tvefxt@gmail.com")
         static let sourceRepositoryURL = URL(string: "https://github.com/Zayrick/UniLLMs")
         static let licenseURL = URL(string: "https://github.com/Zayrick/UniLLMs/blob/main/LICENSE")
     }
+
+    private enum Metrics {
+        static let navigationTitleRevealDistance = 32.0
+    }
+
+    private let navigationTitle = String(localized: "about.title")
+    private var isNavigationTitleVisible = false
 
     init() {
         super.init(style: .insetGrouped)
@@ -141,9 +131,26 @@ final class AboutViewController: UITableViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        title = String(localized: "about.title")
+        navigationItem.title = nil
+        navigationItem.largeTitleDisplayMode = .never
+        configureHeaderView()
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 68.0
+        updateNavigationTitleVisibility()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+
+        navigationController?.navigationBar.prefersLargeTitles = false
+        updateNavigationTitleVisibility()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+
+        updateHeaderViewSize()
+        updateNavigationTitleVisibility()
     }
 
     override func numberOfSections(in tableView: UITableView) -> Int {
@@ -187,8 +194,6 @@ final class AboutViewController: UITableViewController {
         }
 
         switch row {
-        case .summary:
-            return
         case .email:
             open(Constants.contactEmailURL)
         case .openSource:
@@ -209,11 +214,149 @@ final class AboutViewController: UITableViewController {
         return section.rows[indexPath.row]
     }
 
+    override func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        updateNavigationTitleVisibility()
+    }
+
+    private func configureHeaderView() {
+        tableView.tableHeaderView = AboutHeaderView(
+            image: UIImage(named: Constants.headerImageName),
+            name: String(localized: "about.summary.title"),
+            summary: String(localized: "about.summary.detail")
+        )
+    }
+
+    private func updateHeaderViewSize() {
+        guard let headerView = tableView.tableHeaderView,
+              tableView.bounds.width > 0 else {
+            return
+        }
+
+        let fittingSize = CGSize(
+            width: tableView.bounds.width,
+            height: UIView.layoutFittingCompressedSize.height
+        )
+        let height = headerView.systemLayoutSizeFitting(
+            fittingSize,
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        ).height
+        guard abs(headerView.frame.width - tableView.bounds.width) > 0.5 ||
+              abs(headerView.frame.height - height) > 0.5 else {
+            return
+        }
+
+        var frame = headerView.frame
+        frame.size.width = tableView.bounds.width
+        frame.size.height = height
+        headerView.frame = frame
+        tableView.tableHeaderView = headerView
+    }
+
+    private func updateNavigationTitleVisibility() {
+        let headerBottomY = tableView.tableHeaderView?.frame.maxY ?? 0.0
+        let revealOffsetY = max(0.0, headerBottomY - Metrics.navigationTitleRevealDistance)
+        let adjustedOffsetY = tableView.contentOffset.y + tableView.adjustedContentInset.top
+        setNavigationTitleVisible(adjustedOffsetY >= revealOffsetY)
+    }
+
+    private func setNavigationTitleVisible(_ isVisible: Bool) {
+        guard isNavigationTitleVisible != isVisible else {
+            return
+        }
+
+        isNavigationTitleVisible = isVisible
+        navigationItem.title = isVisible ? navigationTitle : nil
+    }
+
     private func open(_ url: URL?) {
         guard let url else {
             return
         }
 
         UIApplication.shared.open(url, options: [:], completionHandler: nil)
+    }
+}
+
+private final class AboutHeaderView: UIView {
+    private enum Metrics {
+        static let iconSize = 92.0
+        static let topInset = 30.0
+        static let horizontalInset = 24.0
+        static let bottomInset = 24.0
+        static let iconNameSpacing = 14.0
+        static let nameSummarySpacing = 8.0
+    }
+
+    init(image: UIImage?, name: String, summary: String) {
+        super.init(frame: .zero)
+
+        configureLayout(image: image, name: name, summary: summary)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+    }
+
+    private func configureLayout(image: UIImage?, name: String, summary: String) {
+        layoutMargins = UIEdgeInsets(
+            top: Metrics.topInset,
+            left: Metrics.horizontalInset,
+            bottom: Metrics.bottomInset,
+            right: Metrics.horizontalInset
+        )
+
+        let iconImageView = UIImageView(image: image)
+        iconImageView.contentMode = .scaleAspectFit
+        iconImageView.translatesAutoresizingMaskIntoConstraints = false
+        iconImageView.isAccessibilityElement = false
+
+        let iconContainerView = UIView()
+        iconContainerView.translatesAutoresizingMaskIntoConstraints = false
+        iconContainerView.addSubview(iconImageView)
+
+        let nameLabel = UILabel()
+        nameLabel.text = name
+        nameLabel.font = UIFontMetrics(forTextStyle: .title2).scaledFont(
+            for: .systemFont(ofSize: 24.0, weight: .semibold)
+        )
+        nameLabel.adjustsFontForContentSizeCategory = true
+        nameLabel.textAlignment = .center
+        nameLabel.textColor = .label
+        nameLabel.numberOfLines = 0
+        nameLabel.accessibilityTraits.insert(.header)
+
+        let summaryLabel = UILabel()
+        summaryLabel.text = summary
+        summaryLabel.font = .preferredFont(forTextStyle: .subheadline)
+        summaryLabel.adjustsFontForContentSizeCategory = true
+        summaryLabel.textAlignment = .center
+        summaryLabel.textColor = .secondaryLabel
+        summaryLabel.numberOfLines = 0
+
+        let stackView = UIStackView(arrangedSubviews: [
+            iconContainerView,
+            nameLabel,
+            summaryLabel
+        ])
+        stackView.axis = .vertical
+        stackView.alignment = .fill
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        stackView.setCustomSpacing(Metrics.iconNameSpacing, after: iconContainerView)
+        stackView.setCustomSpacing(Metrics.nameSummarySpacing, after: nameLabel)
+        addSubview(stackView)
+
+        NSLayoutConstraint.activate([
+            iconImageView.centerXAnchor.constraint(equalTo: iconContainerView.centerXAnchor),
+            iconImageView.topAnchor.constraint(equalTo: iconContainerView.topAnchor),
+            iconImageView.bottomAnchor.constraint(equalTo: iconContainerView.bottomAnchor),
+            iconImageView.widthAnchor.constraint(equalToConstant: Metrics.iconSize),
+            iconImageView.heightAnchor.constraint(equalToConstant: Metrics.iconSize),
+
+            stackView.topAnchor.constraint(equalTo: layoutMarginsGuide.topAnchor),
+            stackView.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
+            stackView.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
+            stackView.bottomAnchor.constraint(equalTo: layoutMarginsGuide.bottomAnchor)
+        ])
     }
 }
