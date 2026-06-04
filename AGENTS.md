@@ -53,6 +53,8 @@ Use Swift 5 and UIKit conventions. Indent Swift with 4 spaces. Use `UpperCamelCa
 
 Prefer Auto Layout constraints over frame math for persistent layout. Keep UI constants grouped in private enums when they describe a section of the interface. Use SF Symbols inline where they are configured, and provide accessibility labels for icon-only controls. Preserve UIKit lifecycle boundaries: app/session setup belongs in `AppDelegate` and `SceneDelegate`; screen behavior belongs in view controllers and view subclasses.
 
+For any user-facing copy change, keep localization files in sync in the same edit. This includes adding, changing, or removing screen titles, row titles, section headers/footers, placeholders, button/menu/action titles, alert text, empty states, accessibility labels, and accessibility hints. Add new keys to `UniLLMs/Resources/Localizable.xcstrings` with both `en` and `zh-Hans` values, update existing translations when copy changes, and remove obsolete keys when the UI no longer references that text.
+
 For persistence changes, keep `LLMProviderRecord` and `LLMProviderModel` Codable-compatible and consider migration for stored `UserDefaults` data. For network changes, keep `OpenRouterAPIClient` async/throws, validate URLs and HTTP status codes, and avoid logging secrets or full authorization headers.
 
 ## UIKit Setting Controls
