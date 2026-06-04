@@ -1,7 +1,7 @@
 # UniLLMs
 
 <p align="center">
-  <img src="UniLLMs/Assets.xcassets/AppIcon.appiconset/Tinted.png" width="128" height="128" alt="UniLLMs app icon">
+  <img src="UniLLMs/Assets.xcassets/AppIcon.appiconset/Tinted.svg" width="128" height="128" alt="UniLLMs app icon">
 </p>
 
 UniLLMs is a native iOS LLM chat client for configuring multiple model providers and managing conversations, system prompts, memories, tools, MCP servers, and attachments in one app.
