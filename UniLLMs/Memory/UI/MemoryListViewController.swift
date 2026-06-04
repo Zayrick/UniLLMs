@@ -18,6 +18,7 @@ final class MemoryListViewController: UITableViewController {
     private var visibleMemories: [MemoryRecord] = []
     private var storeObservation: NSObjectProtocol?
     private var reloadTask: Task<Void, Never>?
+    private var clearTask: Task<Void, Never>?
 
     init(dependencies: AppDependencyContainer = AppEnvironment.shared.dependencies) {
         self.dependencies = dependencies
@@ -31,6 +32,7 @@ final class MemoryListViewController: UITableViewController {
 
     deinit {
         reloadTask?.cancel()
+        clearTask?.cancel()
         if let storeObservation {
             NotificationCenter.default.removeObserver(storeObservation)
         }
@@ -39,8 +41,8 @@ final class MemoryListViewController: UITableViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        title = String(localized: .memoriesSavedMemories)
-        configureAddButton()
+        title = String(localized: .memoriesMemory)
+        configureActionsMenu()
         configureSearch()
         installStoreObserver()
         reloadContent()
@@ -52,12 +54,35 @@ final class MemoryListViewController: UITableViewController {
         reloadContent()
     }
 
-    private func configureAddButton() {
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            barButtonSystemItem: .add,
-            target: self,
-            action: #selector(addMemory)
+    private func configureActionsMenu() {
+        let actionsButton = UIBarButtonItem(
+            image: UIImage(systemName: "ellipsis"),
+            menu: actionsMenu()
         )
+        actionsButton.accessibilityLabel = String(localized: .generalMore)
+        navigationItem.rightBarButtonItem = actionsButton
+    }
+
+    private func actionsMenu() -> UIMenu {
+        let addAction = UIAction(
+            title: String(localized: .memoriesAddMemory),
+            image: UIImage(systemName: "plus")
+        ) { [weak self] _ in
+            self?.addMemory()
+        }
+
+        let deleteAttributes: UIMenuElement.Attributes = memories.isEmpty
+            ? [.destructive, .disabled]
+            : .destructive
+        let deleteAction = UIAction(
+            title: String(localized: .memoriesClearAll),
+            image: UIImage(systemName: "trash"),
+            attributes: deleteAttributes
+        ) { [weak self] _ in
+            self?.presentClearAllConfirmation()
+        }
+
+        return UIMenu(children: [addAction, deleteAction])
     }
 
     private func configureSearch() {
@@ -93,6 +118,7 @@ final class MemoryListViewController: UITableViewController {
                 }
 
                 self.memories = memories
+                self.navigationItem.rightBarButtonItem?.menu = self.actionsMenu()
                 self.applySearchFilter()
             } catch {
                 guard !Task.isCancelled else {
@@ -101,6 +127,7 @@ final class MemoryListViewController: UITableViewController {
 
                 self.memories = []
                 self.visibleMemories = []
+                self.navigationItem.rightBarButtonItem?.menu = self.actionsMenu()
                 self.tableView.reloadData()
                 self.setNeedsUpdateContentUnavailableConfiguration()
             }
@@ -226,6 +253,43 @@ final class MemoryListViewController: UITableViewController {
         visibleMemories = MemoryTextSearch.filtered(memories, matching: query)
         tableView.reloadData()
         setNeedsUpdateContentUnavailableConfiguration()
+    }
+
+    private func presentClearAllConfirmation() {
+        guard !memories.isEmpty else {
+            return
+        }
+
+        let message = memories.count == 1
+            ? String(localized: .memoriesClearAllConfirmationOneMessage)
+            : String(localized: .memoriesClearAllConfirmationCountMessageFormat(memories.count))
+        let alertController = UIAlertController(
+            title: String(localized: .memoriesClearAllConfirmationTitle),
+            message: message,
+            preferredStyle: .alert
+        )
+        alertController.addAction(UIAlertAction(title: String(localized: .generalCancel), style: .cancel))
+        alertController.addAction(
+            UIAlertAction(title: String(localized: .memoriesClearMemories), style: .destructive) { [weak self] _ in
+                self?.clearAllMemories()
+            }
+        )
+        present(alertController, animated: true)
+    }
+
+    private func clearAllMemories() {
+        clearTask?.cancel()
+        clearTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+
+            do {
+                try await self.dependencies.memoryManager.deleteAllMemories(scope: .user)
+            } catch {
+                self.reloadContent()
+            }
+        }
     }
 
     private func displayText(for memory: MemoryRecord) -> String {

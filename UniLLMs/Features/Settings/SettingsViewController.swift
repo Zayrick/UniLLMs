@@ -211,7 +211,7 @@ final class SettingsViewController: UITableViewController {
             )
         case .memories:
             navigationController?.pushViewController(
-                MemoriesViewController(dependencies: dependencies),
+                MemoryListViewController(dependencies: dependencies),
                 animated: true
             )
         case .tools:

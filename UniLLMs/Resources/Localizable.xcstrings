@@ -1027,6 +1027,24 @@
         }
       }
     },
+    "general.more" : {
+      "comment" : "Accessibility label for a more actions button.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "More"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更多"
+          }
+        }
+      }
+    },
     "general.opens_preview" : {
       "comment" : "Accessibility hint for an item that opens a file preview.",
       "extractionState" : "manual",
@@ -4717,24 +4735,6 @@
         }
       }
     },
-    "tools.footer.master" : {
-      "comment" : "Footer for the tools master switch.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Applies to built-in and MCP tools."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "适用于内置工具和 MCP 工具。"
-          }
-        }
-      }
-    },
     "tools.footer.no_built_in" : {
       "comment" : "Footer when there are no built-in tools.",
       "extractionState" : "manual",
@@ -5073,6 +5073,42 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "内置"
+          }
+        }
+      }
+    },
+    "tools.section.memory" : {
+      "comment" : "Memory tools section header.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memory"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "记忆"
+          }
+        }
+      }
+    },
+    "tools.section.system" : {
+      "comment" : "System tools section header.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "System"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "系统"
           }
         }
       }

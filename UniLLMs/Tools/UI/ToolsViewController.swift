@@ -9,14 +9,10 @@
 import UIKit
 
 final class ToolsViewController: UITableViewController {
-    private enum BuiltInToolRow {
-        case tool(ToolDefinition)
-        case memoryTools
-    }
-
     private enum Section: Int, CaseIterable {
         case masterSwitch
-        case builtInTools
+        case systemTools
+        case memoryTools
         case mcpServers
     }
 
@@ -26,7 +22,8 @@ final class ToolsViewController: UITableViewController {
     }
 
     private let dependencies: AppDependencyContainer
-    private var builtInToolRows: [BuiltInToolRow] = []
+    private var systemTools: [ToolDefinition] = []
+    private var memoryToolItems: [MemoryToolUserFacingItem] = []
     private var servers: [MCPServerRecord] = []
     private var storeObservations: [NSObjectProtocol] = []
 
@@ -95,25 +92,16 @@ final class ToolsViewController: UITableViewController {
     }
 
     private func reloadContent() {
-        builtInToolRows = makeBuiltInToolRows()
+        let builtInTools = dependencies.toolSettingsManager.registeredBuiltInTools()
+        systemTools = builtInTools.filter {
+            !MemoryToolCatalog.containsTool(id: $0.id)
+        }
+        let registeredToolIDs = Set(builtInTools.map(\.id))
+        memoryToolItems = MemoryToolCatalog.userFacingItems.filter {
+            registeredToolIDs.contains($0.id)
+        }
         servers = dependencies.mcpServerManager.configuredServers()
         tableView.reloadData()
-    }
-
-    private func makeBuiltInToolRows() -> [BuiltInToolRow] {
-        let tools = dependencies.toolSettingsManager.registeredBuiltInTools()
-        var rows = tools
-            .filter {
-                !MemoryToolCatalog.containsTool(id: $0.id)
-            }
-            .map(BuiltInToolRow.tool)
-        let hasMemoryTools = tools.contains {
-            MemoryToolCatalog.containsTool(id: $0.id)
-        }
-        if hasMemoryTools {
-            rows.append(.memoryTools)
-        }
-        return rows
     }
 
     private func handleToolSettingsStoreChange() {
@@ -144,8 +132,10 @@ final class ToolsViewController: UITableViewController {
         switch section {
         case .masterSwitch:
             return 1
-        case .builtInTools:
-            return builtInToolRows.count
+        case .systemTools:
+            return systemTools.count
+        case .memoryTools:
+            return memoryToolItems.count
         case .mcpServers:
             return servers.count
         }
@@ -159,8 +149,10 @@ final class ToolsViewController: UITableViewController {
         switch section {
         case .masterSwitch:
             return nil
-        case .builtInTools:
-            return String(localized: .toolsSectionBuiltIn)
+        case .systemTools:
+            return String(localized: .toolsSectionSystem)
+        case .memoryTools:
+            return String(localized: .toolsSectionMemory)
         case .mcpServers:
             return "MCP"
         }
@@ -173,9 +165,11 @@ final class ToolsViewController: UITableViewController {
 
         switch section {
         case .masterSwitch:
-            return String(localized: .toolsFooterMaster)
-        case .builtInTools:
-            return builtInToolRows.isEmpty ? String(localized: .toolsFooterNoBuiltIn) : nil
+            return nil
+        case .systemTools:
+            return nil
+        case .memoryTools:
+            return nil
         case .mcpServers:
             return servers.isEmpty ? String(localized: .toolsFooterNoMcpServers) : nil
         }
@@ -192,8 +186,10 @@ final class ToolsViewController: UITableViewController {
         switch section {
         case .masterSwitch:
             return masterSwitchCell()
-        case .builtInTools:
-            return builtInToolCell(for: indexPath)
+        case .systemTools:
+            return systemToolCell(for: indexPath)
+        case .memoryTools:
+            return memoryToolCell(for: indexPath)
         case .mcpServers:
             return serverCell(for: indexPath)
         }
@@ -284,46 +280,28 @@ final class ToolsViewController: UITableViewController {
         return cell
     }
 
-    private func builtInToolCell(for indexPath: IndexPath) -> UITableViewCell {
+    private func systemToolCell(for indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.builtInToolCell)
             ?? UITableViewCell(style: .subtitle, reuseIdentifier: ReuseIdentifier.builtInToolCell)
+        let tool = systemTools[indexPath.row]
+        let isEnabled = dependencies.toolSettingsManager.isBuiltInToolEnabled(id: tool.id)
+        configureSystemToolCellContent(
+            cell,
+            tool: tool,
+            isEnabled: isEnabled
+        )
 
-        switch builtInToolRows[indexPath.row] {
-        case let .tool(tool):
-            let isEnabled = dependencies.toolSettingsManager.isBuiltInToolEnabled(id: tool.id)
-            configureBuiltInToolCellContent(
-                cell,
-                tool: tool,
-                isEnabled: isEnabled
-            )
-
-            let toggle = UISwitch()
-            toggle.isOn = isEnabled
-            toggle.tag = indexPath.row
-            toggle.addTarget(self, action: #selector(toggleBuiltInTool(_:)), for: .valueChanged)
-            cell.accessoryView = toggle
-        case .memoryTools:
-            let enabledCount = memoryToolEnabledCount
-            let totalCount = registeredMemoryToolIDs.count
-            configureMemoryToolsCellContent(
-                cell,
-                enabledCount: enabledCount,
-                totalCount: totalCount
-            )
-
-            let toggle = UISwitch()
-            toggle.isOn = enabledCount == totalCount
-            toggle.tag = indexPath.row
-            toggle.addTarget(self, action: #selector(toggleBuiltInTool(_:)), for: .valueChanged)
-            cell.accessoryView = toggle
-        }
-
+        let toggle = UISwitch()
+        toggle.isOn = isEnabled
+        toggle.tag = indexPath.row
+        toggle.addTarget(self, action: #selector(toggleSystemTool(_:)), for: .valueChanged)
+        cell.accessoryView = toggle
         cell.accessoryType = .none
         cell.selectionStyle = .none
         return cell
     }
 
-    private func configureBuiltInToolCellContent(
+    private func configureSystemToolCellContent(
         _ cell: UITableViewCell,
         tool: ToolDefinition,
         isEnabled: Bool
@@ -335,16 +313,36 @@ final class ToolsViewController: UITableViewController {
         cell.contentConfiguration = contentConfiguration
     }
 
-    private func configureMemoryToolsCellContent(
+    private func memoryToolCell(for indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.builtInToolCell)
+            ?? UITableViewCell(style: .default, reuseIdentifier: ReuseIdentifier.builtInToolCell)
+        let item = memoryToolItems[indexPath.row]
+        let isEnabled = dependencies.toolSettingsManager.isBuiltInToolEnabled(id: item.id)
+        configureMemoryToolCellContent(
+            cell,
+            item: item,
+            isEnabled: isEnabled
+        )
+
+        let toggle = UISwitch()
+        toggle.isOn = isEnabled
+        toggle.tag = indexPath.row
+        toggle.addTarget(self, action: #selector(toggleMemoryTool(_:)), for: .valueChanged)
+        cell.accessoryView = toggle
+        cell.accessoryType = .none
+        cell.selectionStyle = .none
+        return cell
+    }
+
+    private func configureMemoryToolCellContent(
         _ cell: UITableViewCell,
-        enabledCount: Int,
-        totalCount: Int
+        item: MemoryToolUserFacingItem,
+        isEnabled: Bool
     ) {
         var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = String(localized: .toolsMemoryTools)
-        contentConfiguration.secondaryText = String(localized: .toolsEnabledCountFormat(enabledCount, totalCount))
-        contentConfiguration.image = UIImage(systemName: "brain.head.profile")
-        contentConfiguration.imageProperties.tintColor = enabledCount > 0 ? .systemGreen : .secondaryLabel
+        contentConfiguration.text = item.title
+        contentConfiguration.image = UIImage(systemName: item.symbolName)
+        contentConfiguration.imageProperties.tintColor = isEnabled ? .systemGreen : .secondaryLabel
         cell.contentConfiguration = contentConfiguration
     }
 
@@ -367,41 +365,42 @@ final class ToolsViewController: UITableViewController {
         dependencies.toolSettingsManager.isToolsEnabled = sender.isOn
     }
 
-    @objc private func toggleBuiltInTool(_ sender: UISwitch) {
-        guard builtInToolRows.indices.contains(sender.tag) else {
+    @objc private func toggleSystemTool(_ sender: UISwitch) {
+        guard systemTools.indices.contains(sender.tag) else {
             return
         }
 
-        switch builtInToolRows[sender.tag] {
-        case let .tool(tool):
-            dependencies.toolSettingsManager.setBuiltInTool(
-                id: tool.id,
+        let tool = systemTools[sender.tag]
+        dependencies.toolSettingsManager.setBuiltInTool(
+            id: tool.id,
+            isEnabled: sender.isOn
+        )
+        if let cell = tableView.cellForRow(
+            at: IndexPath(row: sender.tag, section: Section.systemTools.rawValue)
+        ) {
+            configureSystemToolCellContent(
+                cell,
+                tool: tool,
                 isEnabled: sender.isOn
             )
-            if let cell = tableView.cellForRow(
-                at: IndexPath(row: sender.tag, section: Section.builtInTools.rawValue)
-            ) {
-                configureBuiltInToolCellContent(
-                    cell,
-                    tool: tool,
-                    isEnabled: sender.isOn
-                )
-            }
-        case .memoryTools:
-            let memoryToolIDs = registeredMemoryToolIDs
-            dependencies.toolSettingsManager.setBuiltInTools(
-                ids: memoryToolIDs,
+        }
+    }
+
+    @objc private func toggleMemoryTool(_ sender: UISwitch) {
+        guard memoryToolItems.indices.contains(sender.tag) else {
+            return
+        }
+
+        let item = memoryToolItems[sender.tag]
+        dependencies.toolSettingsManager.setBuiltInTool(id: item.id, isEnabled: sender.isOn)
+        if let cell = tableView.cellForRow(
+            at: IndexPath(row: sender.tag, section: Section.memoryTools.rawValue)
+        ) {
+            configureMemoryToolCellContent(
+                cell,
+                item: item,
                 isEnabled: sender.isOn
             )
-            if let cell = tableView.cellForRow(
-                at: IndexPath(row: sender.tag, section: Section.builtInTools.rawValue)
-            ) {
-                configureMemoryToolsCellContent(
-                    cell,
-                    enabledCount: sender.isOn ? memoryToolIDs.count : 0,
-                    totalCount: memoryToolIDs.count
-                )
-            }
         }
     }
 
@@ -458,7 +457,8 @@ final class ToolsViewController: UITableViewController {
 
     private func updateVisibleToolSettingsCells() {
         updateVisibleMasterSwitchCell()
-        updateVisibleBuiltInToolCells()
+        updateVisibleSystemToolCells()
+        updateVisibleMemoryToolCells()
     }
 
     private func updateVisibleMasterSwitchCell() {
@@ -472,45 +472,36 @@ final class ToolsViewController: UITableViewController {
         toggle.setOn(dependencies.toolSettingsManager.isToolsEnabled, animated: false)
     }
 
-    private func updateVisibleBuiltInToolCells() {
-        for (row, builtInToolRow) in builtInToolRows.enumerated() {
-            let indexPath = IndexPath(row: row, section: Section.builtInTools.rawValue)
+    private func updateVisibleSystemToolCells() {
+        for (row, tool) in systemTools.enumerated() {
+            let indexPath = IndexPath(row: row, section: Section.systemTools.rawValue)
             guard let cell = tableView.cellForRow(at: indexPath) else {
                 continue
             }
 
-            switch builtInToolRow {
-            case let .tool(tool):
-                let isEnabled = dependencies.toolSettingsManager.isBuiltInToolEnabled(id: tool.id)
-                configureBuiltInToolCellContent(cell, tool: tool, isEnabled: isEnabled)
-                if let toggle = cell.accessoryView as? UISwitch,
-                   toggle.isOn != isEnabled {
-                    toggle.setOn(isEnabled, animated: false)
-                }
-            case .memoryTools:
-                let enabledCount = memoryToolEnabledCount
-                let totalCount = registeredMemoryToolIDs.count
-                configureMemoryToolsCellContent(
-                    cell,
-                    enabledCount: enabledCount,
-                    totalCount: totalCount
-                )
-                if let toggle = cell.accessoryView as? UISwitch,
-                   toggle.isOn != (enabledCount == totalCount) {
-                    toggle.setOn(enabledCount == totalCount, animated: false)
-                }
+            let isEnabled = dependencies.toolSettingsManager.isBuiltInToolEnabled(id: tool.id)
+            configureSystemToolCellContent(cell, tool: tool, isEnabled: isEnabled)
+            if let toggle = cell.accessoryView as? UISwitch,
+               toggle.isOn != isEnabled {
+                toggle.setOn(isEnabled, animated: false)
             }
         }
     }
 
-    private var registeredMemoryToolIDs: [String] {
-        dependencies.toolSettingsManager.registeredBuiltInTools()
-            .map(\.id)
-            .filter(MemoryToolCatalog.containsTool)
-    }
+    private func updateVisibleMemoryToolCells() {
+        for (row, item) in memoryToolItems.enumerated() {
+            let indexPath = IndexPath(row: row, section: Section.memoryTools.rawValue)
+            guard let cell = tableView.cellForRow(at: indexPath) else {
+                continue
+            }
 
-    private var memoryToolEnabledCount: Int {
-        dependencies.toolSettingsManager.enabledBuiltInToolCount(ids: registeredMemoryToolIDs)
+            let isEnabled = dependencies.toolSettingsManager.isBuiltInToolEnabled(id: item.id)
+            configureMemoryToolCellContent(cell, item: item, isEnabled: isEnabled)
+            if let toggle = cell.accessoryView as? UISwitch,
+               toggle.isOn != isEnabled {
+                toggle.setOn(isEnabled, animated: false)
+            }
+        }
     }
 }
 
