@@ -3745,6 +3745,42 @@
         }
       }
     },
+    "settings.section.app_and_system" : {
+      "comment" : "Settings section title for app and system integration settings.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App & System"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "应用与系统"
+          }
+        }
+      }
+    },
+    "settings.section.capabilities" : {
+      "comment" : "Settings section title for assistant capability settings.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capabilities"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "能力"
+          }
+        }
+      }
+    },
     "settings.section.configuration" : {
       "comment" : "Settings section title for configuration entry points.",
       "extractionState" : "manual",
@@ -3777,6 +3813,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "通用"
+          }
+        }
+      }
+    },
+    "settings.section.model_and_conversation" : {
+      "comment" : "Settings section title for model and conversation behavior settings.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Model & Conversation"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模型与对话"
           }
         }
       }

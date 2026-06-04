@@ -10,42 +10,55 @@ import UIKit
 
 final class SettingsViewController: UITableViewController {
     private enum Section: Int, CaseIterable {
-        case general
-        case configuration
+        case modelAndConversation
+        case capabilities
+        case appAndSystem
 
         var title: String {
             switch self {
-            case .general:
-                return String(localized: "settings.section.general")
-            case .configuration:
-                return String(localized: "settings.section.configuration")
+            case .modelAndConversation:
+                return String(localized: "settings.section.model_and_conversation")
+            case .capabilities:
+                return String(localized: "settings.section.capabilities")
+            case .appAndSystem:
+                return String(localized: "settings.section.app_and_system")
+            }
+        }
+
+        var rows: [Row] {
+            switch self {
+            case .modelAndConversation:
+                return [.providers, .systemPrompts]
+            case .capabilities:
+                return [.memories, .tools]
+            case .appAndSystem:
+                return [.backgroundRuntime, .permissions]
             }
         }
     }
 
-    private enum GeneralRow: Int, CaseIterable {
-        case backgroundRuntime
-    }
-
-    private enum ConfigurationRow: Int, CaseIterable {
+    private enum Row {
         case providers
+        case systemPrompts
         case memories
         case tools
+        case backgroundRuntime
         case permissions
-        case systemPrompts
 
         var title: String {
             switch self {
             case .providers:
                 return String(localized: .settingsRowProvidersTitle)
+            case .systemPrompts:
+                return String(localized: .settingsRowSystemPromptsTitle)
             case .memories:
                 return String(localized: .settingsRowMemoriesTitle)
             case .tools:
                 return String(localized: .settingsRowToolsTitle)
+            case .backgroundRuntime:
+                return String(localized: "settings.background_runtime.title")
             case .permissions:
                 return String(localized: "settings.row.permissions.title")
-            case .systemPrompts:
-                return String(localized: .settingsRowSystemPromptsTitle)
             }
         }
 
@@ -53,14 +66,16 @@ final class SettingsViewController: UITableViewController {
             switch self {
             case .providers:
                 return "globe"
+            case .systemPrompts:
+                return "text.quote"
             case .memories:
                 return "brain.head.profile"
             case .tools:
                 return "hammer"
+            case .backgroundRuntime:
+                return "arrow.triangle.2.circlepath.circle"
             case .permissions:
                 return "key"
-            case .systemPrompts:
-                return "text.quote"
             }
         }
 
@@ -68,14 +83,16 @@ final class SettingsViewController: UITableViewController {
             switch self {
             case .providers:
                 return .systemBlue
+            case .systemPrompts:
+                return .systemPurple
             case .memories:
                 return .systemTeal
             case .tools:
                 return .systemGreen
+            case .backgroundRuntime:
+                return .systemOrange
             case .permissions:
                 return .systemIndigo
-            case .systemPrompts:
-                return .systemPurple
             }
         }
     }
@@ -120,40 +137,40 @@ final class SettingsViewController: UITableViewController {
     }
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        switch Section(rawValue: section) {
-        case .general:
-            return GeneralRow.allCases.count
-        case .configuration:
-            return ConfigurationRow.allCases.count
-        case nil:
-            return 0
-        }
+        Section(rawValue: section)?.rows.count ?? 0
     }
 
     override func tableView(
         _ tableView: UITableView,
         cellForRowAt indexPath: IndexPath
     ) -> UITableViewCell {
-        switch Section(rawValue: indexPath.section) {
-        case .general:
-            return generalCell(for: indexPath)
-        case .configuration:
-            return configurationCell(for: indexPath)
-        case nil:
+        guard let row = row(for: indexPath) else {
             return UITableViewCell(style: .default, reuseIdentifier: nil)
+        }
+
+        switch row {
+        case .backgroundRuntime:
+            return backgroundRuntimeCell(for: row)
+        case .providers, .systemPrompts, .memories, .tools, .permissions:
+            return navigationCell(for: row)
         }
     }
 
-    private func generalCell(for indexPath: IndexPath) -> UITableViewCell {
-        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
-        guard GeneralRow(rawValue: indexPath.row) == .backgroundRuntime else {
-            return cell
+    private func row(for indexPath: IndexPath) -> Row? {
+        guard let section = Section(rawValue: indexPath.section),
+              section.rows.indices.contains(indexPath.row) else {
+            return nil
         }
 
+        return section.rows[indexPath.row]
+    }
+
+    private func backgroundRuntimeCell(for row: Row) -> UITableViewCell {
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
         var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = String(localized: "settings.background_runtime.title")
-        contentConfiguration.image = UIImage(systemName: "arrow.triangle.2.circlepath.circle")
-        contentConfiguration.imageProperties.tintColor = .systemOrange
+        contentConfiguration.text = row.title
+        contentConfiguration.image = UIImage(systemName: row.symbolName)
+        contentConfiguration.imageProperties.tintColor = row.iconTintColor
         cell.contentConfiguration = contentConfiguration
 
         let backgroundRuntimeSwitch = UISwitch()
@@ -169,12 +186,8 @@ final class SettingsViewController: UITableViewController {
         return cell
     }
 
-    private func configurationCell(for indexPath: IndexPath) -> UITableViewCell {
+    private func navigationCell(for row: Row) -> UITableViewCell {
         let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
-        guard let row = ConfigurationRow(rawValue: indexPath.row) else {
-            return cell
-        }
-
         var contentConfiguration = cell.defaultContentConfiguration()
         contentConfiguration.text = row.title
         contentConfiguration.image = UIImage(systemName: row.symbolName)
@@ -186,8 +199,7 @@ final class SettingsViewController: UITableViewController {
 
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        guard Section(rawValue: indexPath.section) == .configuration,
-              let row = ConfigurationRow(rawValue: indexPath.row) else {
+        guard let row = row(for: indexPath) else {
             return
         }
 
@@ -217,6 +229,8 @@ final class SettingsViewController: UITableViewController {
                 SystemPromptsViewController(dependencies: dependencies),
                 animated: true
             )
+        case .backgroundRuntime:
+            return
         }
     }
 }
