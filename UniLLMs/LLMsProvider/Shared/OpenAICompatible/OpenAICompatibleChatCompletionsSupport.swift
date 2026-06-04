@@ -1,27 +1,58 @@
 //
-//  OpenAICompatibleChatSupport.swift
+//  OpenAICompatibleChatCompletionsSupport.swift
 //  UniLLMs
 //
-//  OpenAI-compatible provider-owned Chat Completions API surface.
-//  Created by Codex on 2026/5/22.
+//  Shared Chat Completions protocol support for OpenAI-compatible providers.
+//  Created by Codex on 2026/6/4.
 //
 
 import Foundation
 
+nonisolated struct OpenAICompatibleChatPromptRenderingOptions {
+    var instructionRole: OpenAICompatibleChatMessage.Role
+    var supportsFileAttachments: Bool
+    var serviceName: String
+
+    init(
+        instructionRole: OpenAICompatibleChatMessage.Role = .system,
+        supportsFileAttachments: Bool = false,
+        serviceName: String = String(localized: .providersOpenaiCompatibleDisplayName)
+    ) {
+        self.instructionRole = instructionRole
+        self.supportsFileAttachments = supportsFileAttachments
+        self.serviceName = serviceName
+    }
+}
+
 nonisolated enum OpenAICompatibleChatPromptRenderer {
-    static func messages(for request: ChatRequest) throws -> [OpenAICompatibleChatMessage] {
+    static func messages(
+        for request: ChatRequest,
+        options: OpenAICompatibleChatPromptRenderingOptions = OpenAICompatibleChatPromptRenderingOptions()
+    ) throws -> [OpenAICompatibleChatMessage] {
         let prompt = ChatPromptAssembler().assemblePrompt(from: request)
         guard let instructionText = prompt.instructionText else {
-            return try prompt.messages.map(OpenAICompatibleChatMessage.init(message:))
+            return try prompt.messages.map {
+                try OpenAICompatibleChatMessage(
+                    message: $0,
+                    supportsFileAttachments: options.supportsFileAttachments,
+                    serviceName: options.serviceName
+                )
+            }
         }
 
         let instructionMessage = OpenAICompatibleChatMessage(
-            role: .system,
+            role: options.instructionRole,
             content: .text(instructionText),
             toolCalls: nil,
             toolCallID: nil
         )
-        let renderedMessages = try prompt.messages.map(OpenAICompatibleChatMessage.init(message:))
+        let renderedMessages = try prompt.messages.map {
+            try OpenAICompatibleChatMessage(
+                message: $0,
+                supportsFileAttachments: options.supportsFileAttachments,
+                serviceName: options.serviceName
+            )
+        }
         return [instructionMessage] + renderedMessages
     }
 }
@@ -60,15 +91,27 @@ nonisolated enum OpenAICompatibleMessageContent: Codable, Equatable {
 nonisolated enum OpenAICompatibleContentPart: Codable, Equatable {
     case text(String)
     case imageURL(url: String)
+    case file(filename: String, fileData: String)
 
     nonisolated private enum CodingKeys: String, CodingKey {
         case type
         case text
         case imageURL = "image_url"
+        case file
     }
 
     nonisolated private struct ImageURLPayload: Codable, Equatable {
         var url: String
+    }
+
+    nonisolated private struct FilePayload: Codable, Equatable {
+        var filename: String
+        var fileData: String
+
+        nonisolated private enum CodingKeys: String, CodingKey {
+            case filename
+            case fileData = "file_data"
+        }
     }
 
     init(from decoder: Decoder) throws {
@@ -80,6 +123,9 @@ nonisolated enum OpenAICompatibleContentPart: Codable, Equatable {
         case "image_url":
             let payload = try container.decode(ImageURLPayload.self, forKey: .imageURL)
             self = .imageURL(url: payload.url)
+        case "file":
+            let payload = try container.decode(FilePayload.self, forKey: .file)
+            self = .file(filename: payload.filename, fileData: payload.fileData)
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .type,
@@ -98,6 +144,12 @@ nonisolated enum OpenAICompatibleContentPart: Codable, Equatable {
         case let .imageURL(url):
             try container.encode("image_url", forKey: .type)
             try container.encode(ImageURLPayload(url: url), forKey: .imageURL)
+        case let .file(filename, fileData):
+            try container.encode("file", forKey: .type)
+            try container.encode(
+                FilePayload(filename: filename, fileData: fileData),
+                forKey: .file
+            )
         }
     }
 }
@@ -107,6 +159,7 @@ nonisolated struct OpenAICompatibleChatMessage: Codable, Equatable {
         case user
         case assistant
         case system
+        case developer
         case tool
     }
 
@@ -145,10 +198,18 @@ nonisolated struct OpenAICompatibleChatMessage: Codable, Equatable {
         self.toolCallID = toolCallID
     }
 
-    init(message: ChatMessage) throws {
+    init(
+        message: ChatMessage,
+        supportsFileAttachments: Bool = false,
+        serviceName: String = String(localized: .providersOpenaiCompatibleDisplayName)
+    ) throws {
         self.init(
             role: Self.role(for: message.role),
-            content: try Self.encodeContent(for: message),
+            content: try Self.encodeContent(
+                for: message,
+                supportsFileAttachments: supportsFileAttachments,
+                serviceName: serviceName
+            ),
             toolCalls: try message.toolCalls?.map {
                 ToolCall(
                     id: $0.id,
@@ -189,8 +250,18 @@ nonisolated struct OpenAICompatibleChatMessage: Codable, Equatable {
         }
     }
 
-    private static func encodeContent(for message: ChatMessage) throws -> OpenAICompatibleMessageContent? {
-        let attachmentParts = try message.attachments.map(Self.contentPart)
+    private static func encodeContent(
+        for message: ChatMessage,
+        supportsFileAttachments: Bool,
+        serviceName: String
+    ) throws -> OpenAICompatibleMessageContent? {
+        let attachmentParts = try message.attachments.map {
+            try Self.contentPart(
+                for: $0,
+                supportsFileAttachments: supportsFileAttachments,
+                serviceName: serviceName
+            )
+        }
         if attachmentParts.isEmpty {
             if message.role == .assistant,
                message.content.isEmpty,
@@ -208,20 +279,33 @@ nonisolated struct OpenAICompatibleChatMessage: Codable, Equatable {
         return .parts(parts)
     }
 
-    private static func contentPart(for attachment: ChatAttachment) throws -> OpenAICompatibleContentPart {
-        guard attachment.kind == .image else {
-            throw OpenAICompatibleProviderError.unsupportedFileAttachments(String(localized: .providersOpenaiCompatibleDisplayName))
-        }
-        guard let data = try? ChatAttachmentStore.shared.loadData(for: attachment),
-              !data.isEmpty else {
-            throw OpenAICompatibleProviderError.missingAttachmentData(attachment.filename)
+    private static func contentPart(
+        for attachment: ChatAttachment,
+        supportsFileAttachments: Bool,
+        serviceName: String
+    ) throws -> OpenAICompatibleContentPart {
+        if attachment.kind == .file,
+           !supportsFileAttachments {
+            throw OpenAICompatibleChatSupportError.unsupportedFileAttachments(serviceName)
         }
 
+        guard let data = try? ChatAttachmentStore.shared.loadData(for: attachment),
+              !data.isEmpty else {
+            throw OpenAICompatibleChatSupportError.missingAttachmentData(attachment.filename)
+        }
+
+        let base64 = data.base64EncodedString()
         let mimeType = attachment.contentType.isEmpty
             ? "application/octet-stream"
             : attachment.contentType
-        let dataURL = "data:\(mimeType);base64,\(data.base64EncodedString())"
-        return .imageURL(url: dataURL)
+        let dataURL = "data:\(mimeType);base64,\(base64)"
+
+        switch attachment.kind {
+        case .image:
+            return .imageURL(url: dataURL)
+        case .file:
+            return .file(filename: attachment.filename, fileData: dataURL)
+        }
     }
 }
 
@@ -262,6 +346,33 @@ nonisolated struct OpenAICompatibleChatStreamDelta: Equatable {
     }
 }
 
+nonisolated struct OpenAICompatibleChatProviderPreferences: Encodable, Equatable {
+    var requireParameters: Bool
+
+    nonisolated private enum CodingKeys: String, CodingKey {
+        case requireParameters = "require_parameters"
+    }
+}
+
+nonisolated enum OpenAICompatibleAuthorizationPolicy: Equatable {
+    case omitWhenBlank
+    case includeBearerEvenWhenBlank
+}
+
+nonisolated enum OpenAICompatibleChatSupportError: LocalizedError, Equatable {
+    case unsupportedFileAttachments(String)
+    case missingAttachmentData(String)
+
+    var errorDescription: String? {
+        switch self {
+        case let .unsupportedFileAttachments(displayName):
+            return String(localized: .providersErrorUnsupportedFileAttachmentsFormat(displayName))
+        case let .missingAttachmentData(filename):
+            return String(localized: .providersErrorMissingAttachmentDataFormat(filename))
+        }
+    }
+}
+
 nonisolated struct OpenAICompatibleAPIClient {
     nonisolated enum APIError: LocalizedError, Equatable {
         case invalidAPIBase(String)
@@ -286,11 +397,38 @@ nonisolated struct OpenAICompatibleAPIClient {
         }
     }
 
+    nonisolated private struct ModelsResponse: Decodable {
+        var data: [Model]
+    }
+
+    nonisolated private struct Model: Decodable {
+        var id: String
+        var name: String?
+        var contextLength: Int?
+
+        nonisolated private enum CodingKeys: String, CodingKey {
+            case id
+            case name
+            case contextLength = "context_length"
+        }
+    }
+
     nonisolated private struct ChatCompletionsRequest: Encodable {
         var model: String
         var messages: [OpenAICompatibleChatMessage]
         var stream: Bool
         var tools: [OpenAICompatibleChatTool]?
+        var provider: OpenAICompatibleChatProviderPreferences?
+        var sessionID: String?
+
+        nonisolated private enum CodingKeys: String, CodingKey {
+            case model
+            case messages
+            case stream
+            case tools
+            case provider
+            case sessionID = "session_id"
+        }
     }
 
     nonisolated private struct ChatCompletionChunk: Decodable {
@@ -305,14 +443,22 @@ nonisolated struct OpenAICompatibleAPIClient {
             var content: String?
             var reasoning: String?
             var reasoningContent: String?
+            var reasoningDetails: [ReasoningDetail]?
             var toolCalls: [ToolCall]?
 
             nonisolated private enum CodingKeys: String, CodingKey {
                 case content
                 case reasoning
                 case reasoningContent = "reasoning_content"
+                case reasoningDetails = "reasoning_details"
                 case toolCalls = "tool_calls"
             }
+        }
+
+        nonisolated struct ReasoningDetail: Decodable {
+            var type: String?
+            var text: String?
+            var summary: String?
         }
 
         nonisolated struct ToolCall: Decodable {
@@ -331,16 +477,65 @@ nonisolated struct OpenAICompatibleAPIClient {
         }
     }
 
-    var session: URLSession = .shared
-    var serviceName: String = String(localized: .providersOpenaiCompatibleDisplayName)
-    var defaultAPIBase: String = ""
+    var session: URLSession
+    var serviceName: String
+    var defaultAPIBase: String
+
+    init(
+        session: URLSession = .shared,
+        serviceName: String = String(localized: .providersOpenaiCompatibleDisplayName),
+        defaultAPIBase: String = ""
+    ) {
+        self.session = session
+        self.serviceName = serviceName
+        self.defaultAPIBase = defaultAPIBase
+    }
+
+    func fetchModels(
+        apiBase: String,
+        apiKey: String,
+        includeModelMetadata: Bool = false,
+        authorizationPolicy: OpenAICompatibleAuthorizationPolicy = .omitWhenBlank
+    ) async throws -> [LLMsProviderModel] {
+        var request = URLRequest(url: try normalizedAPIBaseURL(apiBase: apiBase).appendingPathComponent("models"))
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let authorizationHeader = Self.authorizationHeader(
+            apiKey: apiKey,
+            policy: authorizationPolicy
+        ) {
+            request.setValue(authorizationHeader, forHTTPHeaderField: "Authorization")
+        }
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse(serviceName)
+        }
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            throw APIError.serverStatus(serviceName, httpResponse.statusCode, String(data: data, encoding: .utf8))
+        }
+
+        let decoded = try JSONDecoder().decode(ModelsResponse.self, from: data)
+        return decoded.data.map {
+            LLMsProviderModel(
+                id: $0.id,
+                name: includeModelMetadata ? $0.name : nil,
+                contextLength: includeModelMetadata ? $0.contextLength : nil
+            )
+        }
+    }
 
     func streamChatCompletion(
         apiBase: String,
         apiKey: String,
         model: String,
         messages: [OpenAICompatibleChatMessage],
-        tools: [OpenAICompatibleChatTool] = []
+        tools: [OpenAICompatibleChatTool] = [],
+        providerPreferences: OpenAICompatibleChatProviderPreferences? = nil,
+        sessionID: String? = nil,
+        authorizationPolicy: OpenAICompatibleAuthorizationPolicy = .omitWhenBlank,
+        includesReasoningDetails: Bool = false,
+        fallbackToolCallIDPrefix: String = "openai_compatible_tool_call_"
     ) -> AsyncThrowingStream<OpenAICompatibleChatStreamDelta, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
@@ -350,7 +545,10 @@ nonisolated struct OpenAICompatibleAPIClient {
                         apiKey: apiKey,
                         model: model,
                         messages: messages,
-                        tools: tools
+                        tools: tools,
+                        providerPreferences: providerPreferences,
+                        sessionID: sessionID,
+                        authorizationPolicy: authorizationPolicy
                     )
                     let (bytes, response) = try await session.bytes(for: request)
                     guard let httpResponse = response as? HTTPURLResponse else {
@@ -360,7 +558,9 @@ nonisolated struct OpenAICompatibleAPIClient {
                         throw APIError.serverStatus(serviceName, httpResponse.statusCode, try await responseBodyString(from: bytes))
                     }
 
-                    var toolCallAccumulator = OpenAICompatibleToolCallAccumulator()
+                    var toolCallAccumulator = OpenAICompatibleToolCallAccumulator(
+                        fallbackIDPrefix: fallbackToolCallIDPrefix
+                    )
                     for try await line in bytes.lines {
                         try Task.checkCancellation()
                         if Self.isDoneServerSentEventLine(line) {
@@ -368,7 +568,8 @@ nonisolated struct OpenAICompatibleAPIClient {
                         }
                         guard let delta = try Self.streamDelta(
                             fromServerSentEventLine: line,
-                            serviceName: serviceName
+                            serviceName: serviceName,
+                            includesReasoningDetails: includesReasoningDetails
                         ) else {
                             continue
                         }
@@ -402,7 +603,8 @@ nonisolated struct OpenAICompatibleAPIClient {
 
     nonisolated static func streamDelta(
         fromServerSentEventLine line: String,
-        serviceName: String = String(localized: .providersOpenaiCompatibleDisplayName)
+        serviceName: String = String(localized: .providersOpenaiCompatibleDisplayName),
+        includesReasoningDetails: Bool = false
     ) throws -> OpenAICompatibleChatStreamDelta? {
         let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedLine.isEmpty,
@@ -428,13 +630,19 @@ nonisolated struct OpenAICompatibleAPIClient {
             throw APIError.invalidResponse(serviceName)
         }
 
-        if let errorMessage = chunk.error?.message, !errorMessage.isEmpty {
+        if let errorMessage = chunk.error?.message,
+           !errorMessage.isEmpty {
             throw APIError.streamError(errorMessage)
         }
 
         let deltas = chunk.choices?
             .compactMap(\.delta)
-            .map(Self.streamDelta)
+            .map {
+                Self.streamDelta(
+                    from: $0,
+                    includesReasoningDetails: includesReasoningDetails
+                )
+            }
             ?? []
         let delta = OpenAICompatibleChatStreamDelta(
             content: deltas.map(\.content).joined(),
@@ -449,14 +657,19 @@ nonisolated struct OpenAICompatibleAPIClient {
         apiKey: String,
         model: String,
         messages: [OpenAICompatibleChatMessage],
-        tools: [OpenAICompatibleChatTool]
+        tools: [OpenAICompatibleChatTool],
+        providerPreferences: OpenAICompatibleChatProviderPreferences?,
+        sessionID: String?,
+        authorizationPolicy: OpenAICompatibleAuthorizationPolicy
     ) throws -> URLRequest {
         var request = URLRequest(url: try normalizedAPIBaseURL(apiBase: apiBase).appendingPathComponent("chat").appendingPathComponent("completions"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        let authorizationHeader = Self.bearerAuthorizationHeader(apiKey: apiKey)
-        if !authorizationHeader.isEmpty {
+        if let authorizationHeader = Self.authorizationHeader(
+            apiKey: apiKey,
+            policy: authorizationPolicy
+        ) {
             request.setValue(authorizationHeader, forHTTPHeaderField: "Authorization")
         }
         request.httpBody = try JSONEncoder().encode(
@@ -464,7 +677,9 @@ nonisolated struct OpenAICompatibleAPIClient {
                 model: model,
                 messages: messages,
                 stream: true,
-                tools: tools.isEmpty ? nil : tools
+                tools: tools.isEmpty ? nil : tools,
+                provider: providerPreferences,
+                sessionID: sessionID
             )
         )
         return request
@@ -505,9 +720,16 @@ nonisolated struct OpenAICompatibleAPIClient {
     }
 
     nonisolated private static func streamDelta(
-        from delta: ChatCompletionChunk.Delta
+        from delta: ChatCompletionChunk.Delta,
+        includesReasoningDetails: Bool
     ) -> OpenAICompatibleChatStreamDelta {
-        let reasoning = [
+        let reasoningFromDetails = delta.reasoningDetails?
+            .compactMap { detail in
+                detail.text ?? detail.summary
+            }
+            .joined()
+            ?? ""
+        let reasoningFromStringFields = [
             delta.reasoning,
             delta.reasoningContent
         ]
@@ -516,7 +738,9 @@ nonisolated struct OpenAICompatibleAPIClient {
 
         return OpenAICompatibleChatStreamDelta(
             content: delta.content ?? "",
-            reasoning: reasoning,
+            reasoning: includesReasoningDetails && !reasoningFromDetails.isEmpty
+                ? reasoningFromDetails
+                : reasoningFromStringFields,
             toolCallDeltas: delta.toolCalls?.compactMap { toolCall in
                 guard let index = toolCall.index else {
                     return nil
@@ -535,9 +759,17 @@ nonisolated struct OpenAICompatibleAPIClient {
         line.trimmingCharacters(in: .whitespacesAndNewlines) == "data: [DONE]"
     }
 
-    nonisolated private static func bearerAuthorizationHeader(apiKey: String) -> String {
+    nonisolated private static func authorizationHeader(
+        apiKey: String,
+        policy: OpenAICompatibleAuthorizationPolicy
+    ) -> String? {
         let trimmedAPIKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedAPIKey.isEmpty ? "" : "Bearer \(trimmedAPIKey)"
+        switch policy {
+        case .omitWhenBlank:
+            return trimmedAPIKey.isEmpty ? nil : "Bearer \(trimmedAPIKey)"
+        case .includeBearerEvenWhenBlank:
+            return "Bearer \(trimmedAPIKey)"
+        }
     }
 }
 
@@ -549,6 +781,11 @@ nonisolated private struct OpenAICompatibleToolCallAccumulator {
     }
 
     private var partials: [Int: PartialToolCall] = [:]
+    private let fallbackIDPrefix: String
+
+    init(fallbackIDPrefix: String) {
+        self.fallbackIDPrefix = fallbackIDPrefix
+    }
 
     mutating func append(_ deltas: [OpenAICompatibleToolCallDelta]) {
         for delta in deltas {
@@ -570,8 +807,9 @@ nonisolated private struct OpenAICompatibleToolCallAccumulator {
                   let name = partial.name else {
                 return nil
             }
+
             return ChatToolCall(
-                id: partial.id ?? "openai_compatible_tool_call_\(index)",
+                id: partial.id ?? "\(fallbackIDPrefix)\(index)",
                 toolID: name,
                 serializedArguments: partial.arguments
             )

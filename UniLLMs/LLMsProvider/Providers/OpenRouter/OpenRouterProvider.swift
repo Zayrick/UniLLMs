@@ -2,7 +2,7 @@
 //  OpenRouterProvider.swift
 //  UniLLMs
 //
-//  Created by ZayrickAPIClient to the unified LLMsProviderAdapter interface and isolates the concrete provider implementation.
+//  OpenRouter provider adapter.
 //  Created by Zayrick on 2026/5/11.
 //
 
@@ -178,125 +178,13 @@ nonisolated enum OpenRouterChatPromptRenderer {
         for request: ChatRequest,
         supportsFileAttachments: Bool
     ) throws -> [OpenRouterChatMessage] {
-        let prompt = ChatPromptAssembler().assemblePrompt(from: request)
-        guard let instructionText = prompt.instructionText else {
-            return try prompt.messages.map {
-                try OpenRouterChatMessage(
-                    message: $0,
-                    supportsFileAttachments: supportsFileAttachments
-                )
-            }
-        }
-
-        let instructionMessage = OpenRouterChatMessage(
-            role: .system,
-            content: .text(instructionText),
-            toolCalls: nil,
-            toolCallID: nil
-        )
-        let renderedMessages = try prompt.messages.map {
-            try OpenRouterChatMessage(
-                message: $0,
-                supportsFileAttachments: supportsFileAttachments
+        try OpenAICompatibleChatPromptRenderer.messages(
+            for: request,
+            options: OpenAICompatibleChatPromptRenderingOptions(
+                instructionRole: .system,
+                supportsFileAttachments: supportsFileAttachments,
+                serviceName: "OpenRouter"
             )
-        }
-        return [instructionMessage] + renderedMessages
-    }
-}
-
-nonisolated extension OpenRouterChatMessage {
-    init(
-        message: ChatMessage,
-        supportsFileAttachments: Bool = false
-    ) throws {
-        let content: OpenRouterMessageContent? = try Self.encodeContent(
-            for: message,
-            supportsFileAttachments: supportsFileAttachments
         )
-
-        self.init(
-            role: Self.role(for: message.role),
-            content: content,
-            toolCalls: try message.toolCalls?.map {
-                ToolCall(
-                    id: $0.id,
-                    type: "function",
-                    function: ToolCall.Function(
-                        name: $0.toolID,
-                        arguments: try $0.validatedSerializedArguments()
-                    )
-                )
-            },
-            toolCallID: message.toolCallID
-        )
-    }
-
-    private static func role(for role: ChatRole) -> Role {
-        switch role {
-        case .user:
-            return .user
-        case .assistant:
-            return .assistant
-        case .system:
-            return .system
-        case .tool:
-            return .tool
-        }
-    }
-
-    private static func encodeContent(
-        for message: ChatMessage,
-        supportsFileAttachments: Bool
-    ) throws -> OpenRouterMessageContent? {
-        let attachmentParts = try message.attachments.map {
-            try Self.contentPart(
-                for: $0,
-                supportsFileAttachments: supportsFileAttachments
-            )
-        }
-
-        if attachmentParts.isEmpty {
-            if message.role == .assistant,
-               message.content.isEmpty,
-               message.toolCalls?.isEmpty == false {
-                return nil
-            }
-            return .text(message.content)
-        }
-
-        var parts: [OpenRouterContentPart] = []
-        if !message.content.isEmpty {
-            parts.append(.text(message.content))
-        }
-        parts.append(contentsOf: attachmentParts)
-        return .parts(parts)
-    }
-
-    private static func contentPart(
-        for attachment: ChatAttachment,
-        supportsFileAttachments: Bool
-    ) throws -> OpenRouterContentPart {
-        if attachment.kind == .file,
-           !supportsFileAttachments {
-            throw OpenRouterProviderError.unsupportedFileAttachments("OpenRouter")
-        }
-
-        guard let data = try? ChatAttachmentStore.shared.loadData(for: attachment),
-              !data.isEmpty else {
-            throw OpenRouterProviderError.missingAttachmentData(attachment.filename)
-        }
-
-        let base64 = data.base64EncodedString()
-        let mimeType = attachment.contentType.isEmpty
-            ? "application/octet-stream"
-            : attachment.contentType
-        let dataURL = "data:\(mimeType);base64,\(base64)"
-
-        switch attachment.kind {
-        case .image:
-            return .imageURL(url: dataURL)
-        case .file:
-            return .file(filename: attachment.filename, fileData: dataURL)
-        }
     }
 }
