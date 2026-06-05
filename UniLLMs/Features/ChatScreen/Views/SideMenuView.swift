@@ -517,15 +517,12 @@ private final class HistoryCell: UITableViewCell {
     func configure(with session: ChatSession) {
         let trimmed = session.title.trimmingCharacters(in: .whitespacesAndNewlines)
         titleLabel.text = trimmed.isEmpty ? String(localized: .chatNewChat) : trimmed
-        setNeedsUpdateConfiguration()
     }
 
     private func configure() {
         backgroundColor = .clear
         contentView.backgroundColor = .clear
         selectionStyle = .none
-        automaticallyUpdatesBackgroundConfiguration = false
-        automaticallyUpdatesContentConfiguration = false
 
         titleLabel.font = .preferredFont(forTextStyle: .body)
         titleLabel.adjustsFontForContentSizeCategory = true
@@ -554,14 +551,11 @@ private final class HistoryCell: UITableViewCell {
             )
         ])
 
-        updateConfiguration(using: configurationState)
+        configureBackgroundConfiguration()
     }
 
-    override func updateConfiguration(using state: UICellConfigurationState) {
+    private func configureBackgroundConfiguration() {
         var background = defaultBackgroundConfiguration()
-        background.backgroundColor = state.isSelected || state.isHighlighted
-            ? Self.selectionBackgroundColor
-            : .clear
         background.backgroundInsets = NSDirectionalEdgeInsets(
             top: Metrics.backgroundVerticalInset,
             leading: Metrics.backgroundHorizontalInset,
@@ -570,6 +564,14 @@ private final class HistoryCell: UITableViewCell {
         )
         background.cornerRadius = Metrics.selectedCornerRadius
         backgroundConfiguration = background
+    }
+
+    override func updateConfiguration(using state: UICellConfigurationState) {
+        super.updateConfiguration(using: state)
+
+        backgroundConfiguration?.backgroundColor = state.isSelected || state.isHighlighted
+            ? Self.selectionBackgroundColor
+            : .clear
     }
 
     private static var selectionBackgroundColor: UIColor {
