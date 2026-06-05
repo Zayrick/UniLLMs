@@ -279,16 +279,11 @@ private struct HTMLBlockRenderingState {
     }
 
     private func trimCollapsibleLeadingWhitespace(_ text: String) -> String {
-        guard text.first == " " else {
+        guard text.first == " ",
+              result.string.last?.isWhitespace != false else {
             return text
         }
-        guard let last = result.string.last else {
-            return String(text.dropFirst())
-        }
-        if last.isWhitespace {
-            return String(text.dropFirst())
-        }
-        return text
+        return String(text.dropFirst())
     }
 
     private mutating func appendLiteral(_ literal: String) {
@@ -326,7 +321,7 @@ private struct HTMLBlockRenderingState {
         }
 
         let isChecked = tag.attributes.keys.contains("checked")
-        result.append(checkboxAttachment(isChecked: isChecked))
+        result.appendWithChatInlineCodeVisualSpacing(checkboxAttachment(isChecked: isChecked))
     }
 
     private func checkboxAttachment(isChecked: Bool) -> NSAttributedString {
@@ -351,11 +346,7 @@ private struct HTMLBlockRenderingState {
     }
 
     private mutating func appendSpaceIfNeeded() {
-        guard let last = result.string.last,
-              !last.isWhitespace else {
-            return
-        }
-
+        guard result.string.last?.isWhitespace != true else { return }
         appendRawText(" ", attributes: mode.attributes(context: context))
     }
 
@@ -364,11 +355,7 @@ private struct HTMLBlockRenderingState {
     }
 
     private mutating func ensureLineBreak() {
-        guard result.length > 0,
-              !result.string.hasSuffix("\n") else {
-            return
-        }
-
+        guard !result.string.hasSuffix("\n") else { return }
         appendLineBreak()
     }
 
@@ -377,7 +364,9 @@ private struct HTMLBlockRenderingState {
     }
 
     private mutating func appendRawText(_ text: String, attributes: [NSAttributedString.Key: Any]) {
-        result.append(NSAttributedString(string: text, attributes: attributes))
+        result.appendWithChatInlineCodeVisualSpacing(
+            NSAttributedString(string: text, attributes: attributes)
+        )
     }
 
     private func startIndex(for tag: ChatMarkdownHTMLTag) -> Int {
@@ -405,12 +394,20 @@ private struct HTMLBlockRenderingState {
     }
 
     private mutating func collapseSpacesBeforeNewlines() {
-        while true {
-            let range = (result.string as NSString).range(of: " \n")
-            guard range.location != NSNotFound else {
-                return
-            }
+        let string = result.string as NSString
+        var ranges: [NSRange] = []
+        var searchStart = 0
 
+        while searchStart < string.length {
+            let searchRange = NSRange(location: searchStart, length: string.length - searchStart)
+            let range = string.range(of: " \n", options: [], range: searchRange)
+            guard range.location != NSNotFound else { break }
+
+            ranges.append(range)
+            searchStart = range.location + range.length
+        }
+
+        for range in ranges.reversed() {
             result.replaceCharacters(in: range, with: "\n")
         }
     }

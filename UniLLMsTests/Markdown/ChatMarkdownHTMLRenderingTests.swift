@@ -34,6 +34,21 @@ final class ChatMarkdownHTMLRenderingTests: ChatMarkdownRenderingTestCase {
         )
     }
 
+    func testMarkdownInlineHTMLCodeAddsVisualSpacingWithoutChangingString() throws {
+        let attributedText = renderMarkdownText("A<code>code</code>B")
+        let codeRange = try XCTUnwrap(attributedText.range(of: "code"))
+
+        XCTAssertEqual(attributedText.string, "AcodeB")
+        XCTAssertEqual(
+            attributedText.kern(at: 0),
+            ChatMarkdownInlineCodeStyle.boundarySpacing
+        )
+        XCTAssertEqual(
+            attributedText.kern(at: NSMaxRange(codeRange) - 1),
+            ChatMarkdownInlineCodeStyle.boundarySpacing
+        )
+    }
+
     func testMarkdownHTMLBlockRendersAllowedTagsAndFiltersDisallowedGFMRawHTML() throws {
         let attributedText = renderMarkdownText(
             """

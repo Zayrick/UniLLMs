@@ -38,10 +38,53 @@ final class ChatMarkdownInlineRenderingTests: ChatMarkdownRenderingTestCase {
         )
     }
 
-    func testMarkdownInlineCodeAddsOuterMarginWhenAdjacentToText() {
+    func testMarkdownInlineCodeAddsVisualSpacingWhenAdjacentToTextWithoutChangingString() throws {
         let attributedText = renderMarkdownText("A`code`B")
+        let codeRange = try XCTUnwrap(attributedText.range(of: "code"))
 
-        XCTAssertEqual(attributedText.string, "A code B")
+        XCTAssertEqual(attributedText.string, "AcodeB")
+        XCTAssertEqual(
+            attributedText.kern(at: 0),
+            ChatMarkdownInlineCodeStyle.boundarySpacing
+        )
+        XCTAssertEqual(
+            attributedText.kern(at: NSMaxRange(codeRange) - 1),
+            ChatMarkdownInlineCodeStyle.boundarySpacing
+        )
+        XCTAssertEqual(
+            attributedText.attribute(
+                .chatInlineCodeBoundarySpacing,
+                at: 0,
+                effectiveRange: nil
+            ) as? CGFloat,
+            ChatMarkdownInlineCodeStyle.boundarySpacing
+        )
+    }
+
+    func testMarkdownInlineCodeDoesNotInsertSpacesBeforePunctuation() throws {
+        let attributedText = renderMarkdownText("Use `x`, then `y`.")
+        let xRange = try XCTUnwrap(attributedText.range(of: "x"))
+        let yRange = try XCTUnwrap(attributedText.range(of: "y"))
+
+        XCTAssertEqual(attributedText.string, "Use x, then y.")
+        XCTAssertEqual(
+            attributedText.kern(at: NSMaxRange(xRange) - 1),
+            ChatMarkdownInlineCodeStyle.boundarySpacing
+        )
+        XCTAssertEqual(
+            attributedText.kern(at: NSMaxRange(yRange) - 1),
+            ChatMarkdownInlineCodeStyle.boundarySpacing
+        )
+    }
+
+    func testMarkdownTextViewLeavesHorizontalDrawingRoomForLineEdgeInlineCode() {
+        let attributedText = renderMarkdownText("`code` at line start")
+        let textView = ChatMarkdownTextView(attributedText: attributedText)
+
+        XCTAssertEqual(
+            textView.textContainer.lineFragmentPadding,
+            ChatMarkdownInlineCodeStyle.horizontalPadding
+        )
     }
 
     func testMarkdownEmphasisAppliesItalicObliqueness() throws {

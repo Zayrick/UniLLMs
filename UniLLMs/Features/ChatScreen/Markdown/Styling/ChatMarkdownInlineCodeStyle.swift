@@ -9,7 +9,7 @@
 import UIKit
 
 enum ChatMarkdownInlineCodeStyle {
-    static let outerMargin = " "
+    static let boundarySpacing: CGFloat = 3.0
     static let horizontalPadding: CGFloat = 3.0
     static let interLineGap: CGFloat = 1.0
     static let cornerRadius: CGFloat = 5.0
@@ -21,5 +21,8 @@ extension NSAttributedString.Key {
     )
     static let chatInlineCodeCornerRadius = NSAttributedString.Key(
         "UniLLMs.ChatMarkdown.inlineCodeCornerRadius"
+    )
+    static let chatInlineCodeBoundarySpacing = NSAttributedString.Key(
+        "UniLLMs.ChatMarkdown.inlineCodeBoundarySpacing"
     )
 }

@@ -64,6 +64,71 @@ extension NSAttributedString {
     }
 }
 
+extension NSMutableAttributedString {
+    func appendWithChatInlineCodeVisualSpacing(_ attributedString: NSAttributedString) {
+        applyChatInlineCodeVisualSpacing(beforeAppending: attributedString)
+        append(attributedString)
+    }
+
+    private func applyChatInlineCodeVisualSpacing(beforeAppending attributedString: NSAttributedString) {
+        guard length > 0, attributedString.length > 0 else {
+            return
+        }
+
+        let currentString = string as NSString
+        let incomingString = attributedString.string as NSString
+        let previousRange = currentString.rangeOfComposedCharacterSequence(at: length - 1)
+        let nextRange = incomingString.rangeOfComposedCharacterSequence(at: 0)
+
+        guard !Self.isWhitespaceOnly(currentString.substring(with: previousRange)),
+              !Self.isWhitespaceOnly(incomingString.substring(with: nextRange)) else {
+            return
+        }
+
+        let previousIsInlineCode = attribute(
+            .chatInlineCodeBackgroundColor,
+            at: previousRange.location,
+            effectiveRange: nil
+        ) != nil
+        let nextIsInlineCode = attributedString.attribute(
+            .chatInlineCodeBackgroundColor,
+            at: nextRange.location,
+            effectiveRange: nil
+        ) != nil
+
+        guard previousIsInlineCode != nextIsInlineCode,
+              attribute(
+                  .chatInlineCodeBoundarySpacing,
+                  at: previousRange.location,
+                  effectiveRange: nil
+              ) == nil else {
+            return
+        }
+
+        let spacing = ChatMarkdownInlineCodeStyle.boundarySpacing
+        let kern = Self.numericAttributeValue(
+            attribute(.kern, at: previousRange.location, effectiveRange: nil)
+        ) + spacing
+
+        addAttribute(.kern, value: kern, range: previousRange)
+        addAttribute(.chatInlineCodeBoundarySpacing, value: spacing, range: previousRange)
+    }
+
+    private static func isWhitespaceOnly(_ text: String) -> Bool {
+        text.unicodeScalars.allSatisfy { CharacterSet.whitespacesAndNewlines.contains($0) }
+    }
+
+    private static func numericAttributeValue(_ value: Any?) -> CGFloat {
+        if let value = value as? CGFloat {
+            return value
+        }
+        if let value = value as? NSNumber {
+            return CGFloat(truncating: value)
+        }
+        return 0.0
+    }
+}
+
 extension ChatMarkdownRenderingContext {
     func blockString(
         _ string: String,

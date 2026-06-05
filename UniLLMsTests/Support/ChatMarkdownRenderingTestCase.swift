@@ -104,6 +104,21 @@ extension NSAttributedString {
         return attribute(.baselineOffset, at: range.location, effectiveRange: nil) as? CGFloat
     }
 
+    func kern(at location: Int) -> CGFloat? {
+        guard location >= 0, location < length else {
+            return nil
+        }
+
+        let value = attribute(.kern, at: location, effectiveRange: nil)
+        if let value = value as? CGFloat {
+            return value
+        }
+        if let value = value as? NSNumber {
+            return CGFloat(truncating: value)
+        }
+        return nil
+    }
+
     func blockQuoteBarPositions(containing text: String) -> [CGFloat]? {
         guard let range = range(of: text) else {
             return nil

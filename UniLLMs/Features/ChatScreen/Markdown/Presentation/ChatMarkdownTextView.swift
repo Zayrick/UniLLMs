@@ -118,7 +118,7 @@ final class ChatMarkdownTextView: UITextView {
         isEditable = false
         isScrollEnabled = false
         textContainerInset = .zero
-        markdownTextContainer.lineFragmentPadding = 0.0
+        markdownTextContainer.lineFragmentPadding = ChatMarkdownInlineCodeStyle.horizontalPadding
         markdownLayoutManager.usesFontLeading = true
         setContentCompressionResistancePriority(.required, for: .vertical)
         setContentHuggingPriority(.required, for: .vertical)
@@ -127,9 +127,7 @@ final class ChatMarkdownTextView: UITextView {
 
     private func animateAppendedText(in characterRange: NSRange) {
         guard characterRange.length > 0,
-              !UIAccessibility.isReduceMotionEnabled,
-              bounds.width > 0.0,
-              bounds.height > 0.0 else {
+              !UIAccessibility.isReduceMotionEnabled else {
             removeTextFadeMask()
             return
         }
@@ -141,10 +139,6 @@ final class ChatMarkdownTextView: UITextView {
             forCharacterRange: characterRange,
             actualCharacterRange: nil
         )
-        guard glyphRange.length > 0 else {
-            removeTextFadeMask()
-            return
-        }
 
         var firstChangedLineFrame: CGRect?
         var firstChangedFadeFrame: CGRect?
@@ -164,11 +158,9 @@ final class ChatMarkdownTextView: UITextView {
                 in: textContainer
             ).offsetBy(dx: origin.x, dy: origin.y)
             let lineFrame = lineFragmentRect.offsetBy(dx: origin.x, dy: origin.y)
-            let usedFrame = usedRect.offsetBy(dx: origin.x, dy: origin.y)
             let fadeFrame = self.fadeFrame(
                 changedRect: changedRect,
-                lineFrame: lineFrame,
-                usedFrame: usedFrame
+                lineFrame: lineFrame
             )
 
             if firstChangedLineFrame == nil {
@@ -176,10 +168,7 @@ final class ChatMarkdownTextView: UITextView {
                 firstChangedFadeFrame = fadeFrame
             }
 
-            if fadeFrame.width > Fade.minimumLayerSize,
-               fadeFrame.height > Fade.minimumLayerSize {
-                fadeFrames.append(fadeFrame)
-            }
+            fadeFrames.append(fadeFrame)
         }
 
         guard !fadeFrames.isEmpty else {
@@ -218,20 +207,20 @@ final class ChatMarkdownTextView: UITextView {
             }
         }
 
+        let animation = CABasicAnimation(keyPath: "opacity")
+        animation.fromValue = 0.0
+        animation.toValue = 1.0
+        animation.duration = Fade.duration
+        animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        animation.fillMode = .both
+        animation.isRemovedOnCompletion = true
+
         for fadeFrame in fadeFrames {
             let fadeLayer = CALayer()
             fadeLayer.backgroundColor = UIColor.black.cgColor
             fadeLayer.frame = fadeFrame
             fadeLayer.opacity = 1.0
             maskLayer.addSublayer(fadeLayer)
-
-            let animation = CABasicAnimation(keyPath: "opacity")
-            animation.fromValue = 0.0
-            animation.toValue = 1.0
-            animation.duration = Fade.duration
-            animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            animation.fillMode = .both
-            animation.isRemovedOnCompletion = true
             fadeLayer.add(animation, forKey: "chatMarkdownFadeIn")
         }
 
@@ -248,34 +237,17 @@ final class ChatMarkdownTextView: UITextView {
 
     private func fadeFrame(
         changedRect: CGRect,
-        lineFrame: CGRect,
-        usedFrame: CGRect
+        lineFrame: CGRect
     ) -> CGRect {
-        let effectiveChangedRect = changedRect.isNull || !changedRect.hasFiniteCoordinates
-            ? usedFrame
-            : changedRect
-        let y = max(0.0, min(lineFrame.minY, bounds.height))
-        let height = max(
-            0.0,
-            min(lineFrame.height, bounds.height - y)
+        CGRect(
+            x: changedRect.minX,
+            y: lineFrame.minY,
+            width: changedRect.width,
+            height: lineFrame.height
         )
-        let minX = max(
-            0.0,
-            min(effectiveChangedRect.minX, bounds.width)
-        )
-        let maxX = max(
-            minX,
-            min(max(effectiveChangedRect.maxX, usedFrame.maxX), bounds.width)
-        )
-        return CGRect(x: minX, y: y, width: maxX - minX, height: height)
     }
 
     private func addOpaqueMaskLayer(to maskLayer: CALayer, frame: CGRect) {
-        guard frame.width > Fade.minimumLayerSize,
-              frame.height > Fade.minimumLayerSize else {
-            return
-        }
-
         let layer = CALayer()
         layer.backgroundColor = UIColor.black.cgColor
         layer.frame = frame
@@ -295,15 +267,6 @@ final class ChatMarkdownTextView: UITextView {
     }
 }
 
-private extension CGRect {
-    var hasFiniteCoordinates: Bool {
-        origin.x.isFinite &&
-            origin.y.isFinite &&
-            size.width.isFinite &&
-            size.height.isFinite
-    }
-}
-
 private final class ChatMarkdownLayoutManager: NSLayoutManager {
     override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: CGPoint) {
         drawBlockQuoteBars(forGlyphRange: glyphsToShow, at: origin)
@@ -312,33 +275,16 @@ private final class ChatMarkdownLayoutManager: NSLayoutManager {
     }
 
     private func drawBlockQuoteBars(forGlyphRange glyphsToShow: NSRange, at origin: CGPoint) {
-        guard let textStorage else {
-            return
-        }
+        guard let textStorage else { return }
 
         ChatMarkdownBlockQuoteStyle.barColor.setFill()
 
         enumerateLineFragments(forGlyphRange: glyphsToShow) { lineFragmentRect, _, _, lineGlyphRange, _ in
             let visibleGlyphRange = NSIntersectionRange(lineGlyphRange, glyphsToShow)
-            guard visibleGlyphRange.length > 0 else {
-                return
-            }
+            let lineCharacterRange = self.characterRange(forGlyphRange: visibleGlyphRange, actualGlyphRange: nil)
+            let barPositions = self.blockQuoteBarPositions(in: lineCharacterRange, textStorage: textStorage)
 
-            let lineCharacterRange = self.characterRange(
-                forGlyphRange: visibleGlyphRange,
-                actualGlyphRange: nil
-            )
-            guard lineCharacterRange.length > 0 else {
-                return
-            }
-
-            let barPositions = self.blockQuoteBarPositions(
-                in: lineCharacterRange,
-                textStorage: textStorage
-            )
-            guard !barPositions.isEmpty else {
-                return
-            }
+            guard !barPositions.isEmpty else { return }
 
             let lineRect = lineFragmentRect.offsetBy(dx: origin.x, dy: origin.y)
             for barPosition in barPositions {
@@ -375,31 +321,16 @@ private final class ChatMarkdownLayoutManager: NSLayoutManager {
     }
 
     private func drawInlineCodeBackgrounds(forGlyphRange glyphsToShow: NSRange, at origin: CGPoint) {
-        guard let textStorage else {
-            return
-        }
+        guard let textStorage else { return }
 
-        let characterRange = self.characterRange(
-            forGlyphRange: glyphsToShow,
-            actualGlyphRange: nil
-        )
+        let characterRange = self.characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
 
-        textStorage.enumerateAttribute(
-            .chatInlineCodeBackgroundColor,
-            in: characterRange
-        ) { value, characterAttributeRange, _ in
-            guard let color = value as? UIColor else {
-                return
-            }
+        textStorage.enumerateAttribute(.chatInlineCodeBackgroundColor, in: characterRange) { value, characterAttributeRange, _ in
+            guard let color = value as? UIColor else { return }
 
-            let glyphAttributeRange = self.glyphRange(
-                forCharacterRange: characterAttributeRange,
-                actualCharacterRange: nil
-            )
+            let glyphAttributeRange = self.glyphRange(forCharacterRange: characterAttributeRange, actualCharacterRange: nil)
             let visibleGlyphRange = NSIntersectionRange(glyphAttributeRange, glyphsToShow)
-            guard visibleGlyphRange.length > 0 else {
-                return
-            }
+            guard visibleGlyphRange.length > 0 else { return }
 
             let cornerRadius = textStorage.attribute(
                 .chatInlineCodeCornerRadius,
@@ -424,15 +355,9 @@ private final class ChatMarkdownLayoutManager: NSLayoutManager {
     ) {
         enumerateLineFragments(forGlyphRange: glyphRange) { lineFragmentRect, usedRect, textContainer, lineGlyphRange, _ in
             let lineRange = NSIntersectionRange(glyphRange, lineGlyphRange)
-            guard lineRange.length > 0 else {
-                return
-            }
+            guard lineRange.length > 0 else { return }
 
             let glyphRect = self.boundingRect(forGlyphRange: lineRange, in: textContainer)
-            guard glyphRect.width > 0.0, lineFragmentRect.height > 0.0 else {
-                return
-            }
-
             let lineHeight = self.inlineCodeBackgroundHeight(
                 forGlyphRange: lineRange,
                 lineFragmentHeight: lineFragmentRect.height,
@@ -471,20 +396,10 @@ private final class ChatMarkdownLayoutManager: NSLayoutManager {
     }
 
     private func inlineCodeFontLineHeight(forGlyphRange glyphRange: NSRange) -> CGFloat {
-        guard let textStorage else {
-            return 0.0
-        }
+        guard let textStorage else { return 0.0 }
 
-        let characterRange = self.characterRange(
-            forGlyphRange: glyphRange,
-            actualGlyphRange: nil
-        )
-        guard characterRange.location < textStorage.length,
-              let font = textStorage.attribute(
-                .font,
-                at: characterRange.location,
-                effectiveRange: nil
-              ) as? UIFont else {
+        let characterRange = self.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
+        guard let font = textStorage.attribute(.font, at: characterRange.location, effectiveRange: nil) as? UIFont else {
             return 0.0
         }
 
