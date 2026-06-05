@@ -170,15 +170,14 @@ final class SystemPromptEditorViewController: UITableViewController {
 
     @objc private func savePrompt() {
         view.endEditing(true)
-        guard var promptForSaving else {
+        guard let promptForSaving else {
             updateSaveButtonState()
             return
         }
 
-        promptForSaving.updatedAt = Date()
-        prompt = promptForSaving
-        dependencies.systemPromptManager.savePrompt(prompt)
-        savedPrompt = prompt
+        let savedRecord = dependencies.systemPromptManager.savePrompt(promptForSaving)
+        prompt = savedRecord
+        savedPrompt = savedRecord
         isNewPrompt = false
         title = prompt.displayTitle
         updateSaveButtonState()

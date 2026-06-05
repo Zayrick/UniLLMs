@@ -13,17 +13,20 @@ final class ChatContextBuilder {
     private let toolCatalog: ToolCatalog
     private let systemPromptSettingsStore: any SystemPromptSettingsStore
     private let clock: any AppClock
+    private let buildPolicy: ChatContextBuildPolicy
 
     init(
         memoryManager: MemoryManager,
         toolCatalog: ToolCatalog,
         systemPromptSettingsStore: any SystemPromptSettingsStore = UserDefaultsSystemPromptSettingsStore.shared,
-        clock: any AppClock = SystemAppClock()
+        clock: any AppClock = SystemAppClock(),
+        buildPolicy: ChatContextBuildPolicy = ChatContextBuildPolicy()
     ) {
         self.memoryManager = memoryManager
         self.toolCatalog = toolCatalog
         self.systemPromptSettingsStore = systemPromptSettingsStore
         self.clock = clock
+        self.buildPolicy = buildPolicy
     }
 
     func buildContext(
@@ -44,7 +47,10 @@ final class ChatContextBuilder {
             memories: [],
             availableTools: availableTools
         )
-        let memories = (try? await memoryManager.retrieveRelevantMemories(for: baseContext)) ?? []
+        let memories = await buildPolicy.retrieveMemories(
+            using: memoryManager,
+            for: baseContext
+        )
         return ChatContext(
             session: session,
             messages: messages,

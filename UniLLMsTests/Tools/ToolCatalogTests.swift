@@ -23,6 +23,37 @@ final class ToolCatalogTests: XCTestCase {
         XCTAssertEqual(registry.tools.first?.definition.symbolName, "clock")
     }
 
+    func testBuiltInToolCatalogUsesClockedDateTimeAndManagerBackedMemoryTools() async throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let memoryStore = InMemoryMemoryStore()
+        let clock = FixedClock(now: now)
+        let registry = BuiltInToolCatalog.makeRegistry(
+            memoryManager: MemoryManager(store: memoryStore, clock: clock),
+            clock: clock
+        )
+        let dateTimeTool = try XCTUnwrap(registry.tool(id: "current_datetime"))
+        let memoryAddTool = try XCTUnwrap(registry.tool(id: "memory_add"))
+
+        let dateTimeResult = try await dateTimeTool.execute(
+            call: ToolCall(id: "call_time", toolID: "current_datetime", arguments: [:]),
+            context: ToolExecutionContext(session: nil)
+        )
+        let addResult = try await memoryAddTool.execute(
+            call: ToolCall(
+                id: "call_add",
+                toolID: "memory_add",
+                arguments: ["text": .string("User likes deterministic catalog tests.")]
+            ),
+            context: ToolExecutionContext(session: nil)
+        )
+
+        XCTAssertEqual(dateTimeResult.content, now.formatted(date: .complete, time: .complete))
+        XCTAssertFalse(addResult.isError)
+        let memories = try await memoryStore.fetchMemories(scope: .user)
+        XCTAssertEqual(memories.first?.createdAt, now)
+        XCTAssertEqual(memories.first?.updatedAt, now)
+    }
+
     func testToolCatalogExposesBuiltInToolsWhenEnabled() async {
         let catalog = ToolCatalog(
             registry: ToolRegistry(tools: [DateTimeTool()]),
@@ -143,6 +174,10 @@ private struct CatalogTool: Tool {
     func execute(call: ToolCall, context: ToolExecutionContext) async throws -> ToolResult {
         ToolResult(callID: call.id, content: "")
     }
+}
+
+private struct FixedClock: AppClock {
+    var now: Date
 }
 
 private final class InMemoryMemoryStore: MemoryStore {

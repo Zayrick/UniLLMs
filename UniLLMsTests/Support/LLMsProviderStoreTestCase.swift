@@ -9,22 +9,29 @@ import XCTest
 
 class LLMsProviderStoreTestCase: UserDefaultsBackedTestCase {
     var store: LLMProviderStore!
+    var notificationCenter: NotificationCenter!
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        store = LLMProviderStore(defaults: defaults, storageKey: "providers")
+        notificationCenter = NotificationCenter()
+        store = LLMProviderStore(
+            defaults: defaults,
+            notificationCenter: notificationCenter,
+            storageKey: "providers"
+        )
     }
 
     override func tearDownWithError() throws {
         store = nil
+        notificationCenter = nil
         try super.tearDownWithError()
     }
 
     func makeProviderManager(
-        adapters: [any LLMsProviderAdapter] = [TestRemoteProvider()]
+        adapters: [any LLMsProviderAdapter]? = nil
     ) -> LLMsProviderManager {
         LLMsProviderManager(
-            registry: LLMsProviderRegistry(adapters: adapters),
+            registry: LLMsProviderRegistry(adapters: adapters ?? [TestRemoteProvider()]),
             store: store
         )
     }
@@ -45,7 +52,7 @@ class LLMsProviderStoreTestCase: UserDefaultsBackedTestCase {
     }
 }
 
-struct TestRemoteProvider: LLMsProviderAdapter {
+nonisolated struct TestRemoteProvider: LLMsProviderAdapter {
     static let providerKind = LLMsProviderKind(rawValue: "testRemoteProvider")
 
     enum ConfigurationKey {
@@ -90,4 +97,46 @@ struct TestRemoteProvider: LLMsProviderAdapter {
             continuation.finish()
         }
     }
+}
+
+func makeTestChatSession(
+    id: UUID = UUID(),
+    title: String = "",
+    createdAt: Date = Date(timeIntervalSince1970: 1),
+    updatedAt: Date = Date(timeIntervalSince1970: 1),
+    selectedSystemPromptID: UUID? = nil
+) -> ChatSession {
+    ChatSession(
+        id: id,
+        title: title,
+        createdAt: createdAt,
+        updatedAt: updatedAt,
+        selectedSystemPromptID: selectedSystemPromptID
+    )
+}
+
+func makeTestChatMessage(
+    id: UUID = UUID(),
+    role: ChatRole,
+    content: String,
+    reasoning: String = "",
+    toolCalls: [ChatToolCall]? = nil,
+    toolCallID: String? = nil,
+    toolDisplayName: String? = nil,
+    toolStatus: ToolExecutionStatus? = nil,
+    attachments: [ChatAttachment] = [],
+    createdAt: Date = Date(timeIntervalSince1970: 1)
+) -> ChatMessage {
+    ChatMessage(
+        id: id,
+        role: role,
+        content: content,
+        reasoning: reasoning,
+        toolCalls: toolCalls,
+        toolCallID: toolCallID,
+        toolDisplayName: toolDisplayName,
+        toolStatus: toolStatus,
+        attachments: attachments,
+        createdAt: createdAt
+    )
 }

@@ -51,8 +51,8 @@ final class SideMenuView: UIView {
     private let settingsGlassView = UIVisualEffectView(effect: SideMenuView.makeGlassEffect())
     private let settingsButton = UIButton(type: .system)
     private var allSessions: [ChatSession] = []
-    private var historySections: [HistorySection] = []
-    private var selectedSessionID: UUID?
+    private var historyList = ChatSessionHistoryList()
+    private var selectionState = ChatSideMenuSelectionPresentationState()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -76,9 +76,19 @@ final class SideMenuView: UIView {
         sessions: [ChatSession],
         selectedSessionID: UUID?
     ) {
-        allSessions = sessions.sorted(by: Self.sortSessionsByLastSentDate)
-        self.selectedSessionID = selectedSessionID
+        allSessions = ChatSessionHistoryList.sortedSessions(sessions)
+        selectionState.applyConfirmedSelection(selectedSessionID)
         applyHistoryFilter()
+    }
+
+    func confirmPendingSessionSelection(_ sessionID: UUID) {
+        selectionState.confirmPendingSelection(sessionID)
+        updateSelectedHistoryRow()
+    }
+
+    func rejectPendingSessionSelection() {
+        selectionState.rejectPendingSelection()
+        updateSelectedHistoryRow()
     }
 
     private func configure() {
@@ -361,32 +371,10 @@ final class SideMenuView: UIView {
     }
 
     private func applyHistoryFilter() {
-        let query = (searchTextField.text ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-
-        let filteredSessions: [ChatSession]
-        if query.isEmpty {
-            filteredSessions = allSessions
-        } else {
-            filteredSessions = allSessions.filter { session in
-                session.title.lowercased().contains(query)
-            }
-        }
-
-        let calendar = Calendar.current
-        let groupedSessions = Dictionary(grouping: filteredSessions) { session in
-            calendar.startOfDay(for: session.updatedAt)
-        }
-
-        historySections = groupedSessions.keys
-            .sorted(by: >)
-            .map { date in
-                HistorySection(
-                    date: date,
-                    sessions: (groupedSessions[date] ?? []).sorted(by: Self.sortSessionsByLastSentDate)
-                )
-            }
+        historyList = ChatSessionHistoryList(
+            sortedSessions: allSessions,
+            query: searchTextField.text ?? ""
+        )
 
         historyTableView.reloadData()
         updateEmptyHistoryState()
@@ -394,9 +382,8 @@ final class SideMenuView: UIView {
     }
 
     private func updateEmptyHistoryState() {
-        let isEmpty = historySections.allSatisfy { $0.sessions.isEmpty }
-        emptyHistoryLabel.isHidden = !isEmpty
-        historyTableView.isHidden = isEmpty
+        emptyHistoryLabel.isHidden = !historyList.isEmpty
+        historyTableView.isHidden = historyList.isEmpty
     }
 
     private func updateSelectedHistoryRow() {
@@ -404,30 +391,16 @@ final class SideMenuView: UIView {
             historyTableView.deselectRow(at: $0, animated: false)
         }
 
-        guard let selectedSessionID,
-              let indexPath = indexPath(for: selectedSessionID) else {
+        guard let selectedSessionID = selectionState.displayedSessionID,
+              let position = historyList.position(for: selectedSessionID) else {
             return
         }
 
-        historyTableView.selectRow(at: indexPath, animated: false, scrollPosition: .none)
-    }
-
-    private func indexPath(for sessionID: UUID) -> IndexPath? {
-        for (sectionIndex, section) in historySections.enumerated() {
-            if let rowIndex = section.sessions.firstIndex(where: { $0.id == sessionID }) {
-                return IndexPath(row: rowIndex, section: sectionIndex)
-            }
-        }
-
-        return nil
-    }
-
-    private nonisolated static func sortSessionsByLastSentDate(_ lhs: ChatSession, _ rhs: ChatSession) -> Bool {
-        if lhs.updatedAt != rhs.updatedAt {
-            return lhs.updatedAt > rhs.updatedAt
-        }
-
-        return lhs.createdAt > rhs.createdAt
+        historyTableView.selectRow(
+            at: IndexPath(row: position.row, section: position.section),
+            animated: false,
+            scrollPosition: .none
+        )
     }
 
     private static func makeContainerEffect() -> UIGlassContainerEffect {
@@ -441,11 +414,6 @@ final class SideMenuView: UIView {
         effect.isInteractive = true
         return effect
     }
-}
-
-private struct HistorySection {
-    var date: Date
-    var sessions: [ChatSession]
 }
 
 private final class HistoryDateHeaderView: UIView {
@@ -583,11 +551,11 @@ private final class HistoryCell: UITableViewCell {
 
 extension SideMenuView: UITableViewDataSource, UITableViewDelegate {
     func numberOfSections(in tableView: UITableView) -> Int {
-        historySections.count
+        historyList.sections.count
     }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        historySections[section].sessions.count
+        historyList.sections[section].sessions.count
     }
 
     func tableView(
@@ -598,13 +566,14 @@ extension SideMenuView: UITableViewDataSource, UITableViewDelegate {
             withIdentifier: HistoryCell.reuseIdentifier,
             for: indexPath
         ) as? HistoryCell ?? HistoryCell(style: .default, reuseIdentifier: HistoryCell.reuseIdentifier)
-        cell.configure(with: historySections[indexPath.section].sessions[indexPath.row])
+        cell.configure(with: historyList.sections[indexPath.section].sessions[indexPath.row])
         return cell
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        let session = historySections[indexPath.section].sessions[indexPath.row]
-        selectedSessionID = session.id
+        let session = historyList.sections[indexPath.section].sessions[indexPath.row]
+        selectionState.beginPendingSelection(session.id)
+        updateSelectedHistoryRow()
         onSessionSelected?(session)
     }
 
@@ -613,7 +582,7 @@ extension SideMenuView: UITableViewDataSource, UITableViewDelegate {
         contextMenuConfigurationForRowAt indexPath: IndexPath,
         point: CGPoint
     ) -> UIContextMenuConfiguration? {
-        let session = historySections[indexPath.section].sessions[indexPath.row]
+        let session = historyList.sections[indexPath.section].sessions[indexPath.row]
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
             let deleteAction = UIAction(
                 title: String(localized: .generalDelete),
@@ -627,16 +596,16 @@ extension SideMenuView: UITableViewDataSource, UITableViewDelegate {
     }
 
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        historySections.count > 1 ? Metrics.historyHeaderHeight : CGFloat.leastNonzeroMagnitude
+        historyList.sections.count > 1 ? Metrics.historyHeaderHeight : CGFloat.leastNonzeroMagnitude
     }
 
     func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
-        guard historySections.count > 1 else {
+        guard historyList.sections.count > 1 else {
             return nil
         }
 
         let headerView = HistoryDateHeaderView()
-        headerView.update(date: historySections[section].date)
+        headerView.update(date: historyList.sections[section].date)
         return headerView
     }
 }

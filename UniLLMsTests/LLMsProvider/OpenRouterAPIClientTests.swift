@@ -89,7 +89,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
         let session = makeCapturingSession(capture: capture)
         let provider = OpenRouterProvider(apiClient: OpenRouterAPIClient(session: session))
         let prompt = makePrompt()
-        let memory = MemoryRecord(scope: .user, text: "Use metric units.")
+        let memory = makeMemory(text: "Use metric units.")
         defer {
             capture.invalidate()
         }
@@ -98,7 +98,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
         for try await delta in provider.streamChat(
             request: ChatRequest(
                 modelID: "openai/gpt-4o-mini",
-                messages: [ChatMessage(role: .user, content: "Hello")],
+                messages: [makeTestChatMessage(role: .user, content: "Hello")],
                 context: ChatContext(
                     systemPrompt: prompt,
                     memories: [memory]
@@ -142,7 +142,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
         for try await _ in provider.streamChat(
             request: ChatRequest(
                 modelID: "openai/gpt-4o-mini",
-                messages: [ChatMessage(role: .user, content: "Weather?")],
+                messages: [makeTestChatMessage(role: .user, content: "Weather?")],
                 context: ChatContext(availableTools: [tool])
             ),
             configuration: provider.defaultConfiguration
@@ -169,10 +169,10 @@ final class OpenRouterAPIClientTests: XCTestCase {
         for try await _ in provider.streamChat(
             request: ChatRequest(
                 modelID: "openai/gpt-4o-mini",
-                messages: [ChatMessage(role: .user, content: "Hello")],
+                messages: [makeTestChatMessage(role: .user, content: "Hello")],
                 context: ChatContext(
-                    session: ChatSession(id: chatSessionID),
-                    messages: [ChatMessage(role: .user, content: "Hello")]
+                    session: makeTestChatSession(id: chatSessionID),
+                    messages: [makeTestChatMessage(role: .user, content: "Hello")]
                 )
             ),
             configuration: provider.defaultConfiguration
@@ -203,7 +203,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
         for try await delta in provider.streamChat(
             request: ChatRequest(
                 modelID: "test-model",
-                messages: [ChatMessage(role: .user, content: "Hello")],
+                messages: [makeTestChatMessage(role: .user, content: "Hello")],
                 context: ChatContext(systemPrompt: prompt)
             ),
             configuration: configuration
@@ -237,7 +237,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
         for try await _ in provider.streamChat(
             request: ChatRequest(
                 modelID: "gpt-5.4",
-                messages: [ChatMessage(role: .user, content: "Hello")],
+                messages: [makeTestChatMessage(role: .user, content: "Hello")],
                 context: ChatContext(systemPrompt: prompt)
             ),
             configuration: provider.defaultConfiguration
@@ -273,7 +273,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
                 request: ChatRequest(
                     modelID: "test-model",
                     messages: [
-                        ChatMessage(
+                        makeTestChatMessage(
                             role: .user,
                             content: "Summarize this.",
                             attachments: [attachment]
@@ -296,7 +296,7 @@ final class OpenRouterAPIClientTests: XCTestCase {
 
     func testOpenRouterChatMessageEncodesAssistantToolCallsWithNullContent() throws {
         let message = try OpenRouterChatMessage(
-            message: ChatMessage(
+            message: makeTestChatMessage(
                 role: .assistant,
                 content: "",
                 toolCalls: [
@@ -594,6 +594,20 @@ final class OpenRouterAPIClientTests: XCTestCase {
             content: "Always answer in Chinese.",
             createdAt: Date(timeIntervalSince1970: 1),
             updatedAt: Date(timeIntervalSince1970: 2)
+        )
+    }
+
+    private func makeMemory(
+        scope: MemoryScope = .user,
+        text: String,
+        createdAt: Date = Date(timeIntervalSince1970: 1),
+        updatedAt: Date? = nil
+    ) -> MemoryRecord {
+        MemoryRecord(
+            scope: scope,
+            text: text,
+            createdAt: createdAt,
+            updatedAt: updatedAt
         )
     }
 

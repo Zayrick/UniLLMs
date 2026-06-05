@@ -9,6 +9,89 @@
 import BackgroundTasks
 import Foundation
 
+@MainActor
+protocol ChatContinuationBackgroundTask: AnyObject {
+    var progress: Progress { get }
+    var expirationHandler: (@MainActor () -> Void)? { get set }
+
+    func setTaskCompleted(success: Bool)
+}
+
+@MainActor
+final class SystemChatContinuationBackgroundTask: ChatContinuationBackgroundTask {
+    private let task: BGContinuedProcessingTask
+    private var currentExpirationHandler: (@MainActor () -> Void)?
+
+    init(task: BGContinuedProcessingTask) {
+        self.task = task
+    }
+
+    var progress: Progress {
+        task.progress
+    }
+
+    var expirationHandler: (@MainActor () -> Void)? {
+        get {
+            currentExpirationHandler
+        }
+        set {
+            currentExpirationHandler = newValue
+            guard let newValue else {
+                task.expirationHandler = nil
+                return
+            }
+
+            task.expirationHandler = {
+                Task { @MainActor in
+                    newValue()
+                }
+            }
+        }
+    }
+
+    func setTaskCompleted(success: Bool) {
+        task.setTaskCompleted(success: success)
+    }
+}
+
+@MainActor
+protocol ChatContinuationTaskScheduling: AnyObject {
+    func register(
+        forTaskWithIdentifier identifier: String,
+        launchHandler: @escaping @MainActor (BGTask) -> Void
+    ) -> Bool
+
+    func submit(_ request: BGTaskRequest) throws
+}
+
+final class SystemChatContinuationTaskScheduler: ChatContinuationTaskScheduling {
+    private let scheduler: BGTaskScheduler
+
+    init(scheduler: BGTaskScheduler = .shared) {
+        self.scheduler = scheduler
+    }
+
+    @MainActor
+    func register(
+        forTaskWithIdentifier identifier: String,
+        launchHandler: @escaping @MainActor (BGTask) -> Void
+    ) -> Bool {
+        scheduler.register(
+            forTaskWithIdentifier: identifier,
+            using: .main
+        ) { task in
+            Task { @MainActor in
+                launchHandler(task)
+            }
+        }
+    }
+
+    @MainActor
+    func submit(_ request: BGTaskRequest) throws {
+        try scheduler.submit(request)
+    }
+}
+
 enum ChatContinuationTaskError: LocalizedError {
     case registrationFailed(String)
     case submissionFailed(Error)
@@ -29,22 +112,47 @@ enum ChatContinuationTaskError: LocalizedError {
     }
 }
 
-@MainActor
 final class ChatContinuationTaskCoordinator {
-    private static let taskIdentifierPrefix = "Zayrick.UniLLMs.chatTurn"
-
-    private let scheduler: BGTaskScheduler
+    private let scheduler: any ChatContinuationTaskScheduling
+    private let makeRequestPlan: () -> ChatContinuationTaskRequestPlan
+    @MainActor
     private var continuationTasks: [String: ChatContinuationTask] = [:]
+    @MainActor
+    private var registeredIdentifiers: Set<String> = []
 
-    init(scheduler: BGTaskScheduler = .shared) {
-        self.scheduler = scheduler
+    @MainActor
+    var activeTaskCount: Int {
+        continuationTasks.count
     }
 
+    convenience init(
+        makeRequestPlan: @escaping () -> ChatContinuationTaskRequestPlan = {
+            ChatContinuationTaskRequestPlan.make()
+        }
+    ) {
+        self.init(
+            scheduler: SystemChatContinuationTaskScheduler(),
+            makeRequestPlan: makeRequestPlan
+        )
+    }
+
+    init(
+        scheduler: any ChatContinuationTaskScheduling,
+        makeRequestPlan: @escaping () -> ChatContinuationTaskRequestPlan = {
+            ChatContinuationTaskRequestPlan.make()
+        }
+    ) {
+        self.scheduler = scheduler
+        self.makeRequestPlan = makeRequestPlan
+    }
+
+    @MainActor
     func beginResponseTask() throws -> ChatContinuationTask {
-        let identifier = Self.makeTaskIdentifier()
+        let requestPlan = makeRequestPlan()
+        let identifier = requestPlan.identifier
         let task = ChatContinuationTask()
         continuationTasks[identifier] = task
-        task.onCompletion = { [weak self, weak task] in
+        task.onCompletion = { @MainActor [weak self, weak task] in
             guard let self,
                   let task,
                   self.continuationTasks[identifier] === task else {
@@ -54,13 +162,13 @@ final class ChatContinuationTaskCoordinator {
             self.continuationTasks[identifier] = nil
         }
 
-        guard register(identifier: identifier) else {
+        guard register(identifier: requestPlan.registrationIdentifier) else {
             continuationTasks[identifier] = nil
-            throw ChatContinuationTaskError.registrationFailed(identifier)
+            throw ChatContinuationTaskError.registrationFailed(requestPlan.registrationIdentifier)
         }
 
         let request = BGContinuedProcessingTaskRequest(
-            identifier: identifier,
+            identifier: requestPlan.identifier,
             title: String(localized: "background_runtime.task.title"),
             subtitle: String(localized: "background_runtime.task.subtitle.generating_response")
         )
@@ -75,15 +183,24 @@ final class ChatContinuationTaskCoordinator {
         }
     }
 
+    @MainActor
     private func register(identifier: String) -> Bool {
-        scheduler.register(
-            forTaskWithIdentifier: identifier,
-            using: .main
+        guard !registeredIdentifiers.contains(identifier) else {
+            return true
+        }
+
+        let didRegister = scheduler.register(
+            forTaskWithIdentifier: identifier
         ) { [weak self] task in
             self?.handle(task)
         }
+        if didRegister {
+            registeredIdentifiers.insert(identifier)
+        }
+        return didRegister
     }
 
+    @MainActor
     private func handle(_ task: BGTask) {
         guard let continuationTask = task as? BGContinuedProcessingTask else {
             task.setTaskCompleted(success: false)
@@ -95,26 +212,24 @@ final class ChatContinuationTaskCoordinator {
             return
         }
 
-        activeTask.attach(continuationTask)
-    }
-
-    private static func makeTaskIdentifier() -> String {
-        let suffix = UUID().uuidString.replacingOccurrences(of: "-", with: "")
-        return "\(taskIdentifierPrefix).\(suffix)"
+        activeTask.attach(
+            SystemChatContinuationBackgroundTask(task: continuationTask)
+        )
     }
 }
 
 @MainActor
 final class ChatContinuationTask {
-    var onExpiration: (() -> Void)?
-    var onCompletion: (() -> Void)?
+    var onExpiration: (@MainActor () -> Void)?
+    var onCompletion: (@MainActor () -> Void)?
 
-    private var task: BGContinuedProcessingTask?
+    private var task: (any ChatContinuationBackgroundTask)?
     private var isFinished = false
     private var finishedSuccessfully = false
+    private var hasSentCompletion = false
     private var receivedCharacterCount = 0
 
-    func attach(_ task: BGContinuedProcessingTask) {
+    func attach(_ task: any ChatContinuationBackgroundTask) {
         guard self.task == nil else {
             task.setTaskCompleted(success: false)
             return
@@ -124,9 +239,7 @@ final class ChatContinuationTask {
         task.progress.totalUnitCount = 100
         task.progress.completedUnitCount = 1
         task.expirationHandler = { [weak self] in
-            DispatchQueue.main.async {
-                self?.expire()
-            }
+            self?.expire()
         }
         updateProgress()
 
@@ -156,10 +269,19 @@ final class ChatContinuationTask {
 
         isFinished = true
         finishedSuccessfully = success
+        guard task != nil else {
+            sendCompletionIfNeeded()
+            return
+        }
+
         completeAttachedTask(success: success)
     }
 
     private func expire() {
+        guard !isFinished else {
+            return
+        }
+
         finish(success: false)
         onExpiration?()
     }
@@ -183,6 +305,15 @@ final class ChatContinuationTask {
         task.progress.completedUnitCount = task.progress.totalUnitCount
         task.setTaskCompleted(success: success)
         self.task = nil
+        sendCompletionIfNeeded()
+    }
+
+    private func sendCompletionIfNeeded() {
+        guard !hasSentCompletion else {
+            return
+        }
+
+        hasSentCompletion = true
         onCompletion?()
     }
 

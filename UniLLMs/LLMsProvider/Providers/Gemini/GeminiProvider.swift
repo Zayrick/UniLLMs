@@ -109,7 +109,7 @@ struct GeminiProvider: LLMsProviderAdapter {
         configuration: LLMsProviderConfiguration
     ) -> AsyncThrowingStream<ChatResponseDelta, Error> {
         do {
-            guard !Self.containsFileAttachments(request) else {
+            guard !LLMsProviderStreamSupport.containsFileAttachments(request) else {
                 throw GeminiProviderError.unsupportedFileAttachments(displayName)
             }
 
@@ -125,39 +125,9 @@ struct GeminiProvider: LLMsProviderAdapter {
                     : [GeminiTool(functionDeclarations: request.context.availableTools.map(GeminiFunctionDeclaration.init(definition:)))]
             )
 
-            return AsyncThrowingStream { continuation in
-                let task = Task {
-                    do {
-                        for try await delta in stream {
-                            continuation.yield(
-                                ChatResponseDelta(
-                                    content: delta.content,
-                                    toolCalls: delta.toolCalls
-                                )
-                            )
-                        }
-                        continuation.finish()
-                    } catch is CancellationError {
-                        continuation.finish()
-                    } catch {
-                        continuation.finish(throwing: error)
-                    }
-                }
-
-                continuation.onTermination = { _ in
-                    task.cancel()
-                }
-            }
+            return LLMsProviderStreamSupport.chatResponseStream(from: stream)
         } catch {
-            return AsyncThrowingStream { continuation in
-                continuation.finish(throwing: error)
-            }
-        }
-    }
-
-    private static func containsFileAttachments(_ request: ChatRequest) -> Bool {
-        request.messages.contains { message in
-            message.attachments.contains { $0.kind == .file }
+            return LLMsProviderStreamSupport.failedChatResponseStream(error)
         }
     }
 }
@@ -167,7 +137,6 @@ enum GeminiProviderError: LocalizedError, Equatable {
 
     case missingAPIKey(String)
     case unsupportedFileAttachments(String)
-    case missingAttachmentData(String)
 
     var errorDescription: String? {
         switch self {
@@ -175,8 +144,6 @@ enum GeminiProviderError: LocalizedError, Equatable {
             return String(localized: .providersErrorMissingApiKeyFormat(displayName))
         case let .unsupportedFileAttachments(displayName):
             return String(localized: .providersErrorUnsupportedFileAttachmentsFormat(displayName))
-        case let .missingAttachmentData(filename):
-            return String(localized: .providersErrorMissingAttachmentDataFormat(filename))
         }
     }
 }
@@ -187,7 +154,10 @@ nonisolated struct GeminiRenderedPrompt: Equatable {
 }
 
 nonisolated enum GeminiChatPromptRenderer {
-    static func render(request: ChatRequest) throws -> GeminiRenderedPrompt {
+    static func render(
+        request: ChatRequest,
+        attachmentPayloadLoader: LLMsProviderAttachmentPayloadLoader = .shared
+    ) throws -> GeminiRenderedPrompt {
         let prompt = ChatPromptAssembler().assemblePrompt(from: request)
         var contents: [GeminiContent] = []
         var toolNamesByID: [String: String] = [:]
@@ -224,7 +194,10 @@ nonisolated enum GeminiChatPromptRenderer {
                 contents.append(
                     GeminiContent(
                         role: "user",
-                        parts: try userParts(for: message)
+                        parts: try userParts(
+                            for: message,
+                            attachmentPayloadLoader: attachmentPayloadLoader
+                        )
                     )
                 )
             case .assistant:
@@ -258,26 +231,24 @@ nonisolated enum GeminiChatPromptRenderer {
         return GeminiRenderedPrompt(systemInstruction: systemInstruction, contents: contents)
     }
 
-    private static func userParts(for message: ChatMessage) throws -> [GeminiPart] {
+    private static func userParts(
+        for message: ChatMessage,
+        attachmentPayloadLoader: LLMsProviderAttachmentPayloadLoader
+    ) throws -> [GeminiPart] {
         var parts: [GeminiPart] = []
         if !message.content.isEmpty {
             parts.append(.text(message.content))
         }
 
         for attachment in message.attachments {
-            guard let data = try? ChatAttachmentStore.shared.loadData(for: attachment),
-                  !data.isEmpty else {
-                throw GeminiProviderError.missingAttachmentData(attachment.filename)
-            }
+            let payload = try attachmentPayloadLoader.loadPayload(for: attachment)
 
             switch attachment.kind {
             case .image:
                 parts.append(
                     .inlineData(
-                        mimeType: attachment.contentType.isEmpty
-                            ? "application/octet-stream"
-                            : attachment.contentType,
-                        data: data.base64EncodedString()
+                        mimeType: payload.contentType,
+                        data: payload.base64EncodedData
                     )
                 )
             case .file:
@@ -396,9 +367,16 @@ nonisolated struct GeminiFunctionDeclaration: Encodable, Equatable {
     }
 }
 
-nonisolated struct GeminiStreamDelta: Equatable {
+nonisolated struct GeminiStreamDelta: Equatable, LLMsProviderStreamSupport.ChatResponseDeltaConvertible {
     var content: String = ""
     var toolCalls: [ChatToolCall] = []
+
+    var chatResponseDelta: ChatResponseDelta {
+        ChatResponseDelta(
+            content: content,
+            toolCalls: toolCalls
+        )
+    }
 }
 
 nonisolated struct GeminiAPIClient {
@@ -474,12 +452,13 @@ nonisolated struct GeminiAPIClient {
         request.setValue(apiKey.trimmingCharacters(in: .whitespacesAndNewlines), forHTTPHeaderField: "x-goog-api-key")
 
         let (data, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw APIError.invalidResponse(serviceName)
-        }
-        guard (200..<300).contains(httpResponse.statusCode) else {
-            throw APIError.serverStatus(serviceName, httpResponse.statusCode, String(data: data, encoding: .utf8))
-        }
+        try LLMsProviderHTTPResponseValidator.validateDataResponse(
+            response: response,
+            data: data,
+            serviceName: serviceName,
+            invalidResponseError: APIError.invalidResponse,
+            serverStatusError: APIError.serverStatus
+        )
 
         let decoded = try JSONDecoder().decode(ModelsResponse.self, from: data)
         return decoded.models
@@ -513,12 +492,13 @@ nonisolated struct GeminiAPIClient {
                         tools: tools
                     )
                     let (bytes, response) = try await session.bytes(for: request)
-                    guard let httpResponse = response as? HTTPURLResponse else {
-                        throw APIError.invalidResponse(serviceName)
-                    }
-                    guard (200..<300).contains(httpResponse.statusCode) else {
-                        throw APIError.serverStatus(serviceName, httpResponse.statusCode, try await responseBodyString(from: bytes))
-                    }
+                    try await LLMsProviderHTTPResponseValidator.validateStreamingResponse(
+                        response: response,
+                        bytes: bytes,
+                        serviceName: serviceName,
+                        invalidResponseError: APIError.invalidResponse,
+                        serverStatusError: APIError.serverStatus
+                    )
 
                     var toolCallIndex = 0
                     for try await line in bytes.lines {
@@ -551,23 +531,13 @@ nonisolated struct GeminiAPIClient {
         toolCallIndex: inout Int,
         serviceName: String
     ) throws -> GeminiStreamDelta? {
-        let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmedLine.hasPrefix("data:") else {
+        guard let response = try ServerSentEventJSONDecoder.decode(
+            GenerateContentResponse.self,
+            from: line,
+            skipsDoneSignal: false,
+            invalidPayloadError: { APIError.invalidResponse(serviceName) }
+        ) else {
             return nil
-        }
-
-        let dataPrefixEndIndex = trimmedLine.index(trimmedLine.startIndex, offsetBy: 5)
-        let payload = trimmedLine[dataPrefixEndIndex...]
-            .trimmingCharacters(in: .whitespaces)
-        guard let data = payload.data(using: .utf8) else {
-            throw APIError.invalidResponse(serviceName)
-        }
-
-        let response: GenerateContentResponse
-        do {
-            response = try JSONDecoder().decode(GenerateContentResponse.self, from: data)
-        } catch {
-            throw APIError.invalidResponse(serviceName)
         }
 
         if let errorMessage = response.error?.message, !errorMessage.isEmpty {
@@ -713,39 +683,14 @@ nonisolated struct GeminiAPIClient {
         return url
     }
 
-    private func responseBodyString(from bytes: URLSession.AsyncBytes) async throws -> String {
-        var body = ""
-        for try await line in bytes.lines {
-            if !body.isEmpty {
-                body.append("\n")
-            }
-            body.append(line)
-            if body.count > 2_048 {
-                break
-            }
-        }
-        return body
-    }
-
     private func normalizedAPIBaseURL(apiBase: String) throws -> URL {
-        let trimmedAPIBase = apiBase.trimmingCharacters(in: .whitespacesAndNewlines)
-        let baseString = trimmedAPIBase.isEmpty ? defaultAPIBase : trimmedAPIBase
-
-        guard var components = URLComponents(string: baseString),
-              let scheme = components.scheme?.lowercased(),
-              ["http", "https"].contains(scheme),
-              components.host?.isEmpty == false,
-              components.query == nil,
-              components.fragment == nil else {
+        let baseString = LLMsProviderAPIBaseURL.effectiveString(
+            apiBase: apiBase,
+            defaultAPIBase: defaultAPIBase
+        )
+        guard let baseURL = LLMsProviderAPIBaseURL.normalizedURL(baseString: baseString) else {
             throw APIError.invalidAPIBase(baseString)
         }
-
-        let trimmedPath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        components.path = trimmedPath.isEmpty ? "" : "/\(trimmedPath)"
-        guard let baseURL = components.url else {
-            throw APIError.invalidAPIBase(baseString)
-        }
-
         return baseURL
     }
 }

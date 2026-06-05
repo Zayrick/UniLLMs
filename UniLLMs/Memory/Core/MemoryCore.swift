@@ -24,7 +24,7 @@ nonisolated struct MemoryRecord: Codable, Equatable, Identifiable {
         id: UUID = UUID(),
         scope: MemoryScope,
         text: String,
-        createdAt: Date = Date(),
+        createdAt: Date,
         updatedAt: Date? = nil
     ) {
         self.id = id
@@ -359,13 +359,16 @@ struct EmptyMemoryWriter: MemoryWriter {
 struct StoreBackedMemoryRetriever: MemoryRetriever {
     private let store: any MemoryStore
     private let settingsStore: any MemorySettingsStore
+    private let clock: any AppClock
 
     init(
         store: any MemoryStore,
-        settingsStore: any MemorySettingsStore = UserDefaultsMemorySettingsStore.shared
+        settingsStore: any MemorySettingsStore = UserDefaultsMemorySettingsStore.shared,
+        clock: any AppClock = SystemAppClock()
     ) {
         self.store = store
         self.settingsStore = settingsStore
+        self.clock = clock
     }
 
     func retrieveRelevantMemories(for context: ChatContext) async throws -> [MemoryRecord] {
@@ -378,7 +381,7 @@ struct StoreBackedMemoryRetriever: MemoryRetriever {
         let eligibleMemories = Self.memories(
             memories,
             matching: settings.filter,
-            referenceDate: Date()
+            referenceDate: clock.now
         )
         let sortedMemories = Self.sortedForPresentation(eligibleMemories)
 
@@ -447,21 +450,25 @@ final class MemoryManager {
     private let settingsStore: any MemorySettingsStore
     private let retriever: any MemoryRetriever
     private let writer: any MemoryWriter
+    private let clock: any AppClock
 
     init(
         store: (any MemoryStore)? = nil,
         settingsStore: any MemorySettingsStore = UserDefaultsMemorySettingsStore.shared,
         retriever: (any MemoryRetriever)? = nil,
-        writer: any MemoryWriter = EmptyMemoryWriter()
+        writer: any MemoryWriter = EmptyMemoryWriter(),
+        clock: any AppClock = SystemAppClock()
     ) {
         self.store = store
         self.settingsStore = settingsStore
+        self.clock = clock
         if let retriever {
             self.retriever = retriever
         } else if let store {
             self.retriever = StoreBackedMemoryRetriever(
                 store: store,
-                settingsStore: settingsStore
+                settingsStore: settingsStore,
+                clock: clock
             )
         } else {
             self.retriever = EmptyMemoryRetriever()
@@ -491,7 +498,12 @@ final class MemoryManager {
     }
 
     func makeMemoryDraft() -> MemoryRecord {
-        MemoryRecord(scope: .user, text: "")
+        makeMemory(scope: .user, text: "")
+    }
+
+    func makeMemory(scope: MemoryScope, text: String) -> MemoryRecord {
+        let now = clock.now
+        return MemoryRecord(scope: scope, text: text, createdAt: now, updatedAt: now)
     }
 
     func memoryInjectionSettings() -> MemoryInjectionSettings {
@@ -502,9 +514,27 @@ final class MemoryManager {
         settingsStore.saveInjectionSettings(settings)
     }
 
-    func saveMemory(_ memory: MemoryRecord) async throws {
+    @discardableResult
+    func saveMemory(scope: MemoryScope, text: String) async throws -> MemoryRecord {
         let store = try memoryStore
+        let memory = makeMemory(scope: scope, text: text)
         try await store.saveMemory(memory)
+        return memory
+    }
+
+    @discardableResult
+    func saveMemory(_ memory: MemoryRecord) async throws -> MemoryRecord {
+        let store = try memoryStore
+        let existingMemories = try await store.fetchMemories(scope: nil)
+        var memoryForSaving = memory
+        let now = clock.now
+
+        if existingMemories.contains(where: { $0.id == memory.id }) == false {
+            memoryForSaving.createdAt = now
+        }
+        memoryForSaving.updatedAt = now
+        try await store.saveMemory(memoryForSaving)
+        return memoryForSaving
     }
 
     @discardableResult

@@ -41,6 +41,36 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
         XCTAssertTrue(savedMemories.isEmpty)
     }
 
+    func testMemoryStorePostsOnlyOnInjectedNotificationCenter() async throws {
+        let notificationCenter = NotificationCenter()
+        let store = UserDefaultsMemoryStore(
+            defaults: defaults,
+            notificationCenter: notificationCenter,
+            storageKey: "memories"
+        )
+        let injectedObserver = StoreNotificationObserver(
+            name: UserDefaultsMemoryStore.didChangeNotification,
+            object: store,
+            notificationCenter: notificationCenter
+        )
+        let defaultObserver = StoreNotificationObserver(
+            name: UserDefaultsMemoryStore.didChangeNotification,
+            object: store,
+            notificationCenter: .default
+        )
+        defer {
+            injectedObserver.invalidate()
+            defaultObserver.invalidate()
+        }
+
+        try await store.saveMemory(
+            makeMemory(text: "User likes concise answers.")
+        )
+
+        XCTAssertEqual(injectedObserver.notificationCount, 1)
+        XCTAssertEqual(defaultObserver.notificationCount, 0)
+    }
+
     func testMemoryRecordDecodingDefaultsUpdatedAtToCreatedAt() throws {
         let id = UUID()
         let json = """
@@ -81,22 +111,128 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
         XCTAssertEqual(settings.maximumMemories, 5)
     }
 
+    func testMemorySettingsStorePostsOnlyOnInjectedNotificationCenter() {
+        let notificationCenter = NotificationCenter()
+        let settingsStore = UserDefaultsMemorySettingsStore(
+            defaults: defaults,
+            notificationCenter: notificationCenter,
+            storageKey: "memorySettings"
+        )
+        let injectedObserver = StoreNotificationObserver(
+            name: UserDefaultsMemorySettingsStore.didChangeNotification,
+            object: settingsStore,
+            notificationCenter: notificationCenter
+        )
+        let defaultObserver = StoreNotificationObserver(
+            name: UserDefaultsMemorySettingsStore.didChangeNotification,
+            object: settingsStore,
+            notificationCenter: .default
+        )
+        defer {
+            injectedObserver.invalidate()
+            defaultObserver.invalidate()
+        }
+
+        settingsStore.saveInjectionSettings(
+            MemoryInjectionSettings(isEnabled: false)
+        )
+
+        XCTAssertEqual(injectedObserver.notificationCount, 1)
+        XCTAssertEqual(defaultObserver.notificationCount, 0)
+    }
+
+    func testMemoryManagerUsesInjectedClockForDraftAndSaveTimestamps() async throws {
+        let createdAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let updatedAt = Date(timeIntervalSince1970: 1_800_000_123)
+        let clock = MutableClock(now: createdAt)
+        let store = UserDefaultsMemoryStore(
+            defaults: defaults,
+            storageKey: "clockedMemoryManager"
+        )
+        let manager = MemoryManager(store: store, clock: clock)
+
+        let draft = manager.makeMemoryDraft()
+
+        XCTAssertEqual(draft.createdAt, createdAt)
+        XCTAssertEqual(draft.updatedAt, createdAt)
+
+        let savedMemory = try await manager.saveMemory(
+            scope: .user,
+            text: "User likes deterministic manager tests."
+        )
+
+        XCTAssertEqual(savedMemory.createdAt, createdAt)
+        XCTAssertEqual(savedMemory.updatedAt, createdAt)
+
+        clock.now = updatedAt
+        var editedMemory = savedMemory
+        editedMemory.text = "User likes deterministic memory manager tests."
+        let updatedMemory = try await manager.saveMemory(editedMemory)
+
+        XCTAssertEqual(updatedMemory.createdAt, createdAt)
+        XCTAssertEqual(updatedMemory.updatedAt, updatedAt)
+        let savedMemories = try await manager.savedMemories(scope: .user)
+        XCTAssertEqual(savedMemories, [updatedMemory])
+    }
+
     func testMemoryManagerSearchesCaseInsensitiveTerms() async throws {
         let store = UserDefaultsMemoryStore(
             defaults: defaults,
             storageKey: "memoryManager"
         )
         let manager = MemoryManager(store: store)
-        try await manager.saveMemory(
-            MemoryRecord(scope: .user, text: "User prefers concise Chinese responses.")
-        )
-        try await manager.saveMemory(
-            MemoryRecord(scope: .user, text: "User lives in Shanghai.")
-        )
+        try await manager.saveMemory(scope: .user, text: "User prefers concise Chinese responses.")
+        try await manager.saveMemory(scope: .user, text: "User lives in Shanghai.")
 
         let matches = try await manager.searchMemories(query: "concise chinese", scope: .user)
 
         XCTAssertEqual(matches.map(\.text), ["User prefers concise Chinese responses."])
+    }
+
+    func testMemoryRetrieverUsesInjectedClockForTimeFilter() async throws {
+        let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
+        let store = UserDefaultsMemoryStore(
+            defaults: defaults,
+            storageKey: "clockedMemoryRetriever"
+        )
+        let settingsStore = UserDefaultsMemorySettingsStore(
+            defaults: defaults,
+            storageKey: "clockedMemoryRetrieverSettings"
+        )
+        settingsStore.saveInjectionSettings(
+            MemoryInjectionSettings(
+                isEnabled: true,
+                filter: .last7Days,
+                maximumMemories: nil
+            )
+        )
+        let manager = MemoryManager(
+            store: store,
+            settingsStore: settingsStore,
+            clock: MutableClock(now: referenceDate)
+        )
+        try await store.saveMemory(
+            MemoryRecord(
+                scope: .user,
+                text: "Inside clocked range",
+                createdAt: referenceDate.addingTimeInterval(-6 * 24 * 60 * 60),
+                updatedAt: referenceDate.addingTimeInterval(-6 * 24 * 60 * 60)
+            )
+        )
+        try await store.saveMemory(
+            MemoryRecord(
+                scope: .user,
+                text: "Outside clocked range",
+                createdAt: referenceDate.addingTimeInterval(-8 * 24 * 60 * 60),
+                updatedAt: referenceDate.addingTimeInterval(-8 * 24 * 60 * 60)
+            )
+        )
+
+        let memories = try await manager.retrieveRelevantMemories(
+            for: ChatContext(messages: [makeTestChatMessage(role: .user, content: "")])
+        )
+
+        XCTAssertEqual(memories.map(\.text), ["Inside clocked range"])
     }
 
     func testMemoryRetrieverAppliesInjectionSettingsIntersection() async throws {
@@ -146,7 +282,7 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
         )
 
         let memories = try await manager.retrieveRelevantMemories(
-            for: ChatContext(messages: [ChatMessage(role: .user, content: "")])
+            for: ChatContext(messages: [makeTestChatMessage(role: .user, content: "")])
         )
 
         XCTAssertEqual(memories.map(\.text), ["Most recent memory"])
@@ -169,11 +305,11 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
             settingsStore: settingsStore
         )
         try await store.saveMemory(
-            MemoryRecord(scope: .user, text: "User likes concise answers.")
+            makeMemory(text: "User likes concise answers.")
         )
 
         let memories = try await manager.retrieveRelevantMemories(
-            for: ChatContext(messages: [ChatMessage(role: .user, content: "answers")])
+            for: ChatContext(messages: [makeTestChatMessage(role: .user, content: "answers")])
         )
 
         XCTAssertTrue(memories.isEmpty)
@@ -200,11 +336,11 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
             settingsStore: settingsStore
         )
         try await store.saveMemory(
-            MemoryRecord(scope: .user, text: "User prefers concise answers.")
+            makeMemory(text: "User prefers concise answers.")
         )
 
         let memories = try await manager.retrieveRelevantMemories(
-            for: ChatContext(messages: [ChatMessage(role: .user, content: "travel plans")])
+            for: ChatContext(messages: [makeTestChatMessage(role: .user, content: "travel plans")])
         )
 
         XCTAssertEqual(memories.map(\.text), ["User prefers concise answers."])
@@ -248,11 +384,11 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
             )
         )
         try await store.saveMemory(
-            MemoryRecord(scope: .user, text: "User prefers concise answers.")
+            makeMemory(text: "User prefers concise answers.")
         )
 
         let memories = try await manager.retrieveRelevantMemories(
-            for: ChatContext(messages: [ChatMessage(role: .user, content: "Can you help with my travel plans")])
+            for: ChatContext(messages: [makeTestChatMessage(role: .user, content: "Can you help with my travel plans")])
         )
 
         XCTAssertEqual(
@@ -291,7 +427,7 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
         }
 
         let memories = try await manager.retrieveRelevantMemories(
-            for: ChatContext(messages: [ChatMessage(role: .user, content: "travel plan")])
+            for: ChatContext(messages: [makeTestChatMessage(role: .user, content: "travel plan")])
         )
 
         XCTAssertEqual(memories.count, 5)
@@ -319,17 +455,17 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
             settingsStore: settingsStore
         )
         try await store.saveMemory(
-            MemoryRecord(scope: .user, text: "上海旅行应该安排高铁。")
+            makeMemory(text: "上海旅行应该安排高铁。")
         )
         try await store.saveMemory(
-            MemoryRecord(scope: .user, text: "我喜欢咖啡。")
+            makeMemory(text: "我喜欢咖啡。")
         )
         try await store.saveMemory(
-            MemoryRecord(scope: .user, text: "User prefers concise answers.")
+            makeMemory(text: "User prefers concise answers.")
         )
 
         let memories = try await manager.retrieveRelevantMemories(
-            for: ChatContext(messages: [ChatMessage(role: .user, content: "帮我做上海旅行计划")])
+            for: ChatContext(messages: [makeTestChatMessage(role: .user, content: "帮我做上海旅行计划")])
         )
 
         XCTAssertEqual(memories.map(\.text), ["上海旅行应该安排高铁。"])
@@ -355,11 +491,11 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
             store: store,
             settingsStore: settingsStore
         )
-        try await store.saveMemory(MemoryRecord(scope: .user, text: "First memory"))
-        try await store.saveMemory(MemoryRecord(scope: .user, text: "Second memory"))
+        try await store.saveMemory(makeMemory(text: "First memory"))
+        try await store.saveMemory(makeMemory(text: "Second memory"))
 
         let memories = try await manager.retrieveRelevantMemories(
-            for: ChatContext(messages: [ChatMessage(role: .user, content: "")])
+            for: ChatContext(messages: [makeTestChatMessage(role: .user, content: "")])
         )
 
         XCTAssertEqual(memories.count, 2)
@@ -372,8 +508,8 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
             storageKey: "clearMemoryManager"
         )
         let manager = MemoryManager(store: store)
-        try await manager.saveMemory(MemoryRecord(scope: .user, text: "User memory"))
-        try await manager.saveMemory(MemoryRecord(scope: .session, text: "Session memory"))
+        try await manager.saveMemory(scope: .user, text: "User memory")
+        try await manager.saveMemory(scope: .session, text: "Session memory")
 
         let deletedCount = try await manager.deleteAllMemories(scope: .user)
 
@@ -383,4 +519,26 @@ final class MemoryStoreTests: UserDefaultsBackedTestCase {
         XCTAssertTrue(userMemories.isEmpty)
         XCTAssertEqual(sessionMemories.map(\.text), ["Session memory"])
     }
+}
+
+private final class MutableClock: AppClock {
+    var now: Date
+
+    init(now: Date) {
+        self.now = now
+    }
+}
+
+private func makeMemory(
+    scope: MemoryScope = .user,
+    text: String,
+    createdAt: Date = Date(timeIntervalSince1970: 1),
+    updatedAt: Date? = nil
+) -> MemoryRecord {
+    MemoryRecord(
+        scope: scope,
+        text: text,
+        createdAt: createdAt,
+        updatedAt: updatedAt
+    )
 }

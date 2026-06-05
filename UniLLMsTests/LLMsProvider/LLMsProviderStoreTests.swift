@@ -9,6 +9,20 @@ import XCTest
 @testable import UniLLMs
 
 final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
+    func testProviderDraftUsesInjectedClockForCreationDate() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        store = LLMProviderStore(
+            defaults: defaults,
+            notificationCenter: notificationCenter,
+            storageKey: "providers",
+            clock: FixedClock(now: now)
+        )
+
+        let draft = try makeTestProviderDraft()
+
+        XCTAssertEqual(draft.createdAt, now)
+    }
+
     func testAddingProvidersAssignsUUIDsAndUniqueNames() throws {
         let first = try makeTestProviderDraft()
         store.saveProvider(first)
@@ -255,7 +269,11 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
     }
 
     func testSavingSelectedModelSelectionPostsStoreScopedNotification() throws {
-        let observer = SelectedModelSelectionObserver(store: store)
+        let observer = StoreNotificationObserver(
+            name: LLMProviderStore.selectedModelSelectionDidChangeNotification,
+            object: store,
+            notificationCenter: notificationCenter
+        )
         defer {
             observer.invalidate()
         }
@@ -273,8 +291,42 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
         XCTAssertEqual(observer.notificationCount, 1)
     }
 
+    func testSavingSelectedModelSelectionPostsOnlyOnInjectedNotificationCenter() throws {
+        let injectedObserver = StoreNotificationObserver(
+            name: LLMProviderStore.selectedModelSelectionDidChangeNotification,
+            object: store,
+            notificationCenter: notificationCenter
+        )
+        let defaultObserver = StoreNotificationObserver(
+            name: LLMProviderStore.selectedModelSelectionDidChangeNotification,
+            object: store,
+            notificationCenter: .default
+        )
+        defer {
+            injectedObserver.invalidate()
+            defaultObserver.invalidate()
+        }
+        let provider = try addTestProvider()
+
+        store.saveSelectedModelSelection(
+            LLMModelSelection(
+                providerID: provider.id,
+                providerName: provider.name,
+                modelID: "openai/gpt-4.1",
+                modelName: "GPT-4.1"
+            )
+        )
+
+        XCTAssertEqual(injectedObserver.notificationCount, 1)
+        XCTAssertEqual(defaultObserver.notificationCount, 0)
+    }
+
     func testClearingMissingSelectedModelSelectionDoesNotPostNotification() {
-        let observer = SelectedModelSelectionObserver(store: store)
+        let observer = StoreNotificationObserver(
+            name: LLMProviderStore.selectedModelSelectionDidChangeNotification,
+            object: store,
+            notificationCenter: notificationCenter
+        )
         defer {
             observer.invalidate()
         }
@@ -299,7 +351,11 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
                 modelName: "GPT-4.1"
             )
         )
-        let observer = SelectedModelSelectionObserver(store: store)
+        let observer = StoreNotificationObserver(
+            name: LLMProviderStore.selectedModelSelectionDidChangeNotification,
+            object: store,
+            notificationCenter: notificationCenter
+        )
         defer {
             observer.invalidate()
         }
@@ -310,35 +366,6 @@ final class LLMsProviderStoreTests: LLMsProviderStoreTestCase {
     }
 }
 
-private final class SelectedModelSelectionObserver {
-    private var token: NSObjectProtocol?
-    private let observedStore: LLMProviderStore
-    private(set) var notificationCount = 0
-
-    init(store: LLMProviderStore) {
-        observedStore = store
-        token = NotificationCenter.default.addObserver(
-            forName: LLMProviderStore.selectedModelSelectionDidChangeNotification,
-            object: store,
-            queue: nil
-        ) { [weak self] notification in
-            guard let self,
-                  notification.object as AnyObject === observedStore else {
-                return
-            }
-
-            notificationCount += 1
-        }
-    }
-
-    func invalidate() {
-        if let token {
-            NotificationCenter.default.removeObserver(token)
-        }
-        token = nil
-    }
-
-    deinit {
-        invalidate()
-    }
+private struct FixedClock: AppClock {
+    var now: Date
 }

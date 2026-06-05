@@ -11,7 +11,7 @@ import XCTest
 final class MCPServerStoreTests: UserDefaultsBackedTestCase {
     func testMCPServerStorePersistsServers() {
         let mcpStore = UserDefaultsMCPServerStore(defaults: defaults, storageKey: "mcpServers")
-        var server = mcpStore.makeServerDraft()
+        var server = makeServer(name: "")
         XCTAssertEqual(server.name, "")
 
         server.name = "Team Tools"
@@ -37,7 +37,7 @@ final class MCPServerStoreTests: UserDefaultsBackedTestCase {
 
     func testMCPServerStoreUpdatesMatchingUUID() {
         let mcpStore = UserDefaultsMCPServerStore(defaults: defaults, storageKey: "mcpServers")
-        var server = MCPServerRecord(name: "Old")
+        var server = makeServer(name: "Old")
         mcpStore.saveServerRecord(server)
 
         server.name = "New"
@@ -49,8 +49,8 @@ final class MCPServerStoreTests: UserDefaultsBackedTestCase {
 
     func testMCPServerStoreDeletesMatchingUUIDOnly() {
         let mcpStore = UserDefaultsMCPServerStore(defaults: defaults, storageKey: "mcpServers")
-        let first = MCPServerRecord(name: "First")
-        let second = MCPServerRecord(name: "Second")
+        let first = makeServer(name: "First")
+        let second = makeServer(name: "Second")
         mcpStore.saveServerRecord(first)
         mcpStore.saveServerRecord(second)
 
@@ -61,9 +61,9 @@ final class MCPServerStoreTests: UserDefaultsBackedTestCase {
 
     func testMCPServerStoreMovesValidIndicesAndIgnoresInvalidMoves() {
         let mcpStore = UserDefaultsMCPServerStore(defaults: defaults, storageKey: "mcpServers")
-        let first = MCPServerRecord(name: "First")
-        let second = MCPServerRecord(name: "Second")
-        let third = MCPServerRecord(name: "Third")
+        let first = makeServer(name: "First")
+        let second = makeServer(name: "Second")
+        let third = makeServer(name: "Third")
         [first, second, third].forEach(mcpStore.saveServerRecord)
 
         mcpStore.moveServer(from: 0, to: 2)
@@ -74,5 +74,37 @@ final class MCPServerStoreTests: UserDefaultsBackedTestCase {
         mcpStore.moveServer(from: 1, to: 1)
 
         XCTAssertEqual(mcpStore.loadServers().map(\.id), [second.id, third.id, first.id])
+    }
+
+    func testMCPServerStorePostsOnlyOnInjectedNotificationCenter() {
+        let notificationCenter = NotificationCenter()
+        let mcpStore = UserDefaultsMCPServerStore(
+            defaults: defaults,
+            notificationCenter: notificationCenter,
+            storageKey: "mcpServers"
+        )
+        let injectedObserver = StoreNotificationObserver(
+            name: UserDefaultsMCPServerStore.didChangeNotification,
+            object: mcpStore,
+            notificationCenter: notificationCenter
+        )
+        let defaultObserver = StoreNotificationObserver(
+            name: UserDefaultsMCPServerStore.didChangeNotification,
+            object: mcpStore,
+            notificationCenter: .default
+        )
+        defer {
+            injectedObserver.invalidate()
+            defaultObserver.invalidate()
+        }
+
+        mcpStore.saveServerRecord(makeServer(name: "Team Tools"))
+
+        XCTAssertEqual(injectedObserver.notificationCount, 1)
+        XCTAssertEqual(defaultObserver.notificationCount, 0)
+    }
+
+    private func makeServer(name: String) -> MCPServerRecord {
+        MCPServerRecord(name: name, createdAt: Date(timeIntervalSince1970: 1))
     }
 }

@@ -25,6 +25,7 @@ final class ChatMarkdownBlockQuoteView: UIView {
     private var blockQuoteBlock: ChatMarkdownBlockQuoteBlock
     private let style: ChatMarkdownRenderStyle
     private let renderingTraitCollection: UITraitCollection
+    private let imageLoader: any ChatMarkdownImageLoading
     private let contentRow = UIStackView()
     private let ruleView = UIView()
     private let contentStackView = UIStackView()
@@ -35,11 +36,13 @@ final class ChatMarkdownBlockQuoteView: UIView {
     init(
         blockQuoteBlock: ChatMarkdownBlockQuoteBlock,
         style: ChatMarkdownRenderStyle,
-        traitCollection: UITraitCollection
+        traitCollection: UITraitCollection,
+        imageLoader: any ChatMarkdownImageLoading = URLSessionChatMarkdownImageLoader()
     ) {
         self.blockQuoteBlock = blockQuoteBlock
         self.style = style
         renderingTraitCollection = traitCollection
+        self.imageLoader = imageLoader
         super.init(frame: .zero)
         configure()
         renderChildren()
@@ -150,7 +153,8 @@ final class ChatMarkdownBlockQuoteView: UIView {
     private var blockViewConfiguration: ChatMarkdownRenderedBlockViewConfiguration {
         ChatMarkdownRenderedBlockViewConfiguration(
             style: style,
-            traitCollection: renderingTraitCollection
+            traitCollection: renderingTraitCollection,
+            imageLoader: imageLoader
         ) { [weak self] in
             self?.onNeedsHeightUpdate?()
         }

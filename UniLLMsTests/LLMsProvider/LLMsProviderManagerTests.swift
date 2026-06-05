@@ -206,6 +206,42 @@ final class LLMsProviderManagerTests: LLMsProviderStoreTestCase {
         XCTAssertTrue(manager.hasRequiredConfigurationFields(for: compatible))
     }
 
+    func testProviderManagerValidatesChatConfigurationThroughProviderAdapter() throws {
+        let manager = makeProviderManager(adapters: [AnthropicProvider()])
+        var provider = try manager.makeProviderDraft(kind: .anthropic)
+        provider.configuration[AnthropicProvider.ConfigurationKey.apiKey] = "sk-ant-test"
+        provider.configuration[AnthropicProvider.ConfigurationKey.maxTokens] = "not-a-number"
+
+        XCTAssertTrue(manager.hasRequiredConfigurationFields(for: provider))
+        XCTAssertThrowsError(try manager.validateChatConfiguration(for: provider)) { error in
+            XCTAssertEqual(error as? AnthropicProviderError, .invalidMaxTokens)
+        }
+
+        provider.configuration[AnthropicProvider.ConfigurationKey.maxTokens] = "4096"
+
+        XCTAssertNoThrow(try manager.validateChatConfiguration(for: provider))
+    }
+
+    func testProviderManagerValidatesRemoteModelConfigurationBeforeFetching() async throws {
+        let adapter = ValidatingRemoteModelProvider()
+        let manager = makeProviderManager(adapters: [adapter])
+        var provider = try manager.makeProviderDraft(kind: ValidatingRemoteModelProvider.providerKind)
+
+        do {
+            _ = try await manager.fetchModels(for: provider)
+            XCTFail("Expected remote model fetch to fail validation.")
+        } catch {
+            XCTAssertEqual(error as? ValidatingRemoteModelProviderError, .missingToken)
+        }
+        XCTAssertFalse(adapter.didFetchModels)
+
+        provider.configuration[ValidatingRemoteModelProvider.ConfigurationKey.token] = "token"
+        let models = try await manager.fetchModels(for: provider)
+
+        XCTAssertEqual(models, [LLMProviderModel(id: "validated-model", name: "Validated Model")])
+        XCTAssertTrue(adapter.didFetchModels)
+    }
+
     func testProviderManagerRejectsUnregisteredProviderKind() throws {
         let manager = makeProviderManager(adapters: [])
 
@@ -236,6 +272,71 @@ final class LLMsProviderManagerTests: LLMsProviderStoreTestCase {
         let selection = try XCTUnwrap(manager.fetchSelectedModelSelection())
         XCTAssertEqual(selection.providerName, "Test Remote")
         XCTAssertEqual(selection.modelName, "GPT-4.1")
+    }
+}
+
+private enum ValidatingRemoteModelProviderError: LocalizedError, Equatable {
+    case missingToken
+
+    var errorDescription: String? {
+        switch self {
+        case .missingToken:
+            return "Missing validation token."
+        }
+    }
+}
+
+private final class ValidatingRemoteModelProvider: LLMsProviderAdapter {
+    static let providerKind = LLMsProviderKind(rawValue: "validatingRemoteModelProvider")
+
+    enum ConfigurationKey {
+        static let token = "token"
+    }
+
+    private(set) var didFetchModels = false
+
+    var kind: LLMsProviderKind {
+        Self.providerKind
+    }
+
+    var displayName: String {
+        "Validating Remote Model Provider"
+    }
+
+    var capabilities: Set<LLMsProviderCapability> {
+        [.modelList, .streamingChat]
+    }
+
+    var defaultConfiguration: LLMsProviderConfiguration {
+        LLMsProviderConfiguration(values: [ConfigurationKey.token: ""])
+    }
+
+    var configurationFields: [LLMsProviderConfigurationField] {
+        []
+    }
+
+    var modelSource: LLMsProviderModelSource {
+        .remote
+    }
+
+    func validateChatConfiguration(_ configuration: LLMsProviderConfiguration) throws {
+        guard configuration[ConfigurationKey.token].isEmpty == false else {
+            throw ValidatingRemoteModelProviderError.missingToken
+        }
+    }
+
+    func fetchModels(configuration: LLMsProviderConfiguration) async throws -> [LLMsProviderModel] {
+        didFetchModels = true
+        return [LLMProviderModel(id: "validated-model", name: "Validated Model")]
+    }
+
+    func streamChat(
+        request: ChatRequest,
+        configuration: LLMsProviderConfiguration
+    ) -> AsyncThrowingStream<ChatResponseDelta, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.finish()
+        }
     }
 }
 

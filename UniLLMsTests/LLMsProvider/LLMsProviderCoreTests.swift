@@ -54,23 +54,50 @@ final class LLMsProviderCoreTests: XCTestCase {
         let named = LLMsProviderRecord(
             kind: LLMsProviderKind(rawValue: "openRouter"),
             name: "  Work Router  ",
-            configuration: LLMsProviderConfiguration()
+            configuration: LLMsProviderConfiguration(),
+            createdAt: Date(timeIntervalSince1970: 1)
         )
         let unnamed = LLMsProviderRecord(
             kind: LLMsProviderKind(rawValue: "customKind"),
             name: "   ",
-            configuration: LLMsProviderConfiguration()
+            configuration: LLMsProviderConfiguration(),
+            createdAt: Date(timeIntervalSince1970: 1)
         )
 
         XCTAssertEqual(named.displayName, "Work Router")
         XCTAssertEqual(unnamed.displayName, "customKind")
     }
 
+    func testProviderRecordDecodesLegacyMissingCreatedAtAsDistantPast() throws {
+        let id = UUID()
+        let json = """
+        {
+            "id": "\(id.uuidString)",
+            "kind": "openRouter",
+            "name": "Legacy Router",
+            "configuration": {
+                "values": {
+                    "apiBase": "https://openrouter.ai/api/v1"
+                }
+            }
+        }
+        """
+
+        let provider = try JSONDecoder().decode(
+            LLMsProviderRecord.self,
+            from: try XCTUnwrap(json.data(using: .utf8))
+        )
+
+        XCTAssertEqual(provider.id, id)
+        XCTAssertEqual(provider.createdAt, .distantPast)
+    }
+
     func testConfigurationValueBindingReadsAndWritesProviderNameAndConfigValue() {
         var provider = LLMsProviderRecord(
             kind: .openRouter,
             name: "OpenRouter",
-            configuration: LLMsProviderConfiguration()
+            configuration: LLMsProviderConfiguration(),
+            createdAt: Date(timeIntervalSince1970: 1)
         )
 
         provider.setConfigurationValue("Team Router", for: .providerName)

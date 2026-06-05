@@ -18,7 +18,7 @@ nonisolated struct ConversationArchive: Codable, Equatable, Identifiable {
         id: UUID = UUID(),
         session: ChatSession,
         events: [ChatTimelineEvent],
-        archivedAt: Date = Date()
+        archivedAt: Date
     ) {
         self.id = id
         self.session = session

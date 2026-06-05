@@ -36,13 +36,16 @@ final class UserDefaultsSystemPromptStore: SystemPromptStore {
     }
 
     private let store: UserDefaultsStore
+    private let notificationCenter: NotificationCenter
     private let storageKey: String
 
     init(
         defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default,
         storageKey: String = "systemPromptConfigurations.v1"
     ) {
-        store = UserDefaultsStore(defaults: defaults)
+        store = UserDefaultsStore(defaults: defaults, notificationCenter: notificationCenter)
+        self.notificationCenter = notificationCenter
         self.storageKey = storageKey
     }
 
@@ -51,36 +54,48 @@ final class UserDefaultsSystemPromptStore: SystemPromptStore {
     }
 
     func savePromptRecord(_ prompt: SystemPromptRecord) {
-        var state = loadState()
-        if let index = state.prompts.firstIndex(where: { $0.id == prompt.id }) {
-            state.prompts[index] = prompt
-        } else {
-            state.prompts.append(prompt)
+        updateState { state in
+            if let index = state.prompts.firstIndex(where: { $0.id == prompt.id }) {
+                state.prompts[index] = prompt
+            } else {
+                state.prompts.append(prompt)
+            }
         }
-        saveState(state)
     }
 
     func deletePromptRecord(id: UUID) {
-        var state = loadState()
-        state.prompts.removeAll { $0.id == id }
-        saveState(state)
+        updateState { state in
+            state.prompts.removeAll { $0.id == id }
+        }
     }
 
     private func loadState() -> PersistedState {
         store.load(PersistedState.self, forKey: storageKey) ?? PersistedState()
     }
 
-    private func saveState(_ state: PersistedState) {
-        store.save(state, forKey: storageKey)
-        NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
+    private func updateState(_ mutate: (inout PersistedState) -> Void) {
+        store.update(PersistedState.self, forKey: storageKey, defaultValue: PersistedState()) { state in
+            mutate(&state)
+        } didSave: {
+            notifyDidChange()
+        }
+    }
+
+    private func notifyDidChange() {
+        notificationCenter.post(name: Self.didChangeNotification, object: self)
     }
 }
 
 final class SystemPromptManager {
     private let store: any SystemPromptStore
+    private let clock: any AppClock
 
-    init(store: any SystemPromptStore = UserDefaultsSystemPromptStore.shared) {
+    init(
+        store: any SystemPromptStore = UserDefaultsSystemPromptStore.shared,
+        clock: any AppClock = SystemAppClock()
+    ) {
         self.store = store
+        self.clock = clock
     }
 
     func savedPrompts() -> [SystemPromptRecord] {
@@ -92,11 +107,16 @@ final class SystemPromptManager {
     }
 
     func makePromptDraft() -> SystemPromptRecord {
-        SystemPromptRecord()
+        let now = clock.now
+        return SystemPromptRecord(createdAt: now, updatedAt: now)
     }
 
-    func savePrompt(_ prompt: SystemPromptRecord) {
-        store.savePromptRecord(prompt)
+    @discardableResult
+    func savePrompt(_ prompt: SystemPromptRecord) -> SystemPromptRecord {
+        var promptForSaving = prompt
+        promptForSaving.updatedAt = clock.now
+        store.savePromptRecord(promptForSaving)
+        return promptForSaving
     }
 
     func deletePrompt(id: UUID) {

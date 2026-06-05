@@ -110,21 +110,17 @@ struct PollinationsProvider: LLMsProviderAdapter {
         request: ChatRequest,
         configuration: LLMsProviderConfiguration
     ) -> AsyncThrowingStream<ChatResponseDelta, Error> {
-        guard !Self.containsFileAttachments(request) else {
-            return AsyncThrowingStream { continuation in
-                continuation.finish(
-                    throwing: PollinationsProviderError.unsupportedFileAttachments(displayName)
-                )
-            }
+        guard !LLMsProviderStreamSupport.containsFileAttachments(request) else {
+            return LLMsProviderStreamSupport.failedChatResponseStream(
+                PollinationsProviderError.unsupportedFileAttachments(displayName)
+            )
         }
 
         let messages: [PollinationsChatMessage]
         do {
             messages = try PollinationsChatPromptRenderer.messages(for: request)
         } catch {
-            return AsyncThrowingStream { continuation in
-                continuation.finish(throwing: error)
-            }
+            return LLMsProviderStreamSupport.failedChatResponseStream(error)
         }
 
         let tools = request.context.availableTools.map(PollinationsChatTool.init(definition:))
@@ -136,43 +132,13 @@ struct PollinationsProvider: LLMsProviderAdapter {
             tools: tools
         )
 
-        return AsyncThrowingStream { continuation in
-            let task = Task {
-                do {
-                    for try await delta in stream {
-                        continuation.yield(
-                            ChatResponseDelta(
-                                content: delta.content,
-                                reasoning: delta.reasoning,
-                                toolCalls: delta.toolCalls
-                            )
-                        )
-                    }
-                    continuation.finish()
-                } catch is CancellationError {
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-
-            continuation.onTermination = { _ in
-                task.cancel()
-            }
-        }
-    }
-
-    private static func containsFileAttachments(_ request: ChatRequest) -> Bool {
-        request.messages.contains { message in
-            message.attachments.contains { $0.kind == .file }
-        }
+        return LLMsProviderStreamSupport.chatResponseStream(from: stream)
     }
 }
 
 enum PollinationsProviderError: LocalizedError, Equatable {
     case missingAPIBase(String)
     case unsupportedFileAttachments(String)
-    case missingAttachmentData(String)
 
     var errorDescription: String? {
         switch self {
@@ -180,247 +146,31 @@ enum PollinationsProviderError: LocalizedError, Equatable {
             return String(localized: .providersErrorMissingApiBaseFormat(displayName))
         case let .unsupportedFileAttachments(displayName):
             return String(localized: .providersErrorUnsupportedFileAttachmentsFormat(displayName))
-        case let .missingAttachmentData(filename):
-            return String(localized: .providersErrorMissingAttachmentDataFormat(filename))
         }
     }
 }
 
 nonisolated enum PollinationsChatPromptRenderer {
-    static func messages(for request: ChatRequest) throws -> [PollinationsChatMessage] {
-        let prompt = ChatPromptAssembler().assemblePrompt(from: request)
-        guard let instructionText = prompt.instructionText else {
-            return try prompt.messages.map(PollinationsChatMessage.init(message:))
-        }
-
-        let instructionMessage = PollinationsChatMessage(
-            role: .system,
-            content: .text(instructionText),
-            toolCalls: nil,
-            toolCallID: nil
-        )
-        let renderedMessages = try prompt.messages.map(PollinationsChatMessage.init(message:))
-        return [instructionMessage] + renderedMessages
-    }
-}
-
-nonisolated enum PollinationsMessageContent: Codable, Equatable {
-    case text(String)
-    case parts([PollinationsContentPart])
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if let string = try? container.decode(String.self) {
-            self = .text(string)
-            return
-        }
-        if let parts = try? container.decode([PollinationsContentPart].self) {
-            self = .parts(parts)
-            return
-        }
-        throw DecodingError.dataCorruptedError(
-            in: container,
-            debugDescription: String(localized: .jsonErrorUnsupportedMessageContentPayload)
-        )
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        switch self {
-        case let .text(string):
-            try container.encode(string)
-        case let .parts(parts):
-            try container.encode(parts)
-        }
-    }
-}
-
-nonisolated enum PollinationsContentPart: Codable, Equatable {
-    case text(String)
-    case imageURL(url: String)
-
-    nonisolated private enum CodingKeys: String, CodingKey {
-        case type
-        case text
-        case imageURL = "image_url"
-    }
-
-    nonisolated private struct ImageURLPayload: Codable, Equatable {
-        var url: String
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let type = try container.decode(String.self, forKey: .type)
-        switch type {
-        case "text":
-            self = .text(try container.decode(String.self, forKey: .text))
-        case "image_url":
-            let payload = try container.decode(ImageURLPayload.self, forKey: .imageURL)
-            self = .imageURL(url: payload.url)
-        default:
-            throw DecodingError.dataCorruptedError(
-                forKey: .type,
-                in: container,
-                debugDescription: String(localized: .jsonErrorUnsupportedContentPartTypeFormat(type))
+    static func messages(
+        for request: ChatRequest,
+        attachmentPayloadLoader: LLMsProviderAttachmentPayloadLoader = .shared
+    ) throws -> [PollinationsChatMessage] {
+        try OpenAICompatibleChatPromptRenderer.messages(
+            for: request,
+            options: OpenAICompatibleChatPromptRenderingOptions(
+                instructionRole: .system,
+                supportsFileAttachments: false,
+                serviceName: "Pollinations",
+                attachmentPayloadLoader: attachmentPayloadLoader
             )
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        switch self {
-        case let .text(string):
-            try container.encode("text", forKey: .type)
-            try container.encode(string, forKey: .text)
-        case let .imageURL(url):
-            try container.encode("image_url", forKey: .type)
-            try container.encode(ImageURLPayload(url: url), forKey: .imageURL)
-        }
-    }
-}
-
-nonisolated struct PollinationsChatMessage: Codable, Equatable {
-    nonisolated enum Role: String, Codable {
-        case user
-        case assistant
-        case system
-        case tool
-    }
-
-    nonisolated struct ToolCall: Codable, Equatable {
-        nonisolated struct Function: Codable, Equatable {
-            var name: String
-            var arguments: String
-        }
-
-        var id: String
-        var type: String
-        var function: Function
-    }
-
-    var role: Role
-    var content: PollinationsMessageContent?
-    var toolCalls: [ToolCall]?
-    var toolCallID: String?
-
-    nonisolated private enum CodingKeys: String, CodingKey {
-        case role
-        case content
-        case toolCalls = "tool_calls"
-        case toolCallID = "tool_call_id"
-    }
-
-    init(
-        role: Role,
-        content: PollinationsMessageContent?,
-        toolCalls: [ToolCall]?,
-        toolCallID: String?
-    ) {
-        self.role = role
-        self.content = content
-        self.toolCalls = toolCalls
-        self.toolCallID = toolCallID
-    }
-
-    init(message: ChatMessage) throws {
-        self.init(
-            role: Self.role(for: message.role),
-            content: try Self.encodeContent(for: message),
-            toolCalls: try message.toolCalls?.map {
-                ToolCall(
-                    id: $0.id,
-                    type: "function",
-                    function: ToolCall.Function(
-                        name: $0.toolID,
-                        arguments: try $0.validatedSerializedArguments()
-                    )
-                )
-            },
-            toolCallID: message.toolCallID
-        )
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(role, forKey: .role)
-        if let content {
-            try container.encode(content, forKey: .content)
-        } else if role == .assistant,
-                  toolCalls?.isEmpty == false {
-            try container.encodeNil(forKey: .content)
-        }
-        try container.encodeIfPresent(toolCalls, forKey: .toolCalls)
-        try container.encodeIfPresent(toolCallID, forKey: .toolCallID)
-    }
-
-    private static func role(for role: ChatRole) -> Role {
-        switch role {
-        case .user:
-            return .user
-        case .assistant:
-            return .assistant
-        case .system:
-            return .system
-        case .tool:
-            return .tool
-        }
-    }
-
-    private static func encodeContent(for message: ChatMessage) throws -> PollinationsMessageContent? {
-        let attachmentParts = try message.attachments.map(Self.contentPart)
-        if attachmentParts.isEmpty {
-            if message.role == .assistant,
-               message.content.isEmpty,
-               message.toolCalls?.isEmpty == false {
-                return nil
-            }
-            return .text(message.content)
-        }
-
-        var parts: [PollinationsContentPart] = []
-        if !message.content.isEmpty {
-            parts.append(.text(message.content))
-        }
-        parts.append(contentsOf: attachmentParts)
-        return .parts(parts)
-    }
-
-    private static func contentPart(for attachment: ChatAttachment) throws -> PollinationsContentPart {
-        guard attachment.kind == .image else {
-            throw PollinationsProviderError.unsupportedFileAttachments("Pollinations")
-        }
-        guard let data = try? ChatAttachmentStore.shared.loadData(for: attachment),
-              !data.isEmpty else {
-            throw PollinationsProviderError.missingAttachmentData(attachment.filename)
-        }
-
-        let mimeType = attachment.contentType.isEmpty
-            ? "application/octet-stream"
-            : attachment.contentType
-        let dataURL = "data:\(mimeType);base64,\(data.base64EncodedString())"
-        return .imageURL(url: dataURL)
-    }
-}
-
-nonisolated struct PollinationsChatTool: Encodable, Equatable {
-    nonisolated struct Function: Encodable, Equatable {
-        var name: String
-        var description: String
-        var parameters: JSONValue
-    }
-
-    var type = "function"
-    var function: Function
-
-    init(definition: ToolDefinition) {
-        function = Function(
-            name: definition.name,
-            description: definition.summary,
-            parameters: definition.parameters
         )
     }
 }
+
+typealias PollinationsMessageContent = OpenAICompatibleMessageContent
+typealias PollinationsContentPart = OpenAICompatibleContentPart
+typealias PollinationsChatMessage = OpenAICompatibleChatMessage
+typealias PollinationsChatTool = OpenAICompatibleChatTool
 
 nonisolated struct PollinationsToolCallDelta: Equatable {
     var index: Int
@@ -429,7 +179,7 @@ nonisolated struct PollinationsToolCallDelta: Equatable {
     var argumentsFragment: String
 }
 
-nonisolated struct PollinationsChatStreamDelta: Equatable {
+nonisolated struct PollinationsChatStreamDelta: Equatable, LLMsProviderStreamSupport.ChatResponseDeltaConvertible {
     var content: String = ""
     var reasoning: String = ""
     var toolCallDeltas: [PollinationsToolCallDelta] = []
@@ -437,6 +187,14 @@ nonisolated struct PollinationsChatStreamDelta: Equatable {
 
     var isEmpty: Bool {
         content.isEmpty && reasoning.isEmpty && toolCallDeltas.isEmpty && toolCalls.isEmpty
+    }
+
+    var chatResponseDelta: ChatResponseDelta {
+        ChatResponseDelta(
+            content: content,
+            reasoning: reasoning,
+            toolCalls: toolCalls
+        )
     }
 }
 
@@ -605,16 +363,13 @@ nonisolated struct PollinationsAPIClient {
         request.setValue(authorizationHeader, forHTTPHeaderField: "Authorization")
 
         let (data, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw APIError.invalidResponse(serviceName)
-        }
-        guard (200..<300).contains(httpResponse.statusCode) else {
-            throw APIError.serverStatus(
-                serviceName,
-                httpResponse.statusCode,
-                String(data: data, encoding: .utf8)
-            )
-        }
+        try LLMsProviderHTTPResponseValidator.validateDataResponse(
+            response: response,
+            data: data,
+            serviceName: serviceName,
+            invalidResponseError: APIError.invalidResponse,
+            serverStatusError: APIError.serverStatus
+        )
 
         return try Self.models(from: data)
     }
@@ -629,16 +384,13 @@ nonisolated struct PollinationsAPIClient {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
         let (data, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw APIError.invalidResponse(serviceName)
-        }
-        guard (200..<300).contains(httpResponse.statusCode) else {
-            throw APIError.serverStatus(
-                serviceName,
-                httpResponse.statusCode,
-                String(data: data, encoding: .utf8)
-            )
-        }
+        try LLMsProviderHTTPResponseValidator.validateDataResponse(
+            response: response,
+            data: data,
+            serviceName: serviceName,
+            invalidResponseError: APIError.invalidResponse,
+            serverStatusError: APIError.serverStatus
+        )
 
         return try Self.freeModels(from: data)
     }
@@ -661,21 +413,18 @@ nonisolated struct PollinationsAPIClient {
                         tools: tools
                     )
                     let (bytes, response) = try await session.bytes(for: request)
-                    guard let httpResponse = response as? HTTPURLResponse else {
-                        throw APIError.invalidResponse(serviceName)
-                    }
-                    guard (200..<300).contains(httpResponse.statusCode) else {
-                        throw APIError.serverStatus(
-                            serviceName,
-                            httpResponse.statusCode,
-                            try await responseBodyString(from: bytes)
-                        )
-                    }
+                    try await LLMsProviderHTTPResponseValidator.validateStreamingResponse(
+                        response: response,
+                        bytes: bytes,
+                        serviceName: serviceName,
+                        invalidResponseError: APIError.invalidResponse,
+                        serverStatusError: APIError.serverStatus
+                    )
 
                     var toolCallAccumulator = PollinationsToolCallAccumulator()
                     for try await line in bytes.lines {
                         try Task.checkCancellation()
-                        if Self.isDoneServerSentEventLine(line) {
+                        if ServerSentEventLine.isDone(line) {
                             break
                         }
                         guard let delta = try Self.streamDelta(
@@ -740,28 +489,12 @@ nonisolated struct PollinationsAPIClient {
         fromServerSentEventLine line: String,
         serviceName: String = "Pollinations"
     ) throws -> PollinationsChatStreamDelta? {
-        let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedLine.isEmpty,
-              !trimmedLine.hasPrefix(":"),
-              trimmedLine.hasPrefix("data:") else {
+        guard let chunk = try ServerSentEventJSONDecoder.decode(
+            ChatCompletionChunk.self,
+            from: line,
+            invalidPayloadError: { APIError.invalidResponse(serviceName) }
+        ) else {
             return nil
-        }
-
-        let dataPrefixEndIndex = trimmedLine.index(trimmedLine.startIndex, offsetBy: 5)
-        let payload = trimmedLine[dataPrefixEndIndex...]
-            .trimmingCharacters(in: .whitespaces)
-        guard payload != "[DONE]" else {
-            return nil
-        }
-        guard let data = payload.data(using: .utf8) else {
-            throw APIError.invalidResponse(serviceName)
-        }
-
-        let chunk: ChatCompletionChunk
-        do {
-            chunk = try JSONDecoder().decode(ChatCompletionChunk.self, from: data)
-        } catch {
-            throw APIError.invalidResponse(serviceName)
         }
 
         if let errorMessage = chunk.error?.message,
@@ -825,35 +558,12 @@ nonisolated struct PollinationsAPIClient {
             .appendingPathComponent("completions")
     }
 
-    private func responseBodyString(from bytes: URLSession.AsyncBytes) async throws -> String {
-        var body = ""
-        for try await line in bytes.lines {
-            if !body.isEmpty {
-                body.append("\n")
-            }
-            body.append(line)
-            if body.count > 2_048 {
-                break
-            }
-        }
-        return body
-    }
-
     private func normalizedAPIBaseURL(apiBase: String) throws -> URL {
-        let trimmedAPIBase = apiBase.trimmingCharacters(in: .whitespacesAndNewlines)
-        let baseString = trimmedAPIBase.isEmpty ? defaultAPIBase : trimmedAPIBase
-        guard var components = URLComponents(string: baseString),
-              let scheme = components.scheme?.lowercased(),
-              ["http", "https"].contains(scheme),
-              components.host?.isEmpty == false,
-              components.query == nil,
-              components.fragment == nil else {
-            throw APIError.invalidAPIBase(baseString)
-        }
-
-        let trimmedPath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        components.path = trimmedPath.isEmpty ? "" : "/\(trimmedPath)"
-        guard let baseURL = components.url else {
+        let baseString = LLMsProviderAPIBaseURL.effectiveString(
+            apiBase: apiBase,
+            defaultAPIBase: defaultAPIBase
+        )
+        guard let baseURL = LLMsProviderAPIBaseURL.normalizedURL(baseString: baseString) else {
             throw APIError.invalidAPIBase(baseString)
         }
         return baseURL
@@ -890,10 +600,6 @@ nonisolated struct PollinationsAPIClient {
                 )
             } ?? []
         )
-    }
-
-    nonisolated private static func isDoneServerSentEventLine(_ line: String) -> Bool {
-        line.trimmingCharacters(in: .whitespacesAndNewlines) == "data: [DONE]"
     }
 
     nonisolated private static func bearerAuthorizationHeader(apiKey: String) -> String {

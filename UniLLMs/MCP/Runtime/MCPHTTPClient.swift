@@ -23,18 +23,6 @@ final class MCPHTTPClient: MCPClient {
         var params: JSONValue?
     }
 
-    nonisolated private struct JSONRPCResponse: Decodable {
-        var id: JSONValue?
-        var result: JSONValue?
-        var error: JSONRPCError?
-    }
-
-    nonisolated private struct JSONRPCError: Decodable {
-        var code: Int
-        var message: String
-        var data: JSONValue?
-    }
-
     private let server: MCPServerRecord
     private let session: URLSession
     private var nextRequestID = 1
@@ -170,7 +158,7 @@ final class MCPHTTPClient: MCPClient {
     private func send(
         message: JSONRPCMessage,
         expectsResponse: Bool
-    ) async throws -> JSONRPCResponse {
+    ) async throws -> MCPJSONRPCResponse {
         var request = URLRequest(url: try endpointURL())
         request.httpMethod = "POST"
         request.timeoutInterval = server.configuration.timeout
@@ -203,10 +191,10 @@ final class MCPHTTPClient: MCPClient {
         }
 
         guard expectsResponse else {
-            return JSONRPCResponse(id: nil, result: nil, error: nil)
+            return MCPJSONRPCResponse(id: nil, result: nil, error: nil)
         }
 
-        return try Self.decodeResponse(
+        return try MCPJSONRPCResponseDecoder.decode(
             data: data,
             contentType: Self.headerValue("Content-Type", in: httpResponse),
             serverName: server.displayName
@@ -226,44 +214,6 @@ final class MCPHTTPClient: MCPClient {
         }
 
         return url
-    }
-
-    nonisolated private static func decodeResponse(
-        data: Data,
-        contentType: String?,
-        serverName: String
-    ) throws -> JSONRPCResponse {
-        if contentType?.localizedCaseInsensitiveContains("text/event-stream") == true {
-            guard let text = String(data: data, encoding: .utf8) else {
-                throw MCPHTTPClientError.invalidResponse(serverName)
-            }
-
-            for line in text.components(separatedBy: .newlines) {
-                let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard trimmedLine.hasPrefix("data:") else {
-                    continue
-                }
-
-                let payload = trimmedLine.dropFirst(5).trimmingCharacters(in: .whitespaces)
-                guard !payload.isEmpty,
-                      let payloadData = payload.data(using: .utf8),
-                      let response = try? JSONDecoder().decode(JSONRPCResponse.self, from: payloadData) else {
-                    continue
-                }
-
-                if response.result != nil || response.error != nil {
-                    return response
-                }
-            }
-
-            throw MCPHTTPClientError.invalidResponse(serverName)
-        }
-
-        do {
-            return try JSONDecoder().decode(JSONRPCResponse.self, from: data)
-        } catch {
-            throw MCPHTTPClientError.invalidResponse(serverName)
-        }
     }
 
     nonisolated private static func normalizedToolSchema(_ schema: JSONValue) -> JSONValue {

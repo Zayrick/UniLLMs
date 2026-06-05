@@ -31,48 +31,17 @@ enum ChatRuntimeError: LocalizedError, Equatable {
 final class ChatRuntime {
     static let historyDidChangeNotification = Notification.Name("ChatRuntimeHistoryDidChangeNotification")
 
-    private struct TurnProgress {
-        var timelineAccumulator = ChatTimelineAccumulator()
-
-        var hasPersistableProgress: Bool {
-            !timelineAccumulator.events.isEmpty
-        }
-
-        mutating func append(displayDelta delta: ChatResponseDelta, timestamp: Date) {
-            timelineAccumulator.appendDisplayDelta(delta, timestamp: timestamp)
-        }
-
-        mutating func append(timelineEvent kind: ChatTimelineEvent.Kind, timestamp: Date) {
-            timelineAccumulator.append(
-                ChatTimelineEvent(
-                    timestamp: timestamp,
-                    kind: kind
-                )
-            )
-        }
-
-        func finishedEvents() -> [ChatTimelineEvent] {
-            timelineAccumulator.events
-        }
-    }
-
-    private struct ArchivedCurrentBranch {
-        var prefixMainlineEvents: [ChatTimelineEvent]
-        var currentBranchEvents: [ChatTimelineEvent]
-        var retainedRevisionEvents: [ChatTimelineEvent]
-    }
-
     private let providerStore: LLMsProviderStore
     private let providerManager: LLMsProviderManager
     private let systemPromptManager: SystemPromptManager
     private let contextBuilder: ChatContextBuilder
     private let turnRunner: ChatTurnRunner
-    private let historyStore: (any ChatHistoryStore)?
+    private let historyPersistenceFailureSink: ChatHistoryPersistenceFailureSink
+    private let historyPersistence: ChatHistoryPersistenceQueue
     private let clock: any AppClock
-    private var currentSession = ChatSession(title: String(localized: .chatNewChat))
+    private var currentSession: ChatSession
     private var conversationTimeline: [ChatTimelineEvent] = []
     private var activeTurnID: UUID?
-    private var historyPersistenceTask: Task<Void, Never>?
     private(set) var isPrivacyModeEnabled = false
 
     init(
@@ -82,6 +51,7 @@ final class ChatRuntime {
         contextBuilder: ChatContextBuilder,
         turnRunner: ChatTurnRunner,
         historyStore: (any ChatHistoryStore)? = nil,
+        historyPersistenceDidFail: @escaping @MainActor (Error) -> Void = { _ in },
         clock: any AppClock = SystemAppClock()
     ) {
         self.providerStore = providerStore
@@ -89,8 +59,23 @@ final class ChatRuntime {
         self.systemPromptManager = systemPromptManager
         self.contextBuilder = contextBuilder
         self.turnRunner = turnRunner
-        self.historyStore = historyStore
+        let historyPersistenceFailureSink = ChatHistoryPersistenceFailureSink(
+            handler: historyPersistenceDidFail
+        )
+        self.historyPersistenceFailureSink = historyPersistenceFailureSink
+        self.historyPersistence = ChatHistoryPersistenceQueue(
+            historyStore: historyStore,
+            notificationName: Self.historyDidChangeNotification
+        ) { error in
+            historyPersistenceFailureSink.report(error)
+        }
         self.clock = clock
+        let now = clock.now
+        currentSession = ChatSession(
+            title: String(localized: .chatNewChat),
+            createdAt: now,
+            updatedAt: now
+        )
     }
 
     var currentSessionID: UUID {
@@ -133,7 +118,12 @@ final class ChatRuntime {
     }
 
     func waitForPendingHistoryPersistence() async {
-        await historyPersistenceTask?.value
+        await historyPersistence.waitForPendingPersistence()
+    }
+
+    @MainActor
+    func setHistoryPersistenceFailureHandler(_ handler: @escaping @MainActor (Error) -> Void) {
+        historyPersistenceFailureSink.handler = handler
     }
 
     func messageRevisions(for anchorUserMessageID: UUID) -> [ChatMessageRevision] {
@@ -148,33 +138,18 @@ final class ChatRuntime {
             throw ChatRuntimeError.turnAlreadyInProgress
         }
 
-        guard let selectedRevision = messageRevisions(for: anchorUserMessageID).first(where: { $0.id == revisionID }) else {
+        let switchedAt = clock.now
+        let switchPlan = ChatRevisionSwitchPlan(
+            anchorUserMessageID: anchorUserMessageID,
+            revisionID: revisionID,
+            switchedAt: switchedAt
+        )
+        guard let result = switchPlan.apply(to: conversationTimeline) else {
             throw ChatRuntimeError.userMessageNotFound
         }
 
-        let switchedAt = clock.now
-        let archivedBranch = try archivedCurrentBranch(
-            anchoredAt: anchorUserMessageID,
-            excludingRevisionID: revisionID
-        )
-        let currentRevision = ChatMessageRevision(
-            anchorUserMessageID: anchorUserMessageID,
-            archivedAt: switchedAt,
-            events: archivedBranch.currentBranchEvents
-        )
-        var updatedTimeline = archivedBranch.prefixMainlineEvents + archivedBranch.retainedRevisionEvents
-        if !currentRevision.events.isEmpty {
-            updatedTimeline.append(
-                ChatTimelineEvent(
-                    timestamp: switchedAt,
-                    kind: .messageRevision(currentRevision)
-                )
-            )
-        }
-        updatedTimeline.append(contentsOf: selectedRevision.events.map(\.timelineEvent))
-
-        conversationTimeline = updatedTimeline
-        currentSession.updatedAt = switchedAt
+        conversationTimeline = result.timeline
+        currentSession.updatedAt = result.sessionUpdatedAt
         persistCurrentHistorySnapshot()
         return conversationTimeline
     }
@@ -199,60 +174,42 @@ final class ChatRuntime {
 
         let turnID = UUID()
         let sentAt = clock.now
-        if let replacingUserMessageID {
-            let archivedBranch = try archivedCurrentBranch(anchoredAt: replacingUserMessageID)
-            let revision = ChatMessageRevision(
-                anchorUserMessageID: replacingUserMessageID,
-                archivedAt: sentAt,
-                events: archivedBranch.currentBranchEvents
-            )
-            conversationTimeline = archivedBranch.prefixMainlineEvents + archivedBranch.retainedRevisionEvents
-            if !revision.events.isEmpty {
-                conversationTimeline.append(
-                    ChatTimelineEvent(
-                        timestamp: sentAt,
-                        kind: .messageRevision(revision)
-                    )
-                )
-            }
-        }
-
-        let turnSystemPrompt = resolvedSystemPromptForNextTurn()
-        if ChatTimelineEvent.messages(from: conversationTimeline).isEmpty {
-            currentSession.title = Self.makeSessionTitle(from: prompt, attachments: attachments)
-            if replacingUserMessageID == nil {
-                currentSession.createdAt = sentAt
-            }
-        }
-        currentSession.updatedAt = sentAt
-
-        let userEventKind: ChatTimelineEvent.Kind = attachments.isEmpty
-            ? .userMessage(text: prompt)
-            : .userMessageWithAttachments(text: prompt, attachments: attachments)
-        let userEvent = ChatTimelineEvent(
-            id: userMessageID,
-            timestamp: sentAt,
-            kind: userEventKind
+        let startPlan = ChatTurnStartPlan(
+            prompt: prompt,
+            attachments: attachments,
+            userMessageID: userMessageID,
+            replacingUserMessageID: replacingUserMessageID,
+            sentAt: sentAt,
+            emptyConversationTitle: String(localized: .chatNewChat),
+            attachmentFallbackTitle: String(localized: .chatAttachment)
         )
-        let requestTimeline = conversationTimeline + [userEvent]
-        let requestMessages = ChatTimelineEvent.messages(from: requestTimeline)
-        conversationTimeline.append(userEvent)
+        guard let startResult = startPlan.apply(
+            to: currentSession,
+            timeline: conversationTimeline
+        ) else {
+            throw ChatRuntimeError.userMessageNotFound
+        }
+
+        currentSession = startResult.session
+        conversationTimeline = startResult.timeline
+        let turnSystemPrompt = resolvedSystemPromptForNextTurn()
         activeTurnID = turnID
         persistCurrentHistorySnapshot()
 
         return AsyncThrowingStream { continuation in
             let task = Task { @MainActor [weak self] in
-                var turnProgress = TurnProgress()
+                var turnProgress = ChatTurnProgress()
 
                 do {
                     guard let self else {
                         continuation.finish()
                         return
                     }
+                    turnProgress = ChatTurnProgress(clock: self.clock)
 
                     let context = await self.contextBuilder.buildContext(
                         session: self.currentSession,
-                        messages: requestMessages,
+                        messages: startResult.requestMessages,
                         systemPrompt: turnSystemPrompt,
                         includeTools: self.providerManager.provider(provider, supports: .tools)
                     )
@@ -267,16 +224,16 @@ final class ChatRuntime {
 
                         switch event {
                         case let .displayDelta(delta):
-                            turnProgress.append(displayDelta: delta, timestamp: self.clock.now)
+                            turnProgress.append(displayDelta: delta)
                             continuation.yield(delta)
                         case let .timelineEvent(kind):
-                            turnProgress.append(timelineEvent: kind, timestamp: self.clock.now)
+                            turnProgress.append(timelineEvent: kind)
                         }
                     }
 
                     self.finishTurn(
                         id: turnID,
-                        userEventID: userEvent.id,
+                        userEventID: startResult.userEvent.id,
                         progress: turnProgress,
                         shouldKeepUserMessage: true
                     )
@@ -284,7 +241,7 @@ final class ChatRuntime {
                 } catch is CancellationError {
                     self?.finishTurn(
                         id: turnID,
-                        userEventID: userEvent.id,
+                        userEventID: startResult.userEvent.id,
                         progress: turnProgress,
                         shouldKeepUserMessage: true
                     )
@@ -292,7 +249,7 @@ final class ChatRuntime {
                 } catch {
                     self?.finishTurn(
                         id: turnID,
-                        userEventID: userEvent.id,
+                        userEventID: startResult.userEvent.id,
                         progress: turnProgress,
                         shouldKeepUserMessage: replacingUserMessageID != nil || turnProgress.hasPersistableProgress
                     )
@@ -308,13 +265,17 @@ final class ChatRuntime {
 
     @discardableResult
     func resetConversation(privacyMode: Bool = false) -> [ChatAttachment] {
-        let discardedPrivateAttachments = isPrivacyModeEnabled
-            ? ChatTimelineEvent.attachments(from: conversationTimeline)
-            : []
-        conversationTimeline = []
-        currentSession = ChatSession(title: String(localized: .chatNewChat))
-        isPrivacyModeEnabled = privacyMode
-        return discardedPrivateAttachments
+        let transition = ChatConversationTransitionPlan.reset(
+            currentTimeline: conversationTimeline,
+            wasPrivacyModeEnabled: isPrivacyModeEnabled,
+            privacyMode: privacyMode,
+            now: clock.now,
+            emptyConversationTitle: String(localized: .chatNewChat)
+        )
+        currentSession = transition.session
+        conversationTimeline = transition.timeline
+        isPrivacyModeEnabled = transition.privacyModeEnabled
+        return transition.discardedPrivateAttachments
     }
 
     @discardableResult
@@ -323,104 +284,51 @@ final class ChatRuntime {
             return []
         }
 
-        let discardedPrivateAttachments = isPrivacyModeEnabled
-            ? ChatTimelineEvent.attachments(from: conversationTimeline)
-            : []
-        currentSession = session
-        conversationTimeline = ChatTimelineEvent.sortedChronologically(events)
-        isPrivacyModeEnabled = false
-        discardUnavailableSystemPromptSelection(persistIfCleared: true)
-        return discardedPrivateAttachments
-    }
-
-    private func archivedCurrentBranch(
-        anchoredAt anchorUserMessageID: UUID,
-        excludingRevisionID: UUID? = nil
-    ) throws -> ArchivedCurrentBranch {
-        let mainlineEvents = conversationTimeline.filter { event in
-            if case .messageRevision = event.kind {
-                return false
-            }
-
-            return true
-        }
-        guard let anchorIndex = mainlineEvents.firstIndex(where: { event in
-            event.id == anchorUserMessageID && event.isUserMessage
-        }) else {
-            throw ChatRuntimeError.userMessageNotFound
-        }
-
-        let retainedRevisionEvents = conversationTimeline.filter { event in
-            guard case let .messageRevision(revision) = event.kind else {
-                return false
-            }
-
-            return revision.id != excludingRevisionID
-        }
-
-        return ArchivedCurrentBranch(
-            prefixMainlineEvents: Array(mainlineEvents[..<anchorIndex]),
-            currentBranchEvents: Array(mainlineEvents[anchorIndex...]),
-            retainedRevisionEvents: retainedRevisionEvents
+        let transition = ChatConversationTransitionPlan.load(
+            session: session,
+            events: events,
+            currentTimeline: conversationTimeline,
+            wasPrivacyModeEnabled: isPrivacyModeEnabled
         )
+        currentSession = transition.session
+        conversationTimeline = transition.timeline
+        isPrivacyModeEnabled = transition.privacyModeEnabled
+        discardUnavailableSystemPromptSelection(persistIfCleared: true)
+        return transition.discardedPrivateAttachments
     }
 
     private func finishTurn(
         id turnID: UUID,
         userEventID: UUID,
-        progress: TurnProgress,
+        progress: ChatTurnProgress,
         shouldKeepUserMessage: Bool
     ) {
-        guard activeTurnID == turnID else {
+        let completionPlan = ChatTurnCompletionPlan(
+            turnID: turnID,
+            activeTurnID: activeTurnID,
+            userEventID: userEventID,
+            progressEvents: progress.finishedEvents(),
+            shouldKeepUserMessage: shouldKeepUserMessage
+        )
+        guard let result = completionPlan.apply(
+            to: conversationTimeline,
+            sessionUpdatedAt: currentSession.updatedAt
+        ) else {
             return
         }
 
-        let turnEvents = progress.finishedEvents()
-        if !turnEvents.isEmpty {
-            conversationTimeline.append(contentsOf: turnEvents)
-            if let lastEvent = turnEvents.last,
-               lastEvent.timestamp > currentSession.updatedAt {
-                currentSession.updatedAt = lastEvent.timestamp
-            }
-        } else if !shouldKeepUserMessage {
-            conversationTimeline.removeAll { $0.id == userEventID }
-        }
-
+        conversationTimeline = result.timeline
+        currentSession.updatedAt = result.sessionUpdatedAt
         activeTurnID = nil
         persistCurrentHistorySnapshot()
     }
 
     private func persistCurrentHistorySnapshot() {
-        guard let historyStore else {
-            return
-        }
-        guard !isPrivacyModeEnabled else {
-            NotificationCenter.default.post(
-                name: Self.historyDidChangeNotification,
-                object: nil
-            )
-            return
-        }
-
-        let session = currentSession
-        let events = conversationTimeline
-        let previousTask = historyPersistenceTask
-        historyPersistenceTask = Task { @MainActor [previousTask, historyStore] in
-            if let previousTask {
-                await previousTask.value
-            }
-
-            if events.isEmpty {
-                try? await historyStore.deleteSession(id: session.id)
-            } else {
-                try? await historyStore.saveSession(session)
-                try? await historyStore.saveEvents(events, sessionID: session.id)
-            }
-            NotificationCenter.default.post(
-                name: Self.historyDidChangeNotification,
-                object: nil
-            )
-        }
+        historyPersistence.persist(
+            session: currentSession,
+            events: conversationTimeline,
+            privacyModeEnabled: isPrivacyModeEnabled
+        )
     }
 
     private func persistCurrentSessionMetadataIfNeeded() {
@@ -471,24 +379,17 @@ final class ChatRuntime {
         }
     }
 
-    private static func makeSessionTitle(
-        from prompt: String,
-        attachments: [ChatAttachment] = []
-    ) -> String {
-        let collapsedPrompt = prompt
-            .components(separatedBy: .newlines)
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+}
 
-        if !collapsedPrompt.isEmpty {
-            return collapsedPrompt
-        }
+private final class ChatHistoryPersistenceFailureSink {
+    var handler: @MainActor (Error) -> Void
 
-        if let first = attachments.first {
-            return first.filename.isEmpty ? String(localized: .chatAttachment) : first.filename
-        }
-
-        return String(localized: .chatNewChat)
+    init(handler: @escaping @MainActor (Error) -> Void) {
+        self.handler = handler
     }
 
+    @MainActor
+    func report(_ error: Error) {
+        handler(error)
+    }
 }

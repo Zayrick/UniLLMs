@@ -8,6 +8,67 @@ import XCTest
 @testable import UniLLMs
 
 final class PollinationsProviderTests: XCTestCase {
+    func testPollinationsPromptRendererUsesOpenAICompatibleRequestShape() throws {
+        let systemPrompt = SystemPromptRecord(
+            title: "Tools",
+            content: "Use tools when useful.",
+            createdAt: Date(timeIntervalSince1970: 1),
+            updatedAt: Date(timeIntervalSince1970: 1)
+        )
+        let toolCall = ChatToolCall(
+            id: "call_1",
+            toolID: "lookup",
+            arguments: ["query": .string("weather")]
+        )
+        let request = ChatRequest(
+            modelID: "openai",
+            messages: [
+                makeTestChatMessage(role: .user, content: "Search"),
+                makeTestChatMessage(role: .assistant, content: "", toolCalls: [toolCall]),
+                makeTestChatMessage(role: .tool, content: "Sunny", toolCallID: "call_1")
+            ],
+            context: ChatContext(systemPrompt: systemPrompt)
+        )
+
+        let messages = try PollinationsChatPromptRenderer.messages(for: request)
+        let compatibleMessages = try OpenAICompatibleChatPromptRenderer.messages(
+            for: request,
+            options: OpenAICompatibleChatPromptRenderingOptions(
+                instructionRole: .system,
+                supportsFileAttachments: false,
+                serviceName: "Pollinations"
+            )
+        )
+
+        XCTAssertEqual(messages, compatibleMessages)
+        XCTAssertEqual(messages.map(\.role), [.system, .user, .assistant, .tool])
+        XCTAssertNil(messages[2].content)
+        XCTAssertEqual(messages[2].toolCalls?.first?.function.name, "lookup")
+        XCTAssertEqual(messages[3].toolCallID, "call_1")
+    }
+
+    func testPollinationsToolEncodingMatchesOpenAICompatibleFunctionToolShape() throws {
+        let definition = ToolDefinition(
+            name: "lookup",
+            summary: "Look up weather.",
+            parameters: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "query": .object([
+                        "type": .string("string")
+                    ])
+                ])
+            ])
+        )
+
+        let pollinationsData = try JSONEncoder().encode(PollinationsChatTool(definition: definition))
+        let compatibleData = try JSONEncoder().encode(OpenAICompatibleChatTool(definition: definition))
+        let pollinationsObject = try XCTUnwrap(JSONSerialization.jsonObject(with: pollinationsData) as? NSDictionary)
+        let compatibleObject = try XCTUnwrap(JSONSerialization.jsonObject(with: compatibleData) as? NSDictionary)
+
+        XCTAssertEqual(pollinationsObject, compatibleObject)
+    }
+
     func testPollinationsStreamParserDecodesContentReasoningAndToolCallDelta() throws {
         let delta = try XCTUnwrap(
             PollinationsAPIClient.streamDelta(
@@ -186,7 +247,7 @@ final class PollinationsProviderTests: XCTestCase {
         for try await _ in provider.streamChat(
             request: ChatRequest(
                 modelID: "openai-fast",
-                messages: [ChatMessage(role: .user, content: "Hello")],
+                messages: [makeTestChatMessage(role: .user, content: "Hello")],
                 context: ChatContext()
             ),
             configuration: provider.defaultConfiguration
@@ -223,7 +284,7 @@ final class PollinationsProviderTests: XCTestCase {
         for try await _ in provider.streamChat(
             request: ChatRequest(
                 modelID: "openai",
-                messages: [ChatMessage(role: .user, content: "Hello")],
+                messages: [makeTestChatMessage(role: .user, content: "Hello")],
                 context: ChatContext()
             ),
             configuration: configuration

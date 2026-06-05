@@ -19,8 +19,8 @@ nonisolated struct SystemPromptRecord: Codable, Equatable, Identifiable {
         id: UUID = UUID(),
         title: String = "",
         content: String = "",
-        createdAt: Date = Date(),
-        updatedAt: Date = Date()
+        createdAt: Date,
+        updatedAt: Date
     ) {
         self.id = id
         self.title = title

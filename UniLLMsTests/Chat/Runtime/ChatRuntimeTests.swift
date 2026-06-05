@@ -28,6 +28,32 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
         XCTAssertTrue(sessions.isEmpty)
     }
 
+    func testHistoryPersistenceFailureReportsError() async throws {
+        let adapter = CapturingRuntimeProvider()
+        let failingHistoryStore = FailingRuntimeHistoryStore(error: RuntimeHistoryPersistenceError.sample)
+        var failureDescriptions: [String] = []
+        let (runtime, _) = makeRuntime(
+            adapter: adapter,
+            systemPromptStore: InMemorySystemPromptStore(prompts: []),
+            historyStore: failingHistoryStore
+        )
+        runtime.setHistoryPersistenceFailureHandler { error in
+            failureDescriptions.append(error.localizedDescription)
+        }
+
+        let stream = try runtime.startTurn(prompt: "Save this")
+        for try await _ in stream {}
+        await runtime.waitForPendingHistoryPersistence()
+
+        XCTAssertEqual(
+            failureDescriptions,
+            [
+                RuntimeHistoryPersistenceError.sample.localizedDescription,
+                RuntimeHistoryPersistenceError.sample.localizedDescription
+            ]
+        )
+    }
+
     func testStartingPrivateConversationLeavesExistingHistoryIntact() async throws {
         let adapter = CapturingRuntimeProvider()
         let (runtime, historyStore) = makeRuntime(
@@ -54,7 +80,7 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
     }
 
     func testSelectingSystemPromptWithoutMessagesDoesNotCreateHistorySession() async throws {
-        let prompt = SystemPromptRecord(title: "Translator", content: "Always answer in Chinese.")
+        let prompt = makePrompt(title: "Translator", content: "Always answer in Chinese.")
         let promptStore = InMemorySystemPromptStore(prompts: [prompt])
         let (runtime, historyStore) = makeRuntime(
             adapter: EmptyRuntimeProvider(),
@@ -70,7 +96,7 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
     }
 
     func testFailedFirstTurnWithSystemPromptClearsOptimisticHistoryEvent() async throws {
-        let prompt = SystemPromptRecord(title: "Translator", content: "Always answer in Chinese.")
+        let prompt = makePrompt(title: "Translator", content: "Always answer in Chinese.")
         let promptStore = InMemorySystemPromptStore(prompts: [prompt])
         let (runtime, historyStore) = makeRuntime(
             adapter: FailingRuntimeProvider(),
@@ -91,8 +117,80 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
         XCTAssertTrue(sessions.isEmpty)
     }
 
+    func testFailedFirstTurnAllowsNextTurnAndRemovesFailedUserMessage() async throws {
+        let adapter = SequencedRuntimeProvider(steps: [
+            .failBeforeStreaming,
+            .succeed(content: "Recovered.")
+        ])
+        let (runtime, historyStore) = makeRuntime(
+            adapter: adapter,
+            systemPromptStore: InMemorySystemPromptStore(prompts: [])
+        )
+
+        let failedStream = try runtime.startTurn(prompt: "First")
+        do {
+            for try await _ in failedStream {}
+            XCTFail("Expected first provider stream to fail.")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, "Provider failed before streaming.")
+        }
+
+        let recoveredStream = try runtime.startTurn(prompt: "Second")
+        var recoveredContent = ""
+        for try await delta in recoveredStream {
+            recoveredContent += delta.content
+        }
+        await runtime.waitForPendingHistoryPersistence()
+
+        XCTAssertEqual(recoveredContent, "Recovered.")
+        XCTAssertEqual(adapter.requests.map { $0.messages.last?.content }, ["First", "Second"])
+        let events = try await historyStore.fetchEvents(sessionID: runtime.currentSessionID)
+        let messages = ChatTimelineEvent.messages(from: events)
+        XCTAssertEqual(messages.map(\.content), ["Second", "Recovered."])
+    }
+
+    func testFailedTurnAfterPersistableProgressKeepsPartialResponseAndAllowsNextTurn() async throws {
+        let adapter = SequencedRuntimeProvider(steps: [
+            .yieldThenFail(content: "Partial."),
+            .succeed(content: "Recovered.")
+        ])
+        let (runtime, historyStore) = makeRuntime(
+            adapter: adapter,
+            systemPromptStore: InMemorySystemPromptStore(prompts: [])
+        )
+
+        let failedStream = try runtime.startTurn(prompt: "First")
+        var partialContent = ""
+        do {
+            for try await delta in failedStream {
+                partialContent += delta.content
+            }
+            XCTFail("Expected first provider stream to fail after partial progress.")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, "Provider failed before streaming.")
+        }
+
+        let recoveredStream = try runtime.startTurn(prompt: "Second")
+        var recoveredContent = ""
+        for try await delta in recoveredStream {
+            recoveredContent += delta.content
+        }
+        await runtime.waitForPendingHistoryPersistence()
+
+        XCTAssertEqual(partialContent, "Partial.")
+        XCTAssertEqual(recoveredContent, "Recovered.")
+        let events = try await historyStore.fetchEvents(sessionID: runtime.currentSessionID)
+        let messages = ChatTimelineEvent.messages(from: events)
+        XCTAssertEqual(messages.map(\.content), [
+            "First",
+            "Partial.",
+            "Second",
+            "Recovered."
+        ])
+    }
+
     func testSuccessfulFirstTurnWithSystemPromptSendsPromptAndPersistsSelection() async throws {
-        let prompt = SystemPromptRecord(title: "Translator", content: "Always answer in Chinese.")
+        let prompt = makePrompt(title: "Translator", content: "Always answer in Chinese.")
         let promptStore = InMemorySystemPromptStore(prompts: [prompt])
         let adapter = CapturingRuntimeProvider()
         let (runtime, historyStore) = makeRuntime(
@@ -122,9 +220,30 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
         XCTAssertEqual(session.selectedSystemPromptID, prompt.id)
     }
 
+    func testSuccessfulTurnUsesInjectedClockForSessionAndTimelineTimestamps() async throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let adapter = CapturingRuntimeProvider()
+        let (runtime, historyStore) = makeRuntime(
+            adapter: adapter,
+            systemPromptStore: InMemorySystemPromptStore(prompts: []),
+            clock: FixedClock(now: now)
+        )
+
+        let stream = try runtime.startTurn(prompt: "Clocked")
+        for try await _ in stream {}
+        await runtime.waitForPendingHistoryPersistence()
+
+        let sessions = try await historyStore.fetchSessions()
+        let session = try XCTUnwrap(sessions.first)
+        let events = try await historyStore.fetchEvents(sessionID: runtime.currentSessionID)
+        XCTAssertEqual(session.createdAt, now)
+        XCTAssertEqual(session.updatedAt, now)
+        XCTAssertEqual(events.map(\.timestamp), [now, now])
+    }
+
     func testSelectingSystemPromptDuringActiveTurnUpdatesNextTurnSelectionOnly() async throws {
-        let firstPrompt = SystemPromptRecord(title: "First", content: "Use the first prompt.")
-        let secondPrompt = SystemPromptRecord(title: "Second", content: "Use the second prompt.")
+        let firstPrompt = makePrompt(title: "First", content: "Use the first prompt.")
+        let secondPrompt = makePrompt(title: "Second", content: "Use the second prompt.")
         let promptStore = InMemorySystemPromptStore(prompts: [firstPrompt, secondPrompt])
         let adapter = SuspendedRuntimeProvider()
         let (runtime, historyStore) = makeRuntime(
@@ -195,6 +314,24 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
             return
         }
         XCTAssertEqual(archivedText, "Second")
+    }
+
+    func testEditingMissingUserMessageThrowsBeforeProviderRequest() throws {
+        let adapter = CapturingRuntimeProvider()
+        let (runtime, _) = makeRuntime(
+            adapter: adapter,
+            systemPromptStore: InMemorySystemPromptStore(prompts: [])
+        )
+
+        XCTAssertThrowsError(
+            try runtime.startTurn(
+                prompt: "Edited missing",
+                replacingUserMessageID: UUID()
+            )
+        ) { error in
+            XCTAssertEqual(error as? ChatRuntimeError, .userMessageNotFound)
+        }
+        XCTAssertTrue(adapter.requests.isEmpty)
     }
 
     func testResendingOriginalUserMessageArchivesCurrentBranch() async throws {
@@ -313,13 +450,16 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
 
     private func makeRuntime(
         adapter: any LLMsProviderAdapter,
-        systemPromptStore: any SystemPromptStore
+        systemPromptStore: any SystemPromptStore,
+        historyStore: (any ChatHistoryStore)? = nil,
+        clock: any AppClock = SystemAppClock()
     ) -> (ChatRuntime, UserDefaultsChatStore) {
         let provider = LLMsProviderRecord(
             kind: adapter.kind,
             name: adapter.displayName,
             configuration: adapter.defaultConfiguration,
-            models: [LLMsProviderModel(id: "test-model")]
+            models: [LLMsProviderModel(id: "test-model")],
+            createdAt: Date(timeIntervalSince1970: 1)
         )
         store.saveProvider(provider)
         store.saveSelectedModelSelection(
@@ -343,12 +483,11 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
                 storageKey: "systemPromptSettings"
             )
         )
-        let responseStreamer = ChatResponseStreamer(providerManager: providerManager)
         let turnRunner = ChatTurnRunner(
-            responseStreamer: responseStreamer,
+            providerManager: providerManager,
             toolManager: ToolManager(catalog: toolCatalog)
         )
-        let historyStore = UserDefaultsChatStore(
+        let defaultHistoryStore = UserDefaultsChatStore(
             defaults: defaults,
             storageKey: "chatHistory",
             attachmentStore: ChatAttachmentStore.shared
@@ -359,10 +498,24 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
             systemPromptManager: SystemPromptManager(store: systemPromptStore),
             contextBuilder: contextBuilder,
             turnRunner: turnRunner,
-            historyStore: historyStore
+            historyStore: historyStore ?? defaultHistoryStore,
+            clock: clock
         )
-        return (runtime, historyStore)
+        return (runtime, defaultHistoryStore)
     }
+
+    private func makePrompt(title: String, content: String) -> SystemPromptRecord {
+        SystemPromptRecord(
+            title: title,
+            content: content,
+            createdAt: Date(timeIntervalSince1970: 1),
+            updatedAt: Date(timeIntervalSince1970: 1)
+        )
+    }
+}
+
+private struct FixedClock: AppClock {
+    var now: Date
 }
 
 private final class InMemorySystemPromptStore: SystemPromptStore {
@@ -386,6 +539,44 @@ private final class InMemorySystemPromptStore: SystemPromptStore {
 
     func deletePromptRecord(id: UUID) {
         prompts.removeAll { $0.id == id }
+    }
+}
+
+private final class FailingRuntimeHistoryStore: ChatHistoryStore {
+    private let error: Error
+
+    init(error: Error) {
+        self.error = error
+    }
+
+    func fetchSessions() async throws -> [ChatSession] {
+        []
+    }
+
+    func saveSession(_ session: ChatSession) async throws {}
+
+    func deleteSession(id: UUID) async throws {
+        throw error
+    }
+
+    func fetchEvents(sessionID: UUID) async throws -> [ChatTimelineEvent] {
+        []
+    }
+
+    func saveEvent(_ event: ChatTimelineEvent, sessionID: UUID) async throws {
+        throw error
+    }
+
+    func saveEvents(_ events: [ChatTimelineEvent], sessionID: UUID) async throws {
+        throw error
+    }
+}
+
+private enum RuntimeHistoryPersistenceError: LocalizedError {
+    case sample
+
+    var errorDescription: String? {
+        "History persistence failed."
     }
 }
 
@@ -427,6 +618,64 @@ private struct FailingRuntimeProvider: LLMsProviderAdapter {
     ) -> AsyncThrowingStream<ChatResponseDelta, Error> {
         AsyncThrowingStream { continuation in
             continuation.finish(throwing: RuntimeProviderError.failedBeforeStreaming)
+        }
+    }
+}
+
+private final class SequencedRuntimeProvider: LLMsProviderAdapter {
+    enum Step {
+        case failBeforeStreaming
+        case yieldThenFail(content: String)
+        case succeed(content: String)
+    }
+
+    let kind = LLMsProviderKind(rawValue: "sequencedRuntimeProvider")
+    let displayName = "Sequenced Runtime Provider"
+    let capabilities: Set<LLMsProviderCapability> = [.streamingChat]
+    let defaultConfiguration = LLMsProviderConfiguration()
+    let configurationFields: [LLMsProviderConfigurationField] = []
+    let modelSource: LLMsProviderModelSource = .manual
+
+    private let lock = NSLock()
+    private var remainingSteps: [Step]
+    private var capturedRequests: [ChatRequest] = []
+
+    init(steps: [Step]) {
+        remainingSteps = steps
+    }
+
+    var requests: [ChatRequest] {
+        lock.lock()
+        defer {
+            lock.unlock()
+        }
+
+        return capturedRequests
+    }
+
+    func streamChat(
+        request: ChatRequest,
+        configuration: LLMsProviderConfiguration
+    ) -> AsyncThrowingStream<ChatResponseDelta, Error> {
+        let step: Step
+        lock.lock()
+        capturedRequests.append(request)
+        step = remainingSteps.isEmpty
+            ? .succeed(content: "Done.")
+            : remainingSteps.removeFirst()
+        lock.unlock()
+
+        return AsyncThrowingStream { continuation in
+            switch step {
+            case .failBeforeStreaming:
+                continuation.finish(throwing: RuntimeProviderError.failedBeforeStreaming)
+            case let .yieldThenFail(content):
+                continuation.yield(ChatResponseDelta(content: content))
+                continuation.finish(throwing: RuntimeProviderError.failedBeforeStreaming)
+            case let .succeed(content):
+                continuation.yield(ChatResponseDelta(content: content))
+                continuation.finish()
+            }
         }
     }
 }

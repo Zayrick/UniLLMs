@@ -8,6 +8,7 @@ import UIKit
 import XCTest
 @testable import UniLLMs
 
+@MainActor
 final class ChatMarkdownRenderedBlockViewReconcilerTests: XCTestCase {
     func testReconcileAllowsCurrentTextIdentityChangeWithoutReplacingView() {
         let stackView = UIStackView()
@@ -65,5 +66,73 @@ final class ChatMarkdownRenderedBlockViewReconcilerTests: XCTestCase {
             )
         )
         XCTAssertEqual(textView.attributedText.string, "bold")
+    }
+
+    func testAppendImageBlockUsesConfiguredImageLoader() {
+        let stackView = UIStackView()
+        let imageLoader = RecordingMarkdownImageLoader()
+        let configuration = ChatMarkdownRenderedBlockViewConfiguration(
+            style: .assistant,
+            traitCollection: UITraitCollection(),
+            imageLoader: imageLoader
+        )
+
+        _ = ChatMarkdownRenderedBlockViewReconciler.append(
+            [
+                imageBlock(source: "https://example.com/top.png")
+            ],
+            to: stackView,
+            configuration: configuration
+        )
+
+        XCTAssertEqual(imageLoader.loadedSources, ["https://example.com/top.png"])
+    }
+
+    func testAppendNestedImageBlockUsesConfiguredImageLoader() {
+        let stackView = UIStackView()
+        let imageLoader = RecordingMarkdownImageLoader()
+        let configuration = ChatMarkdownRenderedBlockViewConfiguration(
+            style: .assistant,
+            traitCollection: UITraitCollection(),
+            imageLoader: imageLoader
+        )
+
+        _ = ChatMarkdownRenderedBlockViewReconciler.append(
+            [
+                .blockQuote(
+                    ChatMarkdownBlockQuoteBlock(
+                        children: [
+                            imageBlock(source: "https://example.com/nested.png")
+                        ]
+                    )
+                )
+            ],
+            to: stackView,
+            configuration: configuration
+        )
+
+        XCTAssertEqual(imageLoader.loadedSources, ["https://example.com/nested.png"])
+    }
+
+    private func imageBlock(source: String) -> ChatMarkdownRenderedBlock {
+        .image(
+            ChatMarkdownImageBlock(
+                source: source,
+                altText: "Diagram"
+            )
+        )
+    }
+}
+
+private final class RecordingMarkdownImageLoader: ChatMarkdownImageLoading {
+    private(set) var loadedSources: [String] = []
+
+    @discardableResult
+    func loadImage(
+        source: String,
+        completion _: @escaping @MainActor (UIImage?) -> Void
+    ) -> (any ChatMarkdownImageLoadTask)? {
+        loadedSources.append(source)
+        return nil
     }
 }

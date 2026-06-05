@@ -9,21 +9,21 @@
 import Foundation
 
 final class ChatTurnRunner {
-    private struct SingleAssistantResponse {
-        var content = ""
-        var reasoning = ""
-        var toolCalls: [ChatToolCall] = []
-    }
-
-    private let responseStreamer: ChatResponseStreamer
-    private let toolManager: ToolManager
+    private let providerManager: LLMsProviderManager
+    private let toolLoopWorkflow: ChatToolLoopWorkflow
 
     init(
-        responseStreamer: ChatResponseStreamer,
-        toolManager: ToolManager
+        providerManager: LLMsProviderManager,
+        toolManager: ToolManager,
+        maximumToolIterations: Int = 8,
+        clock: any AppClock = SystemAppClock()
     ) {
-        self.responseStreamer = responseStreamer
-        self.toolManager = toolManager
+        self.providerManager = providerManager
+        toolLoopWorkflow = ChatToolLoopWorkflow(
+            toolManager: toolManager,
+            maximumToolIterations: maximumToolIterations,
+            clock: clock
+        )
     }
 
     func streamResponse(
@@ -31,52 +31,36 @@ final class ChatTurnRunner {
         modelID: String,
         context: ChatContext
     ) -> AsyncThrowingStream<ChatTurnEvent, Error> {
-        let allowsTools = !context.availableTools.isEmpty
-
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    var requestMessages = context.messages
+                    var toolLoopState = ChatToolLoopWorkflow.State(
+                        requestMessages: context.messages
+                    )
 
                     while true {
                         try Task.checkCancellation()
                         let assistantResponse = try await streamSingleResponse(
                             provider: provider,
                             modelID: modelID,
-                            messages: requestMessages,
+                            messages: toolLoopState.requestMessages,
                             context: context,
                             into: continuation
                         )
 
-                        if !allowsTools || assistantResponse.toolCalls.isEmpty {
+                        let toolLoopDecision = try await toolLoopWorkflow.decision(
+                            after: assistantResponse,
+                            state: toolLoopState,
+                            context: context,
+                            emit: { continuation.yield($0) }
+                        )
+                        switch toolLoopDecision {
+                        case .finish:
                             continuation.finish()
                             return
+                        case let .continue(nextState):
+                            toolLoopState = nextState
                         }
-
-                        let assistantMessage = ChatMessage(
-                            role: .assistant,
-                            content: assistantResponse.content,
-                            reasoning: assistantResponse.reasoning,
-                            toolCalls: assistantResponse.toolCalls
-                        )
-                        requestMessages.append(assistantMessage)
-                        continuation.yield(.timelineEvent(.assistantToolCalls(assistantResponse.toolCalls)))
-                        for toolCall in assistantResponse.toolCalls {
-                            continuation.yield(
-                                .displayDelta(
-                                    ChatResponseDelta(
-                                        displayParts: [.toolEvent(.started(toolCall))]
-                                    )
-                                )
-                            )
-                        }
-
-                        let toolMessages = await executeToolCalls(
-                            assistantResponse.toolCalls,
-                            context: context,
-                            into: continuation
-                        )
-                        requestMessages.append(contentsOf: toolMessages)
                     }
                 } catch is CancellationError {
                     continuation.finish()
@@ -97,155 +81,22 @@ final class ChatTurnRunner {
         messages: [ChatMessage],
         context: ChatContext,
         into continuation: AsyncThrowingStream<ChatTurnEvent, Error>.Continuation
-    ) async throws -> SingleAssistantResponse {
-        let stream = try responseStreamer.streamResponse(
+    ) async throws -> ChatAssistantResponseSnapshot {
+        let stream = try providerManager.streamChat(
             provider: provider,
             modelID: modelID,
             messages: messages,
             context: context
         )
-        var assistantResponse = SingleAssistantResponse()
+        var accumulator = ChatAssistantResponseAccumulator()
 
         for try await delta in stream {
             try Task.checkCancellation()
-            if !delta.toolCalls.isEmpty {
-                assistantResponse.toolCalls.append(
-                    contentsOf: delta.toolCalls.map { toolCall in
-                        Self.toolCallWithDisplayName(toolCall, context: context)
-                    }
-                )
-            }
-
-            let visibleDelta = ChatResponseDelta(
-                content: delta.content,
-                reasoning: delta.reasoning,
-                displayParts: delta.displayParts
-            )
-            if !visibleDelta.isEmpty {
-                assistantResponse.content += visibleDelta.content
-                assistantResponse.reasoning += visibleDelta.reasoning
+            if let visibleDelta = accumulator.append(delta: delta, context: context) {
                 continuation.yield(.displayDelta(visibleDelta))
             }
         }
 
-        return assistantResponse
-    }
-
-    private func executeToolCalls(
-        _ toolCalls: [ChatToolCall],
-        context: ChatContext,
-        into continuation: AsyncThrowingStream<ChatTurnEvent, Error>.Continuation
-    ) async -> [ChatMessage] {
-        var messages: [ChatMessage] = []
-        let executionContext = ToolExecutionContext(session: context.session)
-
-        for toolCall in toolCalls {
-            let toolDisplayName = Self.resolvedToolDisplayName(for: toolCall, context: context)
-            let displayToolCall = ChatToolCall(
-                id: toolCall.id,
-                toolID: toolCall.toolID,
-                arguments: toolCall.arguments,
-                displayName: toolDisplayName,
-                providerMetadata: toolCall.providerMetadata
-            )
-
-            do {
-                let call = ToolCall(
-                    id: toolCall.id,
-                    toolID: toolCall.toolID,
-                    arguments: try Self.parseArguments(toolCall.arguments)
-                )
-                let result = try await toolManager.execute(call: call, context: executionContext)
-                let event = Self.toolEvent(for: displayToolCall, result: result)
-                continuation.yield(.timelineEvent(.toolEvent(event)))
-                continuation.yield(
-                    .displayDelta(
-                        ChatResponseDelta(
-                            displayParts: [.toolEvent(event)]
-                        )
-                    )
-                )
-                messages.append(
-                    ChatMessage(
-                        role: .tool,
-                        content: event.providerMessageContent,
-                        toolCallID: toolCall.id,
-                        toolDisplayName: toolDisplayName,
-                        toolStatus: result.status
-                    )
-                )
-            } catch {
-                let failedEvent = ChatToolEvent.failed(displayToolCall, message: error.localizedDescription)
-                continuation.yield(.timelineEvent(.toolEvent(failedEvent)))
-                continuation.yield(
-                    .displayDelta(
-                        ChatResponseDelta(
-                            displayParts: [.toolEvent(failedEvent)]
-                        )
-                    )
-                )
-                messages.append(
-                    ChatMessage(
-                        role: .tool,
-                        content: failedEvent.providerMessageContent,
-                        toolCallID: toolCall.id,
-                        toolDisplayName: toolDisplayName,
-                        toolStatus: .error
-                    )
-                )
-            }
-        }
-
-        return messages
-    }
-
-    private static func parseArguments(_ arguments: JSONValue) throws -> [String: JSONValue] {
-        guard let arguments = arguments.objectValue else {
-            throw ToolExecutionLoopError.invalidArguments
-        }
-
-        return arguments
-    }
-
-    private static func toolEvent(for toolCall: ChatToolCall, result: ToolResult) -> ChatToolEvent {
-        if result.isError {
-            return .failed(toolCall, message: result.content)
-        }
-
-        return .completed(toolCall, result: result.content)
-    }
-
-    private static func toolDisplayName(for toolID: String, context: ChatContext) -> String {
-        guard let definition = context.availableTools.first(where: { $0.id == toolID }) else {
-            return toolID
-        }
-
-        return definition.presentationName
-    }
-
-    private static func toolCallWithDisplayName(_ toolCall: ChatToolCall, context: ChatContext) -> ChatToolCall {
-        ChatToolCall(
-            id: toolCall.id,
-            toolID: toolCall.toolID,
-            arguments: toolCall.arguments,
-            displayName: toolDisplayName(for: toolCall.toolID, context: context),
-            providerMetadata: toolCall.providerMetadata
-        )
-    }
-
-    private static func resolvedToolDisplayName(for toolCall: ChatToolCall, context: ChatContext) -> String {
-        let storedDisplayName = toolCall.displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return storedDisplayName.isEmpty ? toolDisplayName(for: toolCall.toolID, context: context) : storedDisplayName
-    }
-}
-
-enum ToolExecutionLoopError: LocalizedError, Equatable {
-    case invalidArguments
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidArguments:
-            return String(localized: .runtimeErrorInvalidToolArguments)
-        }
+        return accumulator.snapshot
     }
 }

@@ -8,14 +8,30 @@ import XCTest
 @testable import UniLLMs
 
 final class MCPServerManagerTests: XCTestCase {
+    func testMakeServerDraftUsesInjectedClock() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let manager = MCPServerManager(
+            store: InMemoryMCPServerStore(servers: []),
+            clock: FixedClock(now: now)
+        )
+
+        let draft = manager.makeServerDraft()
+
+        XCTAssertEqual(draft.name, "")
+        XCTAssertEqual(draft.configuration, MCPServerConfiguration())
+        XCTAssertEqual(draft.createdAt, now)
+    }
+
     func testLoadToolsOnlyConnectsEnabledServers() async {
         let enabledServer = MCPServerRecord(
             name: "Enabled",
-            configuration: MCPServerConfiguration(endpoint: "https://enabled.example/mcp", isEnabled: true)
+            configuration: MCPServerConfiguration(endpoint: "https://enabled.example/mcp", isEnabled: true),
+            createdAt: Date(timeIntervalSince1970: 1)
         )
         let disabledServer = MCPServerRecord(
             name: "Disabled",
-            configuration: MCPServerConfiguration(endpoint: "https://disabled.example/mcp", isEnabled: false)
+            configuration: MCPServerConfiguration(endpoint: "https://disabled.example/mcp", isEnabled: false),
+            createdAt: Date(timeIntervalSince1970: 2)
         )
         let enabledClient = ManagerMCPClient(descriptors: [
             MCPToolDescriptor(
@@ -40,8 +56,8 @@ final class MCPServerManagerTests: XCTestCase {
     }
 
     func testLoadToolsSkipsFailingServerAndKeepsOtherServers() async {
-        let failingServer = MCPServerRecord(name: "Failing")
-        let workingServer = MCPServerRecord(name: "Working")
+        let failingServer = MCPServerRecord(name: "Failing", createdAt: Date(timeIntervalSince1970: 1))
+        let workingServer = MCPServerRecord(name: "Working", createdAt: Date(timeIntervalSince1970: 2))
         let failingClient = ManagerMCPClient(error: TestMCPError.failed)
         let workingClient = ManagerMCPClient(descriptors: [
             MCPToolDescriptor(
@@ -66,6 +82,10 @@ final class MCPServerManagerTests: XCTestCase {
 
 private enum TestMCPError: Error {
     case failed
+}
+
+private struct FixedClock: AppClock {
+    var now: Date
 }
 
 private final class ManagerMCPClient: MCPClient {
@@ -111,10 +131,6 @@ private final class InMemoryMCPServerStore: MCPServerStore {
 
     func loadServers() -> [MCPServerRecord] {
         servers
-    }
-
-    func makeServerDraft() -> MCPServerRecord {
-        MCPServerRecord(name: "")
     }
 
     func saveServerRecord(_ server: MCPServerRecord) {

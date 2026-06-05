@@ -12,15 +12,18 @@ nonisolated struct OpenAICompatibleChatPromptRenderingOptions {
     var instructionRole: OpenAICompatibleChatMessage.Role
     var supportsFileAttachments: Bool
     var serviceName: String
+    var attachmentPayloadLoader: LLMsProviderAttachmentPayloadLoader
 
     init(
         instructionRole: OpenAICompatibleChatMessage.Role = .system,
         supportsFileAttachments: Bool = false,
-        serviceName: String = String(localized: .providersOpenaiCompatibleDisplayName)
+        serviceName: String = String(localized: .providersOpenaiCompatibleDisplayName),
+        attachmentPayloadLoader: LLMsProviderAttachmentPayloadLoader = .shared
     ) {
         self.instructionRole = instructionRole
         self.supportsFileAttachments = supportsFileAttachments
         self.serviceName = serviceName
+        self.attachmentPayloadLoader = attachmentPayloadLoader
     }
 }
 
@@ -35,7 +38,8 @@ nonisolated enum OpenAICompatibleChatPromptRenderer {
                 try OpenAICompatibleChatMessage(
                     message: $0,
                     supportsFileAttachments: options.supportsFileAttachments,
-                    serviceName: options.serviceName
+                    serviceName: options.serviceName,
+                    attachmentPayloadLoader: options.attachmentPayloadLoader
                 )
             }
         }
@@ -50,7 +54,8 @@ nonisolated enum OpenAICompatibleChatPromptRenderer {
             try OpenAICompatibleChatMessage(
                 message: $0,
                 supportsFileAttachments: options.supportsFileAttachments,
-                serviceName: options.serviceName
+                serviceName: options.serviceName,
+                attachmentPayloadLoader: options.attachmentPayloadLoader
             )
         }
         return [instructionMessage] + renderedMessages
@@ -201,14 +206,16 @@ nonisolated struct OpenAICompatibleChatMessage: Codable, Equatable {
     init(
         message: ChatMessage,
         supportsFileAttachments: Bool = false,
-        serviceName: String = String(localized: .providersOpenaiCompatibleDisplayName)
+        serviceName: String = String(localized: .providersOpenaiCompatibleDisplayName),
+        attachmentPayloadLoader: LLMsProviderAttachmentPayloadLoader = .shared
     ) throws {
         self.init(
             role: Self.role(for: message.role),
             content: try Self.encodeContent(
                 for: message,
                 supportsFileAttachments: supportsFileAttachments,
-                serviceName: serviceName
+                serviceName: serviceName,
+                attachmentPayloadLoader: attachmentPayloadLoader
             ),
             toolCalls: try message.toolCalls?.map {
                 ToolCall(
@@ -253,13 +260,15 @@ nonisolated struct OpenAICompatibleChatMessage: Codable, Equatable {
     private static func encodeContent(
         for message: ChatMessage,
         supportsFileAttachments: Bool,
-        serviceName: String
+        serviceName: String,
+        attachmentPayloadLoader: LLMsProviderAttachmentPayloadLoader
     ) throws -> OpenAICompatibleMessageContent? {
         let attachmentParts = try message.attachments.map {
             try Self.contentPart(
                 for: $0,
                 supportsFileAttachments: supportsFileAttachments,
-                serviceName: serviceName
+                serviceName: serviceName,
+                attachmentPayloadLoader: attachmentPayloadLoader
             )
         }
         if attachmentParts.isEmpty {
@@ -282,29 +291,21 @@ nonisolated struct OpenAICompatibleChatMessage: Codable, Equatable {
     private static func contentPart(
         for attachment: ChatAttachment,
         supportsFileAttachments: Bool,
-        serviceName: String
+        serviceName: String,
+        attachmentPayloadLoader: LLMsProviderAttachmentPayloadLoader
     ) throws -> OpenAICompatibleContentPart {
         if attachment.kind == .file,
            !supportsFileAttachments {
             throw OpenAICompatibleChatSupportError.unsupportedFileAttachments(serviceName)
         }
 
-        guard let data = try? ChatAttachmentStore.shared.loadData(for: attachment),
-              !data.isEmpty else {
-            throw OpenAICompatibleChatSupportError.missingAttachmentData(attachment.filename)
-        }
-
-        let base64 = data.base64EncodedString()
-        let mimeType = attachment.contentType.isEmpty
-            ? "application/octet-stream"
-            : attachment.contentType
-        let dataURL = "data:\(mimeType);base64,\(base64)"
+        let payload = try attachmentPayloadLoader.loadPayload(for: attachment)
 
         switch attachment.kind {
         case .image:
-            return .imageURL(url: dataURL)
+            return .imageURL(url: payload.dataURL)
         case .file:
-            return .file(filename: attachment.filename, fileData: dataURL)
+            return .file(filename: payload.filename, fileData: payload.dataURL)
         }
     }
 }
@@ -335,7 +336,7 @@ nonisolated struct OpenAICompatibleToolCallDelta: Equatable {
     var argumentsFragment: String
 }
 
-nonisolated struct OpenAICompatibleChatStreamDelta: Equatable {
+nonisolated struct OpenAICompatibleChatStreamDelta: Equatable, LLMsProviderStreamSupport.ChatResponseDeltaConvertible {
     var content: String = ""
     var reasoning: String = ""
     var toolCallDeltas: [OpenAICompatibleToolCallDelta] = []
@@ -343,6 +344,14 @@ nonisolated struct OpenAICompatibleChatStreamDelta: Equatable {
 
     var isEmpty: Bool {
         content.isEmpty && reasoning.isEmpty && toolCallDeltas.isEmpty && toolCalls.isEmpty
+    }
+
+    var chatResponseDelta: ChatResponseDelta {
+        ChatResponseDelta(
+            content: content,
+            reasoning: reasoning,
+            toolCalls: toolCalls
+        )
     }
 }
 
@@ -361,14 +370,11 @@ nonisolated enum OpenAICompatibleAuthorizationPolicy: Equatable {
 
 nonisolated enum OpenAICompatibleChatSupportError: LocalizedError, Equatable {
     case unsupportedFileAttachments(String)
-    case missingAttachmentData(String)
 
     var errorDescription: String? {
         switch self {
         case let .unsupportedFileAttachments(displayName):
             return String(localized: .providersErrorUnsupportedFileAttachmentsFormat(displayName))
-        case let .missingAttachmentData(filename):
-            return String(localized: .providersErrorMissingAttachmentDataFormat(filename))
         }
     }
 }
@@ -508,12 +514,13 @@ nonisolated struct OpenAICompatibleAPIClient {
         }
 
         let (data, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw APIError.invalidResponse(serviceName)
-        }
-        guard (200..<300).contains(httpResponse.statusCode) else {
-            throw APIError.serverStatus(serviceName, httpResponse.statusCode, String(data: data, encoding: .utf8))
-        }
+        try LLMsProviderHTTPResponseValidator.validateDataResponse(
+            response: response,
+            data: data,
+            serviceName: serviceName,
+            invalidResponseError: APIError.invalidResponse,
+            serverStatusError: APIError.serverStatus
+        )
 
         let decoded = try JSONDecoder().decode(ModelsResponse.self, from: data)
         return decoded.data.map {
@@ -551,19 +558,20 @@ nonisolated struct OpenAICompatibleAPIClient {
                         authorizationPolicy: authorizationPolicy
                     )
                     let (bytes, response) = try await session.bytes(for: request)
-                    guard let httpResponse = response as? HTTPURLResponse else {
-                        throw APIError.invalidResponse(serviceName)
-                    }
-                    guard (200..<300).contains(httpResponse.statusCode) else {
-                        throw APIError.serverStatus(serviceName, httpResponse.statusCode, try await responseBodyString(from: bytes))
-                    }
+                    try await LLMsProviderHTTPResponseValidator.validateStreamingResponse(
+                        response: response,
+                        bytes: bytes,
+                        serviceName: serviceName,
+                        invalidResponseError: APIError.invalidResponse,
+                        serverStatusError: APIError.serverStatus
+                    )
 
                     var toolCallAccumulator = OpenAICompatibleToolCallAccumulator(
                         fallbackIDPrefix: fallbackToolCallIDPrefix
                     )
                     for try await line in bytes.lines {
                         try Task.checkCancellation()
-                        if Self.isDoneServerSentEventLine(line) {
+                        if ServerSentEventLine.isDone(line) {
                             break
                         }
                         guard let delta = try Self.streamDelta(
@@ -606,28 +614,12 @@ nonisolated struct OpenAICompatibleAPIClient {
         serviceName: String = String(localized: .providersOpenaiCompatibleDisplayName),
         includesReasoningDetails: Bool = false
     ) throws -> OpenAICompatibleChatStreamDelta? {
-        let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedLine.isEmpty,
-              !trimmedLine.hasPrefix(":"),
-              trimmedLine.hasPrefix("data:") else {
+        guard let chunk = try ServerSentEventJSONDecoder.decode(
+            ChatCompletionChunk.self,
+            from: line,
+            invalidPayloadError: { APIError.invalidResponse(serviceName) }
+        ) else {
             return nil
-        }
-
-        let dataPrefixEndIndex = trimmedLine.index(trimmedLine.startIndex, offsetBy: 5)
-        let payload = trimmedLine[dataPrefixEndIndex...]
-            .trimmingCharacters(in: .whitespaces)
-        guard payload != "[DONE]" else {
-            return nil
-        }
-        guard let data = payload.data(using: .utf8) else {
-            throw APIError.invalidResponse(serviceName)
-        }
-
-        let chunk: ChatCompletionChunk
-        do {
-            chunk = try JSONDecoder().decode(ChatCompletionChunk.self, from: data)
-        } catch {
-            throw APIError.invalidResponse(serviceName)
         }
 
         if let errorMessage = chunk.error?.message,
@@ -685,35 +677,12 @@ nonisolated struct OpenAICompatibleAPIClient {
         return request
     }
 
-    private func responseBodyString(from bytes: URLSession.AsyncBytes) async throws -> String {
-        var body = ""
-        for try await line in bytes.lines {
-            if !body.isEmpty {
-                body.append("\n")
-            }
-            body.append(line)
-            if body.count > 2_048 {
-                break
-            }
-        }
-        return body
-    }
-
     private func normalizedAPIBaseURL(apiBase: String) throws -> URL {
-        let trimmedAPIBase = apiBase.trimmingCharacters(in: .whitespacesAndNewlines)
-        let baseString = trimmedAPIBase.isEmpty ? defaultAPIBase : trimmedAPIBase
-        guard var components = URLComponents(string: baseString),
-              let scheme = components.scheme?.lowercased(),
-              ["http", "https"].contains(scheme),
-              components.host?.isEmpty == false,
-              components.query == nil,
-              components.fragment == nil else {
-            throw APIError.invalidAPIBase(baseString)
-        }
-
-        let trimmedPath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        components.path = trimmedPath.isEmpty ? "" : "/\(trimmedPath)"
-        guard let baseURL = components.url else {
+        let baseString = LLMsProviderAPIBaseURL.effectiveString(
+            apiBase: apiBase,
+            defaultAPIBase: defaultAPIBase
+        )
+        guard let baseURL = LLMsProviderAPIBaseURL.normalizedURL(baseString: baseString) else {
             throw APIError.invalidAPIBase(baseString)
         }
         return baseURL
@@ -753,10 +722,6 @@ nonisolated struct OpenAICompatibleAPIClient {
                 )
             } ?? []
         )
-    }
-
-    nonisolated private static func isDoneServerSentEventLine(_ line: String) -> Bool {
-        line.trimmingCharacters(in: .whitespacesAndNewlines) == "data: [DONE]"
     }
 
     nonisolated private static func authorizationHeader(

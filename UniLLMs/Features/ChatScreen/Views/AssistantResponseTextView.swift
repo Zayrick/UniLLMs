@@ -22,13 +22,7 @@ final class AssistantResponseTextView: UIView {
         static let copyAppearAnimationDampingRatio: CGFloat = 0.88
     }
 
-    private enum TimelineSegmentKind {
-        case thinking
-        case content
-    }
-
     private struct TimelineSegment {
-        var kind: TimelineSegmentKind
         var view: UIView
         var heightConstraint: NSLayoutConstraint?
     }
@@ -47,12 +41,15 @@ final class AssistantResponseTextView: UIView {
     )
     private let errorLabel = UILabel()
     private var timelineSegments: [TimelineSegment] = []
-    private var isResponseFinished = false
-    private var rawContentMarkdown = ""
+    private var timelineState = ChatAssistantResponseTimelinePresentationState()
+    private var thinkingSectionsBySegmentID: [
+        ChatAssistantResponseTimelinePresentationState.SegmentID: ThinkingSectionView
+    ] = [:]
+    private var contentViewsBySegmentID: [
+        ChatAssistantResponseTimelinePresentationState.SegmentID: StreamingMarkdownView
+    ] = [:]
     private var isLoading = false
     private var lastMeasuredTextWidth: CGFloat = 0.0
-    private weak var activeThinkingSection: ThinkingSectionView?
-    private var toolSectionsByCallID: [String: ThinkingSectionView] = [:]
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -91,33 +88,27 @@ final class AssistantResponseTextView: UIView {
     }
 
     private func appendDisplayParts(_ parts: [ChatResponseDisplayPart]) {
-        let visibleParts = parts.filter { !$0.isEmpty }
-        guard !visibleParts.isEmpty else {
+        let actions = timelineState.appendDisplayParts(parts)
+        guard !actions.isEmpty else {
             return
         }
 
         isLoading = false
-        isResponseFinished = false
         errorLabel.text = nil
 
-        for part in visibleParts {
-            appendDisplayPartWithoutUpdatingVisibility(part)
-        }
-
+        applyTimelineActions(actions)
         updateVisibility()
     }
 
     func setError(_ message: String) {
         isLoading = false
-        isResponseFinished = true
-        finishContentTimelineSegments()
-        finishAllThinkingSections(animated: true)
+        applyTimelineActions(timelineState.setError())
         errorLabel.text = message
         updateVisibility()
     }
 
     func showLoadingIfNeeded() {
-        guard timelineSegments.isEmpty,
+        guard timelineState.isEmpty,
               (errorLabel.text ?? "").isEmpty else {
             return
         }
@@ -136,9 +127,7 @@ final class AssistantResponseTextView: UIView {
     }
 
     func finishStreamingContent() {
-        isResponseFinished = true
-        finishContentTimelineSegments()
-        finishAllThinkingSections(animated: true)
+        applyTimelineActions(timelineState.finishStreamingContent())
         updateVisibility()
     }
 
@@ -205,171 +194,122 @@ final class AssistantResponseTextView: UIView {
         timelineStackView.translatesAutoresizingMaskIntoConstraints = false
     }
 
-    private func appendDisplayPartWithoutUpdatingVisibility(_ part: ChatResponseDisplayPart) {
-        switch part {
-        case let .reasoning(text):
-            appendReasoningTimelinePart(text)
-        case let .content(markdown):
-            appendContentTimelinePart(markdown)
-        case let .toolEvent(event):
-            appendToolTimelineEvent(event)
-        }
-    }
-
-    private func appendReasoningTimelinePart(_ text: String) {
-        guard !text.isEmpty else {
-            return
-        }
-
-        ensureActiveThinkingSection().appendReasoning(text)
-    }
-
-    private func appendContentTimelinePart(_ markdown: String) {
-        guard !markdown.isEmpty else {
-            return
-        }
-
-        // Like VS Code's look-ahead completion for thinking parts, visible
-        // assistant content is the boundary that ends the current thinking run.
-        finishActiveThinkingSection(animated: true)
-        rawContentMarkdown += markdown
-        appendContentTimelineSegment(markdown)
-    }
-
-    private func appendToolTimelineEvent(_ event: ChatToolEvent) {
-        switch event {
-        case let .started(toolCall):
-            let section = ensureActiveThinkingSection()
-            toolSectionsByCallID[toolCall.id] = section
-            let invocation = section.appendToolInvocation(
-                callID: toolCall.id,
-                displayName: toolCall.presentationName,
-                state: .running
-            )
-            invocation.setDetail(toolCall.serializedArguments)
-        case let .completed(toolCall, result):
-            let section = toolSectionsByCallID[toolCall.id] ?? ensureActiveThinkingSection()
-            toolSectionsByCallID[toolCall.id] = section
-            let invocation = section.appendToolInvocation(
-                callID: toolCall.id,
-                displayName: toolCall.presentationName,
-                state: .completed
-            )
-            invocation.setDetail(result)
-        case let .failed(toolCall, message):
-            let section = toolSectionsByCallID[toolCall.id] ?? ensureActiveThinkingSection()
-            toolSectionsByCallID[toolCall.id] = section
-            let invocation = section.appendToolInvocation(
-                callID: toolCall.id,
-                displayName: toolCall.presentationName,
-                state: .failed(message: message)
-            )
-            invocation.setDetail(message)
-        }
-    }
-
-    private func ensureActiveThinkingSection() -> ThinkingSectionView {
-        if let activeThinkingSection {
-            return activeThinkingSection
-        }
-
+    private func appendThinkingSegment(
+        id segmentID: ChatAssistantResponseTimelinePresentationState.SegmentID
+    ) {
         let section = ThinkingSectionView()
         timelineStackView.addArrangedSubview(section)
         timelineSegments.append(
             TimelineSegment(
-                kind: .thinking,
                 view: section,
                 heightConstraint: nil
             )
         )
-        activeThinkingSection = section
+        thinkingSectionsBySegmentID[segmentID] = section
+    }
+
+    private func appendContentTimelineSegment(
+        id segmentID: ChatAssistantResponseTimelinePresentationState.SegmentID
+    ) {
+        let markdownView = makeContentMarkdownView()
+        timelineStackView.addArrangedSubview(markdownView)
+
+        let heightConstraint = markdownView.heightAnchor.constraint(equalToConstant: 0.0)
+        heightConstraint.isActive = true
+        timelineSegments.append(
+            TimelineSegment(
+                view: markdownView,
+                heightConstraint: heightConstraint
+            )
+        )
+        contentViewsBySegmentID[segmentID] = markdownView
+    }
+
+    private func applyTimelineActions(
+        _ actions: [ChatAssistantResponseTimelinePresentationState.Action]
+    ) {
+        for action in actions {
+            applyTimelineAction(action)
+        }
+    }
+
+    private func applyTimelineAction(
+        _ action: ChatAssistantResponseTimelinePresentationState.Action
+    ) {
+        switch action {
+        case let .createThinkingSegment(segmentID):
+            appendThinkingSegment(id: segmentID)
+        case let .appendReasoning(segmentID, text):
+            thinkingSection(for: segmentID)?.appendReasoning(text)
+        case let .finishThinkingSegment(segmentID, animated):
+            thinkingSection(for: segmentID)?.setThinking(false, animated: animated)
+        case let .createContentSegment(segmentID):
+            appendContentTimelineSegment(id: segmentID)
+        case let .appendContentMarkdown(segmentID, markdown):
+            contentView(for: segmentID)?.appendMarkdown(markdown)
+        case let .setFinishedContentMarkdown(segmentID, markdown):
+            contentView(for: segmentID)?.setFinishedMarkdown(markdown)
+        case let .appendToolInvocation(segmentID, invocation):
+            appendToolInvocation(invocation, toSegment: segmentID)
+        case let .finishContentSegment(segmentID):
+            contentView(for: segmentID)?.finishStreamingContent()
+        }
+    }
+
+    private func appendToolInvocation(
+        _ invocation: ChatAssistantResponseTimelinePresentationState.ToolInvocationPresentation,
+        toSegment segmentID: ChatAssistantResponseTimelinePresentationState.SegmentID
+    ) {
+        guard let section = thinkingSection(for: segmentID) else {
+            return
+        }
+
+        let invocationView = section.appendToolInvocation(
+            callID: invocation.callID,
+            displayName: invocation.displayName,
+            state: invocation.state.toolInvocationViewState
+        )
+        invocationView.setDetail(invocation.detail)
+    }
+
+    private func thinkingSection(
+        for segmentID: ChatAssistantResponseTimelinePresentationState.SegmentID
+    ) -> ThinkingSectionView? {
+        guard let section = thinkingSectionsBySegmentID[segmentID] else {
+            assertionFailure("Missing thinking section for \(segmentID)")
+            return nil
+        }
         return section
     }
 
-    private func finishActiveThinkingSection(animated: Bool) {
-        activeThinkingSection?.setThinking(false, animated: animated)
-        activeThinkingSection = nil
-    }
-
-    private func finishAllThinkingSections(animated: Bool) {
-        for segment in timelineSegments where segment.kind == .thinking {
-            (segment.view as? ThinkingSectionView)?.setThinking(false, animated: animated)
+    private func contentView(
+        for segmentID: ChatAssistantResponseTimelinePresentationState.SegmentID
+    ) -> StreamingMarkdownView? {
+        guard let contentView = contentViewsBySegmentID[segmentID] else {
+            assertionFailure("Missing content segment for \(segmentID)")
+            return nil
         }
-        activeThinkingSection = nil
-    }
-
-    private func appendContentTimelineSegment(_ markdown: String) {
-        guard !markdown.isEmpty else {
-            return
-        }
-
-        if let lastSegment = timelineSegments.last,
-           lastSegment.kind == .content,
-           let markdownView = lastSegment.view as? StreamingMarkdownView {
-            markdownView.appendMarkdown(markdown)
-            return
-        }
-
-        let markdownView = makeContentMarkdownView()
-        timelineStackView.addArrangedSubview(markdownView)
-
-        let heightConstraint = markdownView.heightAnchor.constraint(equalToConstant: 0.0)
-        heightConstraint.isActive = true
-        timelineSegments.append(
-            TimelineSegment(
-                kind: .content,
-                view: markdownView,
-                heightConstraint: heightConstraint
-            )
-        )
-        markdownView.appendMarkdown(markdown)
-    }
-
-    private func appendFinishedContentTimelineSegment(_ markdown: String) {
-        guard !markdown.isEmpty else {
-            return
-        }
-
-        let markdownView = makeContentMarkdownView()
-        timelineStackView.addArrangedSubview(markdownView)
-
-        let heightConstraint = markdownView.heightAnchor.constraint(equalToConstant: 0.0)
-        heightConstraint.isActive = true
-        timelineSegments.append(
-            TimelineSegment(
-                kind: .content,
-                view: markdownView,
-                heightConstraint: heightConstraint
-            )
-        )
-        markdownView.setFinishedMarkdown(markdown)
+        return contentView
     }
 
     func appendStoredReasoning(_ text: String) {
         guard !text.isEmpty else {
             return
         }
+
         appendDisplayParts([.reasoning(text)])
     }
 
     func appendStoredContentMarkdown(_ markdown: String) {
-        guard !markdown.isEmpty else {
+        let actions = timelineState.appendStoredContentMarkdown(markdown)
+        guard !actions.isEmpty else {
             return
         }
 
         isLoading = false
-        isResponseFinished = false
         errorLabel.text = nil
-        finishActiveThinkingSection(animated: false)
-        rawContentMarkdown += markdown
-        appendFinishedContentTimelineSegment(markdown)
+        applyTimelineActions(actions)
         updateVisibility()
-    }
-
-    private func finishContentTimelineSegments() {
-        for segment in timelineSegments where segment.kind == .content {
-            (segment.view as? StreamingMarkdownView)?.finishStreamingContent()
-        }
     }
 
     private func makeContentMarkdownView() -> StreamingMarkdownView {
@@ -435,12 +375,12 @@ final class AssistantResponseTextView: UIView {
             loadingIndicatorView.stopAnimating()
         }
 
-        timelineStackView.isHidden = timelineSegments.isEmpty
+        timelineStackView.isHidden = timelineState.isEmpty
         let shouldShowCopyButton = shouldShowCopyMarkdownButton
         let shouldAnimateCopyButtonAppearance = copyButtonContainerView.isHidden && shouldShowCopyButton
         copyButtonContainerView.isHidden = !shouldShowCopyButton
         errorLabel.isHidden = (errorLabel.text ?? "").isEmpty
-        isHidden = !isLoading && timelineSegments.isEmpty && errorLabel.isHidden
+        isHidden = !isLoading && timelineState.isEmpty && errorLabel.isHidden
         updateTextViewHeights()
 
         if shouldAnimateCopyButtonAppearance {
@@ -449,15 +389,15 @@ final class AssistantResponseTextView: UIView {
     }
 
     private var shouldShowCopyMarkdownButton: Bool {
-        isResponseFinished && !rawContentMarkdown.isEmpty
+        timelineState.shouldShowCopyMarkdownButton
     }
 
     @objc private func copyRawMarkdown() {
-        guard !rawContentMarkdown.isEmpty else {
+        guard !timelineState.rawContentMarkdown.isEmpty else {
             return
         }
 
-        UIPasteboard.general.string = rawContentMarkdown
+        UIPasteboard.general.string = timelineState.rawContentMarkdown
         copyMarkdownButton.showCopiedFeedback()
     }
 
@@ -669,6 +609,19 @@ final class AssistantResponseTextView: UIView {
             buttonConfiguration.baseForegroundColor = .tertiaryLabel
             buttonConfiguration.contentInsets = .zero
             configuration = buttonConfiguration
+        }
+    }
+}
+
+private extension ChatAssistantResponseTimelinePresentationState.ToolInvocationState {
+    var toolInvocationViewState: ToolInvocationView.State {
+        switch self {
+        case .running:
+            return .running
+        case .completed:
+            return .completed
+        case let .failed(message):
+            return .failed(message: message)
         }
     }
 }

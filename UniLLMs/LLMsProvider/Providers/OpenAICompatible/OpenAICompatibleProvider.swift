@@ -119,21 +119,17 @@ struct OpenAICompatibleProvider: LLMsProviderAdapter {
         request: ChatRequest,
         configuration: LLMsProviderConfiguration
     ) -> AsyncThrowingStream<ChatResponseDelta, Error> {
-        guard !Self.containsFileAttachments(request) else {
-            return AsyncThrowingStream { continuation in
-                continuation.finish(
-                    throwing: OpenAICompatibleProviderError.unsupportedFileAttachments(displayName)
-                )
-            }
+        guard !LLMsProviderStreamSupport.containsFileAttachments(request) else {
+            return LLMsProviderStreamSupport.failedChatResponseStream(
+                OpenAICompatibleProviderError.unsupportedFileAttachments(displayName)
+            )
         }
 
         let messages: [OpenAICompatibleChatMessage]
         do {
             messages = try OpenAICompatibleChatPromptRenderer.messages(for: request)
         } catch {
-            return AsyncThrowingStream { continuation in
-                continuation.finish(throwing: error)
-            }
+            return LLMsProviderStreamSupport.failedChatResponseStream(error)
         }
         let tools = Self.isToolsEnabled(configuration)
             ? request.context.availableTools.map(OpenAICompatibleChatTool.init(definition:))
@@ -146,36 +142,7 @@ struct OpenAICompatibleProvider: LLMsProviderAdapter {
             tools: tools
         )
 
-        return AsyncThrowingStream { continuation in
-            let task = Task {
-                do {
-                    for try await delta in stream {
-                        continuation.yield(
-                            ChatResponseDelta(
-                                content: delta.content,
-                                reasoning: delta.reasoning,
-                                toolCalls: delta.toolCalls
-                            )
-                        )
-                    }
-                    continuation.finish()
-                } catch is CancellationError {
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-
-            continuation.onTermination = { _ in
-                task.cancel()
-            }
-        }
-    }
-
-    private static func containsFileAttachments(_ request: ChatRequest) -> Bool {
-        request.messages.contains { message in
-            message.attachments.contains { $0.kind == .file }
-        }
+        return LLMsProviderStreamSupport.chatResponseStream(from: stream)
     }
 
     private static func isToolsEnabled(_ configuration: LLMsProviderConfiguration) -> Bool {
@@ -189,7 +156,6 @@ struct OpenAICompatibleProvider: LLMsProviderAdapter {
 enum OpenAICompatibleProviderError: LocalizedError, Equatable {
     case missingAPIBase(String)
     case unsupportedFileAttachments(String)
-    case missingAttachmentData(String)
 
     var errorDescription: String? {
         switch self {
@@ -197,8 +163,6 @@ enum OpenAICompatibleProviderError: LocalizedError, Equatable {
             return String(localized: .providersErrorMissingApiBaseFormat(displayName))
         case let .unsupportedFileAttachments(displayName):
             return String(localized: .providersErrorUnsupportedFileAttachmentsFormat(displayName))
-        case let .missingAttachmentData(filename):
-            return String(localized: .providersErrorMissingAttachmentDataFormat(filename))
         }
     }
 }

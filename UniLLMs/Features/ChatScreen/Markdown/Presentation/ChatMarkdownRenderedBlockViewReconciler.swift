@@ -25,17 +25,20 @@ struct ChatMarkdownRenderedBlockViewConfiguration {
     let style: ChatMarkdownRenderStyle
     let traitCollection: UITraitCollection
     let animation: ChatMarkdownRenderedBlockViewAnimation
+    let imageLoader: any ChatMarkdownImageLoading
     let onNeedsHeightUpdate: (() -> Void)?
 
     init(
         style: ChatMarkdownRenderStyle,
         traitCollection: UITraitCollection,
         animation: ChatMarkdownRenderedBlockViewAnimation = .none,
+        imageLoader: any ChatMarkdownImageLoading = URLSessionChatMarkdownImageLoader(),
         onNeedsHeightUpdate: (() -> Void)? = nil
     ) {
         self.style = style
         self.traitCollection = traitCollection
         self.animation = animation
+        self.imageLoader = imageLoader
         self.onNeedsHeightUpdate = onNeedsHeightUpdate
     }
 }
@@ -114,44 +117,40 @@ enum ChatMarkdownRenderedBlockViewReconciler {
         allowsIdentityChange: Bool = false,
         configuration: ChatMarkdownRenderedBlockViewConfiguration
     ) -> [ChatMarkdownRenderedBlockViewRecord] {
-        let blocks = renderableBlocks(from: blocks)
+        let plan = ChatMarkdownRenderedBlockReconciliationPlan(
+            blocks: blocks,
+            currentRecords: currentRecords,
+            startingAt: startIndex,
+            allowsIdentityChange: allowsIdentityChange
+        )
         var nextRecords: [ChatMarkdownRenderedBlockViewRecord] = []
-        var shouldRebuildRemainingRecords = false
 
-        for (blockIndex, block) in blocks.enumerated() {
-            let existing = currentRecords.indices.contains(blockIndex)
-                ? currentRecords[blockIndex]
-                : nil
-            let desiredIndex = startIndex + blockIndex
+        for operation in plan.operations {
+            switch operation {
+            case let .reuse(reuse):
+                guard let updated = update(
+                    reuse.record,
+                    withAlreadyValidatedBlock: reuse.block,
+                    animatedTextChanges: configuration.animation.isEnabled
+                ) else {
+                    continue
+                }
 
-            if !shouldRebuildRemainingRecords,
-               let existing,
-               let updated = update(
-                   existing,
-                   with: block,
-                   allowsIdentityChange: allowsIdentityChange,
-                   configuration: configuration
-               ) {
-                ensureView(updated.view, at: desiredIndex, in: stackView)
+                ensureView(updated.view, at: reuse.desiredIndex, in: stackView)
                 nextRecords.append(updated)
-                continue
-            }
+            case let .insert(insertion):
+                guard let record = makeRecord(for: insertion.block, configuration: configuration) else {
+                    continue
+                }
 
-            if existing != nil {
-                shouldRebuildRemainingRecords = true
+                prepareInsertedViewIfNeeded(record.view, configuration: configuration)
+                insertView(record.view, at: insertion.desiredIndex, in: stackView)
+                animateInsertedViewIfNeeded(record.view, configuration: configuration)
+                nextRecords.append(record)
             }
-
-            guard let record = makeRecord(for: block, configuration: configuration) else {
-                continue
-            }
-            prepareInsertedViewIfNeeded(record.view, configuration: configuration)
-            insertView(record.view, at: desiredIndex, in: stackView)
-            animateInsertedViewIfNeeded(record.view, configuration: configuration)
-            nextRecords.append(record)
         }
 
-        let retainedViews = Set(nextRecords.map { ObjectIdentifier($0.view) })
-        for record in currentRecords where !retainedViews.contains(ObjectIdentifier(record.view)) {
+        for record in plan.removedRecords {
             removeView(record.view, from: stackView)
         }
 
@@ -205,24 +204,6 @@ enum ChatMarkdownRenderedBlockViewReconciler {
         from blocks: [ChatMarkdownRenderedBlock]
     ) -> [ChatMarkdownRenderedBlock] {
         blocks.compactMap(\.renderableBlockView)
-    }
-
-    private static func update(
-        _ record: ChatMarkdownRenderedBlockViewRecord,
-        with block: ChatMarkdownRenderedBlock,
-        allowsIdentityChange: Bool,
-        configuration: ChatMarkdownRenderedBlockViewConfiguration
-    ) -> ChatMarkdownRenderedBlockViewRecord? {
-        guard record.kind == block.viewKind,
-              (allowsIdentityChange || record.identity == ChatMarkdownRenderedBlockViewIdentity(block)),
-              block.supportsInPlaceUpdate else {
-            return nil
-        }
-        return update(
-            record,
-            withAlreadyValidatedBlock: block,
-            animatedTextChanges: configuration.animation.isEnabled
-        )
     }
 
     private static func update(
@@ -340,9 +321,10 @@ enum ChatMarkdownRenderedBlockViewReconciler {
             let imageView = ChatMarkdownImageView(
                 imageBlock: imageBlock,
                 style: configuration.style,
-                traitCollection: configuration.traitCollection
+                traitCollection: configuration.traitCollection,
+                imageLoader: configuration.imageLoader,
+                onImageSizeDidChange: configuration.onNeedsHeightUpdate
             )
-            imageView.onImageSizeDidChange = configuration.onNeedsHeightUpdate
             return ChatMarkdownRenderedBlockViewRecord(
                 view: imageView,
                 kind: .image,
@@ -352,7 +334,8 @@ enum ChatMarkdownRenderedBlockViewReconciler {
             let detailsView = ChatMarkdownDetailsView(
                 detailsBlock: detailsBlock,
                 style: configuration.style,
-                traitCollection: configuration.traitCollection
+                traitCollection: configuration.traitCollection,
+                imageLoader: configuration.imageLoader
             )
             detailsView.onNeedsHeightUpdate = configuration.onNeedsHeightUpdate
             return ChatMarkdownRenderedBlockViewRecord(
@@ -364,7 +347,8 @@ enum ChatMarkdownRenderedBlockViewReconciler {
             let blockQuoteView = ChatMarkdownBlockQuoteView(
                 blockQuoteBlock: blockQuoteBlock,
                 style: configuration.style,
-                traitCollection: configuration.traitCollection
+                traitCollection: configuration.traitCollection,
+                imageLoader: configuration.imageLoader
             )
             blockQuoteView.onNeedsHeightUpdate = configuration.onNeedsHeightUpdate
             return ChatMarkdownRenderedBlockViewRecord(
@@ -376,7 +360,8 @@ enum ChatMarkdownRenderedBlockViewReconciler {
             let listView = ChatMarkdownListView(
                 listBlock: listBlock,
                 style: configuration.style,
-                traitCollection: configuration.traitCollection
+                traitCollection: configuration.traitCollection,
+                imageLoader: configuration.imageLoader
             )
             listView.onNeedsHeightUpdate = configuration.onNeedsHeightUpdate
             return ChatMarkdownRenderedBlockViewRecord(
@@ -472,7 +457,7 @@ extension ChatMarkdownRenderedBlock {
         }
     }
 
-    fileprivate var supportsInPlaceUpdate: Bool {
+    var supportsInPlaceUpdate: Bool {
         switch self {
         case .text, .codeBlock, .table, .details, .blockQuote, .list:
             return true

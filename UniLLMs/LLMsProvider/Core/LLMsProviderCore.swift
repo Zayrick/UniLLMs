@@ -101,7 +101,7 @@ nonisolated struct LLMsProviderRecord: Codable, Equatable, Identifiable {
         configuration: LLMsProviderConfiguration,
         models: [LLMsProviderModel] = [],
         modelsUpdatedAt: Date? = nil,
-        createdAt: Date = Date()
+        createdAt: Date
     ) {
         self.id = id
         self.kind = kind
@@ -138,7 +138,7 @@ nonisolated struct LLMsProviderRecord: Codable, Equatable, Identifiable {
         name = try container.decode(String.self, forKey: .name)
         models = try container.decodeIfPresent([LLMsProviderModel].self, forKey: .models) ?? []
         modelsUpdatedAt = try container.decodeIfPresent(Date.self, forKey: .modelsUpdatedAt)
-        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? .distantPast
 
         configuration = try container.decodeIfPresent(
             LLMsProviderConfiguration.self,
@@ -270,6 +270,56 @@ extension LLMsProviderAdapter {
     }
 }
 
+nonisolated enum LLMsProviderStreamSupport {
+    protocol ChatResponseDeltaConvertible {
+        var chatResponseDelta: ChatResponseDelta { get }
+    }
+
+    static func failedChatResponseStream(_ error: Error) -> AsyncThrowingStream<ChatResponseDelta, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.finish(throwing: error)
+        }
+    }
+
+    static func chatResponseStream<ProviderDelta: ChatResponseDeltaConvertible>(
+        from stream: AsyncThrowingStream<ProviderDelta, Error>
+    ) -> AsyncThrowingStream<ChatResponseDelta, Error> {
+        chatResponseStream(from: stream) { delta in
+            delta.chatResponseDelta
+        }
+    }
+
+    static func chatResponseStream<ProviderDelta>(
+        from stream: AsyncThrowingStream<ProviderDelta, Error>,
+        transform: @escaping @Sendable (ProviderDelta) -> ChatResponseDelta
+    ) -> AsyncThrowingStream<ChatResponseDelta, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    for try await delta in stream {
+                        continuation.yield(transform(delta))
+                    }
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+    }
+
+    static func containsFileAttachments(_ request: ChatRequest) -> Bool {
+        request.messages.contains { message in
+            message.attachments.contains { $0.kind == .file }
+        }
+    }
+}
+
 final class LLMsProviderRegistry {
     private var adaptersByKind: [LLMsProviderKind: any LLMsProviderAdapter] = [:]
     private var orderedKinds: [LLMsProviderKind] = []
@@ -397,13 +447,22 @@ final class LLMsProviderManager {
         }
     }
 
+    func validateChatConfiguration(for provider: LLMsProviderRecord) throws {
+        let adapter = try requireAdapter(for: provider.kind)
+        try validateChatConfiguration(provider, using: adapter)
+    }
+
     func fetchModels(for provider: LLMsProviderRecord) async throws -> [LLMsProviderModel] {
         let adapter = try requireAdapter(for: provider.kind)
-        guard adapter.modelSource != .`static` else {
+        switch adapter.modelSource {
+        case .`static`:
             return adapter.staticModels
+        case .remote:
+            try validateChatConfiguration(provider, using: adapter)
+            return try await adapter.fetchModels(configuration: provider.configuration)
+        case .manual:
+            return try await adapter.fetchModels(configuration: provider.configuration)
         }
-
-        return try await adapter.fetchModels(configuration: provider.configuration)
     }
 
     func streamChat(
@@ -413,11 +472,18 @@ final class LLMsProviderManager {
         context: ChatContext
     ) throws -> AsyncThrowingStream<ChatResponseDelta, Error> {
         let adapter = try requireAdapter(for: provider.kind)
-        try adapter.validateChatConfiguration(provider.configuration)
+        try validateChatConfiguration(provider, using: adapter)
         return adapter.streamChat(
             request: ChatRequest(modelID: modelID, messages: messages, context: context),
             configuration: provider.configuration
         )
+    }
+
+    private func validateChatConfiguration(
+        _ provider: LLMsProviderRecord,
+        using adapter: any LLMsProviderAdapter
+    ) throws {
+        try adapter.validateChatConfiguration(provider.configuration)
     }
 
     private func requireAdapter(for kind: LLMsProviderKind) throws -> any LLMsProviderAdapter {

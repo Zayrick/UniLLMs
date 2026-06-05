@@ -105,12 +105,10 @@ struct OpenAIProvider: LLMsProviderAdapter {
         request: ChatRequest,
         configuration: LLMsProviderConfiguration
     ) -> AsyncThrowingStream<ChatResponseDelta, Error> {
-        guard !Self.containsFileAttachments(request) else {
-            return AsyncThrowingStream { continuation in
-                continuation.finish(
-                    throwing: OpenAIProviderError.unsupportedFileAttachments(displayName)
-                )
-            }
+        guard !LLMsProviderStreamSupport.containsFileAttachments(request) else {
+            return LLMsProviderStreamSupport.failedChatResponseStream(
+                OpenAIProviderError.unsupportedFileAttachments(displayName)
+            )
         }
 
         let messages: [OpenAIChatMessage]
@@ -120,9 +118,7 @@ struct OpenAIProvider: LLMsProviderAdapter {
                 instructionRole: .system
             )
         } catch {
-            return AsyncThrowingStream { continuation in
-                continuation.finish(throwing: error)
-            }
+            return LLMsProviderStreamSupport.failedChatResponseStream(error)
         }
         let tools = request.context.availableTools.map(OpenAIChatTool.init(definition:))
         let stream = apiClient.streamChatCompletion(
@@ -133,43 +129,13 @@ struct OpenAIProvider: LLMsProviderAdapter {
             tools: tools
         )
 
-        return AsyncThrowingStream { continuation in
-            let task = Task {
-                do {
-                    for try await delta in stream {
-                        continuation.yield(
-                            ChatResponseDelta(
-                                content: delta.content,
-                                reasoning: delta.reasoning,
-                                toolCalls: delta.toolCalls
-                            )
-                        )
-                    }
-                    continuation.finish()
-                } catch is CancellationError {
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-
-            continuation.onTermination = { _ in
-                task.cancel()
-            }
-        }
-    }
-
-    private static func containsFileAttachments(_ request: ChatRequest) -> Bool {
-        request.messages.contains { message in
-            message.attachments.contains { $0.kind == .file }
-        }
+        return LLMsProviderStreamSupport.chatResponseStream(from: stream)
     }
 }
 
 enum OpenAIProviderError: LocalizedError, Equatable {
     case missingAPIKey(String)
     case unsupportedFileAttachments(String)
-    case missingAttachmentData(String)
 
     var errorDescription: String? {
         switch self {
@@ -177,8 +143,6 @@ enum OpenAIProviderError: LocalizedError, Equatable {
             return String(localized: .providersErrorMissingApiKeyFormat(displayName))
         case let .unsupportedFileAttachments(displayName):
             return String(localized: .providersErrorUnsupportedFileAttachmentsFormat(displayName))
-        case let .missingAttachmentData(filename):
-            return String(localized: .providersErrorMissingAttachmentDataFormat(filename))
         }
     }
 }
@@ -191,7 +155,8 @@ nonisolated enum OpenAIChatPromptRenderer {
 
     static func messages(
         for request: ChatRequest,
-        instructionRole: InstructionRole = .system
+        instructionRole: InstructionRole = .system,
+        attachmentPayloadLoader: LLMsProviderAttachmentPayloadLoader = .shared
     ) throws -> [OpenAIChatMessage] {
         let role: OpenAIChatMessage.Role
         switch instructionRole {
@@ -206,7 +171,8 @@ nonisolated enum OpenAIChatPromptRenderer {
             options: OpenAICompatibleChatPromptRenderingOptions(
                 instructionRole: role,
                 supportsFileAttachments: false,
-                serviceName: "OpenAI"
+                serviceName: "OpenAI",
+                attachmentPayloadLoader: attachmentPayloadLoader
             )
         )
     }

@@ -67,7 +67,7 @@ final class ChatHistoryStoreTests: XCTestCase {
 
     func testSaveSessionPersistsSelectedSystemPromptID() async throws {
         let promptID = UUID()
-        let session = ChatSession(
+        let session = makeTestChatSession(
             title: "Prompted",
             selectedSystemPromptID: promptID
         )
@@ -110,8 +110,8 @@ final class ChatHistoryStoreTests: XCTestCase {
     }
 
     func testFetchEventsKeepsSessionsIsolatedAndChronological() async throws {
-        let firstSession = ChatSession(title: "First")
-        let secondSession = ChatSession(title: "Second")
+        let firstSession = makeTestChatSession(title: "First")
+        let secondSession = makeTestChatSession(title: "Second")
         let lateEvent = ChatTimelineEvent(
             timestamp: Date(timeIntervalSince1970: 20),
             kind: .assistantContent(markdown: "Late")
@@ -139,7 +139,7 @@ final class ChatHistoryStoreTests: XCTestCase {
     }
 
     func testToolTimelineEventsPersistArgumentsAndResults() async throws {
-        let session = ChatSession(title: "Tool Call")
+        let session = makeTestChatSession(title: "Tool Call")
         let toolCall = ChatToolCall(
             id: "call_1",
             toolID: "search",
@@ -298,8 +298,8 @@ final class ChatHistoryStoreTests: XCTestCase {
     }
 
     func testDeleteSessionRemovesSessionAndEvents() async throws {
-        let session = ChatSession(title: "Delete Me")
-        let event = ChatTimelineEvent(kind: .userMessage(text: "Remove this"))
+        let session = makeTestChatSession(title: "Delete Me")
+        let event = timelineEvent(kind: .userMessage(text: "Remove this"))
 
         try await store.saveSession(session)
         try await store.saveEvent(event, sessionID: session.id)
@@ -339,7 +339,7 @@ final class ChatHistoryStoreTests: XCTestCase {
     }
 
     func testSaveEventsRemovesAttachmentNoLongerReferencedBySession() async throws {
-        let session = ChatSession(title: "Replacement")
+        let session = makeTestChatSession(title: "Replacement")
         let attachment = try attachmentStore.store(
             data: Data("remove after replacement".utf8),
             filename: "replace.txt",
@@ -347,10 +347,10 @@ final class ChatHistoryStoreTests: XCTestCase {
             contentType: "text/plain",
             preferredExtension: "txt"
         )
-        let eventWithAttachment = ChatTimelineEvent(
+        let eventWithAttachment = timelineEvent(
             kind: .userMessageWithAttachments(text: "Attached", attachments: [attachment])
         )
-        let replacementEvent = ChatTimelineEvent(kind: .userMessage(text: "No attachment"))
+        let replacementEvent = timelineEvent(kind: .userMessage(text: "No attachment"))
 
         try await store.saveSession(session)
         try await store.saveEvents([eventWithAttachment], sessionID: session.id)
@@ -361,8 +361,42 @@ final class ChatHistoryStoreTests: XCTestCase {
         XCTAssertNil(attachmentStore.fileURL(for: attachment))
     }
 
+    func testSaveEventsPostsCleanupCompletionForRemovedAttachment() async throws {
+        let session = makeTestChatSession(title: "Replacement")
+        let attachment = try attachmentStore.store(
+            data: Data("remove after replacement".utf8),
+            filename: "replace.jpg",
+            kind: .image,
+            contentType: "image/jpeg",
+            preferredExtension: "jpg"
+        )
+        let eventWithAttachment = timelineEvent(
+            kind: .userMessageWithAttachments(text: "Attached", attachments: [attachment])
+        )
+        let replacementEvent = timelineEvent(kind: .userMessage(text: "No attachment"))
+        let notificationCenter = NotificationCenter()
+        let observer = ChatAttachmentCleanupCompletionObserver(notificationCenter: notificationCenter)
+        defer {
+            observer.invalidate()
+        }
+        let notifyingStore = UserDefaultsChatStore(
+            defaults: defaults,
+            notificationCenter: notificationCenter,
+            storageKey: "chatHistory",
+            attachmentStore: attachmentStore
+        )
+
+        try await notifyingStore.saveSession(session)
+        try await notifyingStore.saveEvents([eventWithAttachment], sessionID: session.id)
+        try await notifyingStore.saveEvents([replacementEvent], sessionID: session.id)
+
+        XCTAssertEqual(observer.results, [
+            ChatAttachmentCleanupResult(removedUnreferencedAttachments: [attachment])
+        ])
+    }
+
     func testSaveEventsKeepsAttachmentReferencedByMessageRevision() async throws {
-        let session = ChatSession(title: "Revision Attachment")
+        let session = makeTestChatSession(title: "Revision Attachment")
         let messageID = UUID()
         let attachment = try attachmentStore.store(
             data: Data("archived attachment".utf8),
@@ -373,16 +407,20 @@ final class ChatHistoryStoreTests: XCTestCase {
         )
         let archivedMessage = ChatTimelineEvent(
             id: messageID,
+            timestamp: Date(timeIntervalSince1970: 1),
             kind: .userMessageWithAttachments(text: "Original", attachments: [attachment])
         )
         let replacementMessage = ChatTimelineEvent(
             id: messageID,
+            timestamp: Date(timeIntervalSince1970: 2),
             kind: .userMessage(text: "Edited")
         )
         let revisionEvent = ChatTimelineEvent(
+            timestamp: Date(timeIntervalSince1970: 3),
             kind: .messageRevision(
                 ChatMessageRevision(
                     anchorUserMessageID: messageID,
+                    archivedAt: Date(timeIntervalSince1970: 3),
                     events: [archivedMessage]
                 )
             )
@@ -398,8 +436,50 @@ final class ChatHistoryStoreTests: XCTestCase {
         XCTAssertNil(attachmentStore.fileURL(for: attachment))
     }
 
+    func testSaveEventsCleanupFailurePersistsReplacementEventsAndReportsFailure() async throws {
+        let session = makeTestChatSession(title: "Cleanup Failure")
+        let attachment = ChatAttachment(
+            kind: .file,
+            filename: "kept.txt",
+            contentType: "text/plain",
+            relativePath: "kept.txt"
+        )
+        let originalEvent = timelineEvent(
+            kind: .userMessageWithAttachments(text: "Attached", attachments: [attachment])
+        )
+        let replacementEvent = timelineEvent(kind: .userMessage(text: "Replacement"))
+        let notificationCenter = NotificationCenter()
+        let observer = ChatAttachmentCleanupFailureObserver(notificationCenter: notificationCenter)
+        defer {
+            observer.invalidate()
+        }
+        var cleanupFailures: [ChatHistoryAttachmentCleanupFailure] = []
+        let failingStore = UserDefaultsChatStore(
+            defaults: defaults,
+            notificationCenter: notificationCenter,
+            storageKey: "chatHistory",
+            attachmentStore: FailingChatAttachmentCleanupStore(error: AttachmentCleanupFailure.sample)
+        ) { failure in
+            cleanupFailures.append(failure)
+        }
+
+        try await store.saveSession(session)
+        try await store.saveEvents([originalEvent], sessionID: session.id)
+
+        try await failingStore.saveEvents([replacementEvent], sessionID: session.id)
+
+        let events = try await store.fetchEvents(sessionID: session.id)
+        XCTAssertEqual(events, [replacementEvent])
+        XCTAssertEqual(cleanupFailures.map(\.localizedDescription), [AttachmentCleanupFailure.sample.localizedDescription])
+        XCTAssertEqual(cleanupFailures.first?.removedAttachments, [attachment])
+        XCTAssertEqual(cleanupFailures.first?.retainedAttachments, [])
+        XCTAssertEqual(observer.failures.map(\.localizedDescription), [AttachmentCleanupFailure.sample.localizedDescription])
+        XCTAssertEqual(observer.failures.first?.removedAttachments, [attachment])
+        XCTAssertEqual(observer.failures.first?.retainedAttachments, [])
+    }
+
     func testDeleteSessionRemovesUnreferencedAttachmentFile() async throws {
-        let session = ChatSession(title: "Attachment")
+        let session = makeTestChatSession(title: "Attachment")
         let attachment = try attachmentStore.store(
             data: Data("delete me".utf8),
             filename: "delete.txt",
@@ -407,7 +487,7 @@ final class ChatHistoryStoreTests: XCTestCase {
             contentType: "text/plain",
             preferredExtension: "txt"
         )
-        let event = ChatTimelineEvent(
+        let event = timelineEvent(
             kind: .userMessageWithAttachments(text: "See attached", attachments: [attachment])
         )
 
@@ -420,9 +500,43 @@ final class ChatHistoryStoreTests: XCTestCase {
         XCTAssertNil(attachmentStore.fileURL(for: attachment))
     }
 
+    func testDeleteSessionCleanupFailureDeletesSessionAndReportsFailure() async throws {
+        let session = makeTestChatSession(title: "Delete Cleanup Failure")
+        let attachment = ChatAttachment(
+            kind: .file,
+            filename: "retained.txt",
+            contentType: "text/plain",
+            relativePath: "retained.txt"
+        )
+        let event = timelineEvent(
+            kind: .userMessageWithAttachments(text: "Attached", attachments: [attachment])
+        )
+        var cleanupFailures: [ChatHistoryAttachmentCleanupFailure] = []
+        let failingStore = UserDefaultsChatStore(
+            defaults: defaults,
+            storageKey: "chatHistory",
+            attachmentStore: FailingChatAttachmentCleanupStore(error: AttachmentCleanupFailure.sample)
+        ) { failure in
+            cleanupFailures.append(failure)
+        }
+
+        try await store.saveSession(session)
+        try await store.saveEvents([event], sessionID: session.id)
+
+        try await failingStore.deleteSession(id: session.id)
+
+        let sessions = try await store.fetchSessions()
+        let events = try await store.fetchEvents(sessionID: session.id)
+        XCTAssertTrue(sessions.isEmpty)
+        XCTAssertTrue(events.isEmpty)
+        XCTAssertEqual(cleanupFailures.map(\.localizedDescription), [AttachmentCleanupFailure.sample.localizedDescription])
+        XCTAssertEqual(cleanupFailures.first?.removedAttachments, [attachment])
+        XCTAssertEqual(cleanupFailures.first?.retainedAttachments, [])
+    }
+
     func testDeleteSessionKeepsAttachmentFileReferencedByAnotherSession() async throws {
-        let firstSession = ChatSession(title: "First")
-        let secondSession = ChatSession(title: "Second")
+        let firstSession = makeTestChatSession(title: "First")
+        let secondSession = makeTestChatSession(title: "Second")
         let attachment = try attachmentStore.store(
             data: Data("shared".utf8),
             filename: "shared.txt",
@@ -430,7 +544,7 @@ final class ChatHistoryStoreTests: XCTestCase {
             contentType: "text/plain",
             preferredExtension: "txt"
         )
-        let firstEvent = ChatTimelineEvent(
+        let firstEvent = timelineEvent(
             kind: .userMessageWithAttachments(text: "First", attachments: [attachment])
         )
         let secondAttachmentReference = ChatAttachment(
@@ -440,7 +554,7 @@ final class ChatHistoryStoreTests: XCTestCase {
             contentType: attachment.contentType,
             relativePath: attachment.relativePath
         )
-        let secondEvent = ChatTimelineEvent(
+        let secondEvent = timelineEvent(
             kind: .userMessageWithAttachments(text: "Second", attachments: [secondAttachmentReference])
         )
 
@@ -458,5 +572,153 @@ final class ChatHistoryStoreTests: XCTestCase {
         try await store.deleteSession(id: secondSession.id)
 
         XCTAssertNil(attachmentStore.fileURL(for: attachment))
+    }
+
+    func testDeleteSessionPostsCleanupCompletionOnlyForLastSharedAttachmentReference() async throws {
+        let firstSession = makeTestChatSession(title: "First")
+        let secondSession = makeTestChatSession(title: "Second")
+        let attachment = try attachmentStore.store(
+            data: Data("shared image".utf8),
+            filename: "shared.jpg",
+            kind: .image,
+            contentType: "image/jpeg",
+            preferredExtension: "jpg"
+        )
+        let secondAttachmentReference = ChatAttachment(
+            assetID: attachment.assetID,
+            kind: attachment.kind,
+            filename: attachment.filename,
+            contentType: attachment.contentType,
+            relativePath: attachment.relativePath
+        )
+        let notificationCenter = NotificationCenter()
+        let observer = ChatAttachmentCleanupCompletionObserver(notificationCenter: notificationCenter)
+        defer {
+            observer.invalidate()
+        }
+        let notifyingStore = UserDefaultsChatStore(
+            defaults: defaults,
+            notificationCenter: notificationCenter,
+            storageKey: "chatHistory",
+            attachmentStore: attachmentStore
+        )
+
+        try await notifyingStore.saveSession(firstSession)
+        try await notifyingStore.saveSession(secondSession)
+        try await notifyingStore.saveEvent(
+            timelineEvent(kind: .userMessageWithAttachments(text: "First", attachments: [attachment])),
+            sessionID: firstSession.id
+        )
+        try await notifyingStore.saveEvent(
+            timelineEvent(kind: .userMessageWithAttachments(text: "Second", attachments: [secondAttachmentReference])),
+            sessionID: secondSession.id
+        )
+
+        try await notifyingStore.deleteSession(id: firstSession.id)
+
+        XCTAssertTrue(observer.results.isEmpty)
+
+        try await notifyingStore.deleteSession(id: secondSession.id)
+
+        XCTAssertEqual(observer.results, [
+            ChatAttachmentCleanupResult(removedUnreferencedAttachments: [secondAttachmentReference])
+        ])
+    }
+
+    private func timelineEvent(kind: ChatTimelineEvent.Kind) -> ChatTimelineEvent {
+        ChatTimelineEvent(
+            timestamp: Date(timeIntervalSince1970: 1),
+            kind: kind
+        )
+    }
+}
+
+private final class FailingChatAttachmentCleanupStore: ChatAttachmentCleanupStore {
+    private let error: Error
+
+    init(error: Error) {
+        self.error = error
+    }
+
+    func deleteUnreferencedAttachments(
+        removing removedAttachments: [ChatAttachment],
+        referencedBy retainedAttachments: [ChatAttachment]
+    ) throws -> ChatAttachmentCleanupResult {
+        if !removedAttachments.isEmpty {
+            throw error
+        }
+        return .empty
+    }
+}
+
+private final class ChatAttachmentCleanupCompletionObserver {
+    private let notificationCenter: NotificationCenter
+    private var token: NSObjectProtocol?
+    private(set) var results: [ChatAttachmentCleanupResult] = []
+
+    init(notificationCenter: NotificationCenter) {
+        self.notificationCenter = notificationCenter
+        token = notificationCenter.addObserver(
+            forName: UserDefaultsChatStore.attachmentCleanupDidCompleteNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] notification in
+            let result = notification.userInfo?[UserDefaultsChatStore.attachmentCleanupResultUserInfoKey]
+                as? ChatAttachmentCleanupResult
+            if let result {
+                self?.results.append(result)
+            }
+        }
+    }
+
+    func invalidate() {
+        if let token {
+            notificationCenter.removeObserver(token)
+        }
+        token = nil
+    }
+
+    deinit {
+        invalidate()
+    }
+}
+
+private final class ChatAttachmentCleanupFailureObserver {
+    private let notificationCenter: NotificationCenter
+    private var token: NSObjectProtocol?
+    private(set) var failures: [ChatHistoryAttachmentCleanupFailure] = []
+
+    init(notificationCenter: NotificationCenter) {
+        self.notificationCenter = notificationCenter
+        token = notificationCenter.addObserver(
+            forName: UserDefaultsChatStore.attachmentCleanupDidFailNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] notification in
+            let failure = notification.userInfo?[UserDefaultsChatStore.attachmentCleanupFailureUserInfoKey]
+                as? ChatHistoryAttachmentCleanupFailure
+            if let failure {
+                self?.failures.append(failure)
+            }
+        }
+    }
+
+    func invalidate() {
+        if let token {
+            notificationCenter.removeObserver(token)
+        }
+        token = nil
+    }
+
+    deinit {
+        invalidate()
+    }
+}
+
+private enum AttachmentCleanupFailure: LocalizedError {
+    case sample
+
+    var errorDescription: String? {
+        "Attachment cleanup failed."
     }
 }

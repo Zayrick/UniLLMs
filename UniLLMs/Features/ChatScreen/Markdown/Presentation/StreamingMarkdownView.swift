@@ -17,25 +17,25 @@ final class StreamingMarkdownView: UIView {
     }
 
     private let style: ChatMarkdownRenderStyle
+    private let imageLoader: any ChatMarkdownImageLoading
     private let stackView = UIStackView()
     private var segmenter = ChatMarkdownStreamSegmenter()
-    private var completedSegmentMarkdown: [String] = []
-    private var completedSegmentRecords: [[ChatMarkdownRenderedBlockViewRecord]] = []
-    private var currentSegmentMarkdown: String?
-    private var currentSegmentRecords: [ChatMarkdownRenderedBlockViewRecord] = []
+    private var presentationTimeline = ChatStreamingMarkdownPresentationTimeline<ChatMarkdownRenderedBlockViewRecord>()
     private var traitChangeRegistration: (any UITraitChangeRegistration)?
     private var isRenderAllSegmentsScheduled = false
     var onNeedsHeightUpdate: (() -> Void)?
 
-    private var pendingMarkdownChunks: [String] = []
-    private var pendingChunkIndex = 0
-    private var pendingChunkStartIndex: String.Index?
+    private var pendingMarkdownBuffer = ChatMarkdownPendingBuffer()
     private var displayLink: CADisplayLink?
     private var displayLinkProxy: DisplayLinkProxy?
     private var framesToSkip: Int = 0
 
-    init(style: ChatMarkdownRenderStyle = .assistant) {
+    init(
+        style: ChatMarkdownRenderStyle = .assistant,
+        imageLoader: any ChatMarkdownImageLoading = URLSessionChatMarkdownImageLoader()
+    ) {
         self.style = style
+        self.imageLoader = imageLoader
         super.init(frame: .zero)
         configure()
         configureTraitObservation()
@@ -43,6 +43,7 @@ final class StreamingMarkdownView: UIView {
 
     override init(frame: CGRect) {
         style = .assistant
+        imageLoader = URLSessionChatMarkdownImageLoader()
         super.init(frame: frame)
         configure()
         configureTraitObservation()
@@ -50,6 +51,7 @@ final class StreamingMarkdownView: UIView {
 
     required init?(coder: NSCoder) {
         style = .assistant
+        imageLoader = URLSessionChatMarkdownImageLoader()
         super.init(coder: coder)
         configure()
         configureTraitObservation()
@@ -64,21 +66,17 @@ final class StreamingMarkdownView: UIView {
             return
         }
 
-        appendPendingChunk(string)
+        pendingMarkdownBuffer.append(string)
         startDisplayLinkIfNeeded()
     }
 
     func setFinishedMarkdown(_ markdown: String) {
         stopDisplayLink()
-        clearPendingMarkdown()
+        pendingMarkdownBuffer.clear()
         resetRenderedState()
         segmenter.reset()
-        completedSegmentMarkdown = markdown.isEmpty ? [] : [markdown]
-        completedSegmentRecords = []
-        currentSegmentMarkdown = nil
-
-        if !markdown.isEmpty {
-            completedSegmentRecords.append(appendRenderedSegment(markdown, animation: .none))
+        presentationTimeline.setFinishedMarkdown(markdown) { [weak self] segment in
+            self?.appendRenderedSegment(segment, animation: .none) ?? []
         }
 
         notifyHeightChanged()
@@ -92,11 +90,9 @@ final class StreamingMarkdownView: UIView {
 
     func resetMarkdown() {
         stopDisplayLink()
-        clearPendingMarkdown()
+        pendingMarkdownBuffer.clear()
         segmenter.reset()
-        completedSegmentMarkdown = []
-        completedSegmentRecords = []
-        currentSegmentMarkdown = nil
+        presentationTimeline.reset()
         resetRenderedState()
     }
 
@@ -161,14 +157,16 @@ final class StreamingMarkdownView: UIView {
 
         flushPendingMarkdown(limitToFrameBudget: true, notify: true)
 
-        if !hasPendingMarkdown {
+        if !pendingMarkdownBuffer.hasPendingMarkdown {
             stopDisplayLink()
         }
     }
 
     private func flushPendingMarkdown(limitToFrameBudget: Bool, notify: Bool) {
-        guard hasPendingMarkdown else { return }
-        let chunk = limitToFrameBudget ? nextPendingChunk() : drainPendingMarkdown()
+        guard pendingMarkdownBuffer.hasPendingMarkdown else { return }
+        let chunk = limitToFrameBudget
+            ? pendingMarkdownBuffer.nextChunk(maxCharacters: Scheduling.maxCharactersPerFlush)
+            : pendingMarkdownBuffer.drain()
 
         let start = CACurrentMediaTime()
         applyStreamUpdate(segmenter.append(chunk), notify: notify)
@@ -182,123 +180,42 @@ final class StreamingMarkdownView: UIView {
         }
     }
 
-    private func nextPendingChunk() -> String {
-        var result = ""
-        while result.count < Scheduling.maxCharactersPerFlush,
-              let currentChunk = pendingCurrentChunk {
-            let start = pendingChunkStartIndex ?? currentChunk.startIndex
-            let remainingBudget = Scheduling.maxCharactersPerFlush - result.count
-            if let end = currentChunk.index(
-                start,
-                offsetBy: remainingBudget,
-                limitedBy: currentChunk.endIndex
-            ) {
-                result += String(currentChunk[start..<end])
-                if end == currentChunk.endIndex {
-                    advancePendingChunk()
-                } else {
-                    pendingChunkStartIndex = end
-                }
-                break
-            }
-
-            result += String(currentChunk[start...])
-            advancePendingChunk()
-        }
-
-        compactPendingChunksIfNeeded()
-        return result
-    }
-
-    private func drainPendingMarkdown() -> String {
-        var remainingChunks: [String] = []
-        while let currentChunk = pendingCurrentChunk {
-            let start = pendingChunkStartIndex ?? currentChunk.startIndex
-            remainingChunks.append(String(currentChunk[start...]))
-            advancePendingChunk()
-        }
-        clearPendingMarkdown()
-        return remainingChunks.joined()
-    }
-
-    private var hasPendingMarkdown: Bool {
-        pendingCurrentChunk != nil
-    }
-
-    private var pendingCurrentChunk: String? {
-        guard pendingChunkIndex < pendingMarkdownChunks.count else {
-            return nil
-        }
-
-        let chunk = pendingMarkdownChunks[pendingChunkIndex]
-        let start = pendingChunkStartIndex ?? chunk.startIndex
-        return start < chunk.endIndex ? chunk : nil
-    }
-
-    private func appendPendingChunk(_ chunk: String) {
-        guard !chunk.isEmpty else {
-            return
-        }
-        pendingMarkdownChunks.append(chunk)
-    }
-
-    private func advancePendingChunk() {
-        pendingChunkIndex += 1
-        pendingChunkStartIndex = nil
-    }
-
-    private func compactPendingChunksIfNeeded() {
-        if pendingChunkIndex == pendingMarkdownChunks.count {
-            pendingMarkdownChunks.removeAll(keepingCapacity: true)
-            pendingChunkIndex = 0
-        } else if pendingChunkIndex > 64 {
-            pendingMarkdownChunks.removeFirst(pendingChunkIndex)
-            pendingChunkIndex = 0
-        }
-    }
-
-    private func clearPendingMarkdown() {
-        pendingMarkdownChunks.removeAll(keepingCapacity: true)
-        pendingChunkIndex = 0
-        pendingChunkStartIndex = nil
-    }
-
     // MARK: - Rendering
 
     private func applyStreamUpdate(_ update: ChatMarkdownStreamUpdate, notify: Bool) {
-        for segment in update.completedSegments {
-            completedSegmentMarkdown.append(segment)
-            if commitCurrentSegment(markdown: segment) {
-                completedSegmentRecords.append(currentSegmentRecords)
-                currentSegmentRecords = []
-                continue
+        presentationTimeline.applyStreamUpdate(
+            update,
+            commitCurrentSegment: { [weak self] markdown, records in
+                self?.commitCurrentSegment(markdown: markdown, records: records) ?? false
+            },
+            appendCompletedSegment: { [weak self] markdown in
+                self?.appendRenderedSegment(markdown, animation: .streaming) ?? []
+            },
+            removeCurrentRecords: { [weak self] records in
+                self?.removeRecords(records)
+            },
+            renderCurrentSegment: { [weak self] markdown, records in
+                self?.renderCurrentSegment(markdown: markdown, records: records) ?? []
             }
-
-            removeCurrentSegmentViews()
-            completedSegmentRecords.append(appendRenderedSegment(segment, animation: .streaming))
-        }
-
-        currentSegmentMarkdown = update.currentSegment
-        if let currentSegment = update.currentSegment {
-            renderCurrentSegment(currentSegment)
-        } else {
-            removeCurrentSegmentViews()
-        }
+        )
 
         if notify {
             notifyHeightChanged()
         }
     }
 
-    private func commitCurrentSegment(markdown: String) -> Bool {
-        guard !currentSegmentRecords.isEmpty else {
+    private func commitCurrentSegment(
+        markdown: String,
+        records: [ChatMarkdownRenderedBlockViewRecord]
+    ) -> Bool {
+        guard !records.isEmpty else {
             return false
         }
 
         let renderer = makeRenderer()
         let blocks = renderer.render(markdown: markdown)
         guard ChatMarkdownRenderedBlockViewReconciler.updateAllInPlaceIfPossible(
-            currentSegmentRecords,
+            records,
             with: blocks,
             allowsIdentityChange: true,
             animation: .streaming
@@ -306,36 +223,36 @@ final class StreamingMarkdownView: UIView {
             return false
         }
 
-        currentSegmentMarkdown = nil
         return true
     }
 
     private func renderAllSegments() {
-        removeCurrentSegmentViews()
+        presentationTimeline.removeCurrentRecords { [weak self] records in
+            self?.removeRecords(records)
+        }
         let renderer = makeRenderer()
         let configuration = blockViewConfiguration(for: renderer)
-        var nextRecords: [[ChatMarkdownRenderedBlockViewRecord]] = []
-        var startIndex = 0
 
-        for (segmentIndex, segment) in completedSegmentMarkdown.enumerated() {
+        presentationTimeline.rerenderCompletedSegments { segment, records, startIndex in
             let blocks = renderer.render(markdown: segment)
-            let records = completedSegmentRecords.indices.contains(segmentIndex)
-                ? completedSegmentRecords[segmentIndex]
-                : []
-            let reconciledRecords = ChatMarkdownRenderedBlockViewReconciler.reconcile(
+            return ChatMarkdownRenderedBlockViewReconciler.reconcile(
                 blocks,
                 records: records,
                 in: stackView,
                 startingAt: startIndex,
                 configuration: configuration
             )
-            nextRecords.append(reconciledRecords)
-            startIndex += reconciledRecords.count
         }
-        completedSegmentRecords = nextRecords
 
-        if let currentSegmentMarkdown {
-            renderCurrentSegment(currentSegmentMarkdown)
+        if let currentSegmentMarkdown = presentationTimeline.currentSegmentMarkdown {
+            let records = renderCurrentSegment(
+                markdown: currentSegmentMarkdown,
+                records: presentationTimeline.currentRecords
+            )
+            presentationTimeline.updateCurrentSegment(
+                markdown: currentSegmentMarkdown,
+                records: records
+            )
         }
 
         notifyHeightChanged()
@@ -354,13 +271,16 @@ final class StreamingMarkdownView: UIView {
         )
     }
 
-    private func renderCurrentSegment(_ markdown: String) {
+    private func renderCurrentSegment(
+        markdown: String,
+        records currentRecords: [ChatMarkdownRenderedBlockViewRecord]
+    ) -> [ChatMarkdownRenderedBlockViewRecord] {
         let renderer = makeRenderer()
-        let blocks = currentSegmentBlocks(from: renderer.render(markdown: markdown))
-        let startIndex = max(0, stackView.arrangedSubviews.count - currentSegmentRecords.count)
-        currentSegmentRecords = ChatMarkdownRenderedBlockViewReconciler.reconcile(
-            blocks,
-            records: currentSegmentRecords,
+        let plan = ChatMarkdownCurrentSegmentRenderPlan(blocks: renderer.render(markdown: markdown))
+        let startIndex = max(0, stackView.arrangedSubviews.count - currentRecords.count)
+        return ChatMarkdownRenderedBlockViewReconciler.reconcile(
+            plan.blocks,
+            records: currentRecords,
             in: stackView,
             startingAt: startIndex,
             allowsIdentityChange: true,
@@ -379,7 +299,8 @@ final class StreamingMarkdownView: UIView {
         ChatMarkdownRenderedBlockViewConfiguration(
             style: renderer.style,
             traitCollection: traitCollection,
-            animation: animation
+            animation: animation,
+            imageLoader: imageLoader
         ) { [weak self] in
             self?.notifyHeightChanged()
         }
@@ -387,14 +308,11 @@ final class StreamingMarkdownView: UIView {
 
     private func resetRenderedState() {
         ChatMarkdownRenderedBlockViewReconciler.removeAllArrangedSubviews(in: stackView)
-        completedSegmentRecords = []
-        currentSegmentRecords = []
         invalidateIntrinsicContentSize()
     }
 
-    private func removeCurrentSegmentViews() {
-        ChatMarkdownRenderedBlockViewReconciler.remove(currentSegmentRecords, from: stackView)
-        currentSegmentRecords = []
+    private func removeRecords(_ records: [ChatMarkdownRenderedBlockViewRecord]) {
+        ChatMarkdownRenderedBlockViewReconciler.remove(records, from: stackView)
     }
 
     private func notifyHeightChanged() {
@@ -429,46 +347,6 @@ final class StreamingMarkdownView: UIView {
         }
     }
 
-    private func currentSegmentBlocks(
-        from blocks: [ChatMarkdownRenderedBlock]
-    ) -> [ChatMarkdownRenderedBlock] {
-        blocks.compactMap(\.currentSegmentRenderableBlock)
-    }
-}
-
-private extension ChatMarkdownRenderedBlock {
-    var currentSegmentRenderableBlock: ChatMarkdownRenderedBlock? {
-        switch self {
-        case let .text(attributedText):
-            return attributedText.length > 0 ? self : nil
-        case let .codeBlock(codeBlock):
-            return .codeBlock(
-                ChatMarkdownCodeBlock(
-                    code: codeBlock.code,
-                    language: codeBlock.language,
-                    isStreaming: true
-                )
-            )
-        case .table, .details:
-            return self
-        case let .blockQuote(blockQuoteBlock):
-            let children = blockQuoteBlock.children.compactMap(\.currentSegmentRenderableBlock)
-            return children.isEmpty ? nil : .blockQuote(ChatMarkdownBlockQuoteBlock(children: children))
-        case let .list(listBlock):
-            let items = listBlock.items.compactMap { item -> ChatMarkdownListItemBlock? in
-                let children = item.children.compactMap(\.currentSegmentRenderableBlock)
-                guard !children.isEmpty else {
-                    return nil
-                }
-                return ChatMarkdownListItemBlock(marker: item.marker, children: children)
-            }
-            return items.isEmpty ? nil : .list(ChatMarkdownListBlock(isOrdered: listBlock.isOrdered, items: items))
-        case .mathBlock:
-            return self
-        case .image:
-            return nil
-        }
-    }
 }
 
 private final class DisplayLinkProxy {

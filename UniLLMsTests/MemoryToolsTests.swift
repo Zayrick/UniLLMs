@@ -87,6 +87,54 @@ final class MemoryToolsTests: UserDefaultsBackedTestCase {
         XCTAssertTrue(memories.isEmpty)
     }
 
+    func testMemoryAddAndUpdateToolsUseInjectedClock() async throws {
+        let createdAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let updatedAt = Date(timeIntervalSince1970: 1_800_000_123)
+        let clock = MutableClock(now: createdAt)
+        let manager = MemoryManager(
+            store: UserDefaultsMemoryStore(
+                defaults: defaults,
+                storageKey: "clockedMemoryTools"
+            ),
+            clock: clock
+        )
+        let context = ToolExecutionContext(session: nil)
+
+        let addResult = try await MemoryAddTool(memoryManager: manager).execute(
+            call: ToolCall(
+                id: "call_add",
+                toolID: "memory_add",
+                arguments: ["text": .string("User likes deterministic tests.")]
+            ),
+            context: context
+        )
+
+        XCTAssertFalse(addResult.isError)
+        var savedMemories = try await manager.savedMemories(scope: .user)
+        var memory = try XCTUnwrap(savedMemories.first)
+        XCTAssertEqual(memory.createdAt, createdAt)
+        XCTAssertEqual(memory.updatedAt, createdAt)
+
+        clock.now = updatedAt
+        let updateResult = try await MemoryUpdateTool(memoryManager: manager).execute(
+            call: ToolCall(
+                id: "call_update",
+                toolID: "memory_update",
+                arguments: [
+                    "id": .string(memory.id.uuidString),
+                    "text": .string("User likes deterministic tool tests.")
+                ]
+            ),
+            context: context
+        )
+
+        XCTAssertFalse(updateResult.isError)
+        savedMemories = try await manager.savedMemories(scope: .user)
+        memory = try XCTUnwrap(savedMemories.first)
+        XCTAssertEqual(memory.createdAt, createdAt)
+        XCTAssertEqual(memory.updatedAt, updatedAt)
+    }
+
     func testMemoryAddToolRejectsEmptyText() async throws {
         let manager = MemoryManager(
             store: UserDefaultsMemoryStore(
@@ -139,5 +187,13 @@ final class MemoryToolsTests: UserDefaultsBackedTestCase {
             JSONSerialization.jsonObject(with: data) as? [String: Any]
         )
         return try XCTUnwrap(payload["count"] as? Int)
+    }
+}
+
+private final class MutableClock: AppClock {
+    var now: Date
+
+    init(now: Date) {
+        self.now = now
     }
 }

@@ -10,7 +10,6 @@ import Foundation
 
 protocol MCPServerStore {
     func loadServers() -> [MCPServerRecord]
-    func makeServerDraft() -> MCPServerRecord
     func saveServerRecord(_ server: MCPServerRecord)
     func deleteServerRecord(id: UUID)
     func moveServer(from sourceIndex: Int, to destinationIndex: Int)
@@ -38,13 +37,16 @@ final class UserDefaultsMCPServerStore: MCPServerStore {
     }
 
     private let store: UserDefaultsStore
+    private let notificationCenter: NotificationCenter
     private let storageKey: String
 
     init(
         defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default,
         storageKey: String = "mcpServerConfigurations.v1"
     ) {
-        store = UserDefaultsStore(defaults: defaults)
+        store = UserDefaultsStore(defaults: defaults, notificationCenter: notificationCenter)
+        self.notificationCenter = notificationCenter
         self.storageKey = storageKey
     }
 
@@ -52,45 +54,48 @@ final class UserDefaultsMCPServerStore: MCPServerStore {
         loadState().servers
     }
 
-    func makeServerDraft() -> MCPServerRecord {
-        MCPServerRecord(name: "")
-    }
-
     func saveServerRecord(_ server: MCPServerRecord) {
-        var state = loadState()
-        if let index = state.servers.firstIndex(where: { $0.id == server.id }) {
-            state.servers[index] = server
-        } else {
-            state.servers.append(server)
+        updateState { state in
+            if let index = state.servers.firstIndex(where: { $0.id == server.id }) {
+                state.servers[index] = server
+            } else {
+                state.servers.append(server)
+            }
         }
-        saveState(state)
     }
 
     func deleteServerRecord(id: UUID) {
-        var state = loadState()
-        state.servers.removeAll { $0.id == id }
-        saveState(state)
+        updateState { state in
+            state.servers.removeAll { $0.id == id }
+        }
     }
 
     func moveServer(from sourceIndex: Int, to destinationIndex: Int) {
-        var state = loadState()
-        guard state.servers.indices.contains(sourceIndex),
-              state.servers.indices.contains(destinationIndex),
-              sourceIndex != destinationIndex else {
-            return
-        }
+        updateState { state in
+            guard state.servers.indices.contains(sourceIndex),
+                  state.servers.indices.contains(destinationIndex),
+                  sourceIndex != destinationIndex else {
+                return
+            }
 
-        let server = state.servers.remove(at: sourceIndex)
-        state.servers.insert(server, at: destinationIndex)
-        saveState(state)
+            let server = state.servers.remove(at: sourceIndex)
+            state.servers.insert(server, at: destinationIndex)
+        }
     }
 
     private func loadState() -> PersistedState {
         store.load(PersistedState.self, forKey: storageKey) ?? PersistedState()
     }
 
-    private func saveState(_ state: PersistedState) {
-        store.save(state, forKey: storageKey)
-        NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
+    private func updateState(_ mutate: (inout PersistedState) -> Void) {
+        store.update(PersistedState.self, forKey: storageKey, defaultValue: PersistedState()) { state in
+            mutate(&state)
+        } didSave: {
+            notifyDidChange()
+        }
+    }
+
+    private func notifyDidChange() {
+        notificationCenter.post(name: Self.didChangeNotification, object: self)
     }
 }

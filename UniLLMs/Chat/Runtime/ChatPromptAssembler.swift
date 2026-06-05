@@ -7,7 +7,6 @@
 //
 
 import Foundation
-import Yams
 
 nonisolated struct ChatInstruction: Equatable {
     nonisolated enum Kind: Equatable {
@@ -35,13 +34,17 @@ nonisolated struct ChatPrompt: Equatable {
 }
 
 nonisolated struct ChatPromptAssembler {
-    private struct MemoryInstructionPayload: Encodable {
-        var memories: [String]
-    }
-
     private struct IncludedMemory {
         var text: String
         var createdAt: Date
+    }
+
+    private let memoryInstructionFormatter: ChatMemoryInstructionFormatter
+
+    nonisolated init(
+        memoryInstructionFormatter: ChatMemoryInstructionFormatter = ChatMemoryInstructionFormatter()
+    ) {
+        self.memoryInstructionFormatter = memoryInstructionFormatter
     }
 
     nonisolated func assemblePrompt(from request: ChatRequest) -> ChatPrompt {
@@ -57,12 +60,18 @@ nonisolated struct ChatPromptAssembler {
         messages: [ChatMessage]
     ) -> ChatPrompt {
         ChatPrompt(
-            instructions: Self.instructions(from: context),
+            instructions: Self.instructions(
+                from: context,
+                memoryInstructionFormatter: memoryInstructionFormatter
+            ),
             messages: messages
         )
     }
 
-    nonisolated private static func instructions(from context: ChatContext) -> [ChatInstruction] {
+    nonisolated private static func instructions(
+        from context: ChatContext,
+        memoryInstructionFormatter: ChatMemoryInstructionFormatter
+    ) -> [ChatInstruction] {
         var instructions: [ChatInstruction] = []
         if let instruction = systemPromptInstruction(from: context.systemPrompt) {
             instructions.append(instruction)
@@ -70,7 +79,10 @@ nonisolated struct ChatPromptAssembler {
         if let instruction = currentDateInstruction(from: context.currentDate) {
             instructions.append(instruction)
         }
-        if let instruction = memoryInstruction(from: context.memories) {
+        if let instruction = memoryInstruction(
+            from: context.memories,
+            formatter: memoryInstructionFormatter
+        ) {
             instructions.append(instruction)
         }
         return instructions
@@ -105,12 +117,15 @@ nonisolated struct ChatPromptAssembler {
         )
     }
 
-    nonisolated private static func memoryInstruction(from memories: [MemoryRecord]) -> ChatInstruction? {
+    nonisolated private static func memoryInstruction(
+        from memories: [MemoryRecord],
+        formatter: ChatMemoryInstructionFormatter
+    ) -> ChatInstruction? {
         let includedMemories = memories.compactMap(includedMemory(from:))
-        guard !includedMemories.isEmpty,
-              let content = try? memoryInstructionContent(from: includedMemories) else {
+        guard !includedMemories.isEmpty else {
             return nil
         }
+        let content = formatter.instructionContent(from: includedMemories.map(\.text))
 
         return ChatInstruction(
             kind: .memory,
@@ -138,14 +153,6 @@ nonisolated struct ChatPromptAssembler {
             formatOptions: [.withInternetDateTime, .withColonSeparatorInTimeZone]
         )
         return "current_datetime: \(formattedDate)"
-    }
-
-    nonisolated private static func memoryInstructionContent(from memories: [IncludedMemory]) throws -> String {
-        let encoder = YAMLEncoder()
-        encoder.options.allowUnicode = true
-        let payload = MemoryInstructionPayload(memories: memories.map(\.text))
-        return try encoder.encode(payload)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     nonisolated private static func latestCreatedAt(from memories: [IncludedMemory]) -> Date {

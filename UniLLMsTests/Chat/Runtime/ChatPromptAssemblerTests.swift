@@ -12,14 +12,14 @@ final class ChatPromptAssemblerTests: XCTestCase {
         let memoryDate = Date(timeIntervalSince1970: 100)
         let messageDate = Date(timeIntervalSince1970: 200)
         let promptDate = Date(timeIntervalSince1970: 50)
-        let prompt = SystemPromptRecord(
+        let prompt = makePrompt(
             title: "Translator",
             content: "Always answer in Chinese.",
             updatedAt: promptDate
         )
         let context = ChatContext(
             messages: [
-                ChatMessage(role: .user, content: "Hello", createdAt: messageDate)
+                makeTestChatMessage(role: .user, content: "Hello", createdAt: messageDate)
             ],
             systemPrompt: prompt,
             memories: [
@@ -41,8 +41,8 @@ final class ChatPromptAssemblerTests: XCTestCase {
 
     func testAssemblePromptKeepsOriginalMessagesWhenInstructionsAreEmpty() {
         let originalMessages = [
-            ChatMessage(role: .system, content: "Be concise."),
-            ChatMessage(role: .user, content: "Summarize this.")
+            makeTestChatMessage(role: .system, content: "Be concise."),
+            makeTestChatMessage(role: .user, content: "Summarize this.")
         ]
 
         let prompt = ChatPromptAssembler().assemblePrompt(
@@ -55,13 +55,13 @@ final class ChatPromptAssemblerTests: XCTestCase {
 
     func testInstructionTextCombinesSystemPromptAndMemories() {
         let originalMessages = [
-            ChatMessage(role: .user, content: "Hello")
+            makeTestChatMessage(role: .user, content: "Hello")
         ]
-        let prompt = SystemPromptRecord(
+        let prompt = makePrompt(
             title: "Translator",
             content: "Always answer in Chinese."
         )
-        let memory = MemoryRecord(scope: .user, text: "Use metric units.")
+        let memory = makeMemory(text: "Use metric units.")
 
         let promptParts = ChatPromptAssembler().assemblePrompt(
             from: ChatContext(
@@ -78,11 +78,11 @@ final class ChatPromptAssemblerTests: XCTestCase {
 
     func testInstructionTextCombinesSystemPromptCurrentDateAndMemories() {
         let currentDate = Date(timeIntervalSince1970: 1_700_000_000)
-        let prompt = SystemPromptRecord(
+        let prompt = makePrompt(
             title: "Translator",
             content: "Always answer in Chinese."
         )
-        let memory = MemoryRecord(scope: .user, text: "Use metric units.")
+        let memory = makeMemory(text: "Use metric units.")
 
         let promptParts = ChatPromptAssembler().assemblePrompt(
             from: ChatContext(
@@ -123,7 +123,7 @@ final class ChatPromptAssemblerTests: XCTestCase {
         let promptParts = ChatPromptAssembler().assemblePrompt(
             from: ChatContext(
                 memories: [
-                    MemoryRecord(scope: .user, text: "Line one\nLine two")
+                    makeMemory(text: "Line one\nLine two")
                 ]
             )
         )
@@ -131,15 +131,40 @@ final class ChatPromptAssemblerTests: XCTestCase {
         XCTAssertYAMLEncodedMemories(promptParts.instructionText, contains: ["Line one", "Line two"])
     }
 
+    func testMemoryInstructionUsesFallbackWhenEncoderFails() {
+        let promptParts = ChatPromptAssembler(
+            memoryInstructionFormatter: ChatMemoryInstructionFormatter(
+                encoder: FailingChatMemoryInstructionEncoder()
+            )
+        ).assemblePrompt(
+            from: ChatContext(
+                memories: [
+                    makeMemory(text: "Line one\nLine two")
+                ]
+            )
+        )
+
+        XCTAssertEqual(promptParts.instructions.map(\.kind), [.memory])
+        XCTAssertEqual(
+            promptParts.instructionText,
+            """
+            memories:
+            - |-
+              Line one
+              Line two
+            """
+        )
+    }
+
     func testAssemblePromptOmitsBlankSystemPromptAndMemory() {
         let originalMessages = [
-            ChatMessage(role: .user, content: "Hello")
+            makeTestChatMessage(role: .user, content: "Hello")
         ]
-        let prompt = SystemPromptRecord(
+        let prompt = makePrompt(
             title: "Blank",
             content: " \n\t "
         )
-        let memory = MemoryRecord(scope: .user, text: " \n\t ")
+        let memory = makeMemory(text: " \n\t ")
 
         let promptParts = ChatPromptAssembler().assemblePrompt(
             from: ChatContext(
@@ -153,6 +178,44 @@ final class ChatPromptAssemblerTests: XCTestCase {
         XCTAssertNil(promptParts.instructionText)
         XCTAssertEqual(promptParts.messages, originalMessages)
     }
+}
+
+private struct FailingChatMemoryInstructionEncoder: ChatMemoryInstructionEncoding {
+    func encodeMemories(_ memories: [String]) throws -> String {
+        throw FailingChatMemoryInstructionEncoderError.failed
+    }
+}
+
+private enum FailingChatMemoryInstructionEncoderError: Error {
+    case failed
+}
+
+private func makePrompt(
+    title: String,
+    content: String,
+    createdAt: Date = Date(timeIntervalSince1970: 1),
+    updatedAt: Date = Date(timeIntervalSince1970: 1)
+) -> SystemPromptRecord {
+    SystemPromptRecord(
+        title: title,
+        content: content,
+        createdAt: createdAt,
+        updatedAt: updatedAt
+    )
+}
+
+private func makeMemory(
+    scope: MemoryScope = .user,
+    text: String,
+    createdAt: Date = Date(timeIntervalSince1970: 1),
+    updatedAt: Date? = nil
+) -> MemoryRecord {
+    MemoryRecord(
+        scope: scope,
+        text: text,
+        createdAt: createdAt,
+        updatedAt: updatedAt
+    )
 }
 
 private func XCTAssertYAMLEncodedMemories(

@@ -9,7 +9,7 @@ import XCTest
 
 final class NativeProviderRendererTests: XCTestCase {
     func testOpenAIRendererCanUseDeveloperInstructionRole() throws {
-        let prompt = SystemPromptRecord(
+        let prompt = makePrompt(
             title: "Developer",
             content: "Answer tersely."
         )
@@ -17,7 +17,7 @@ final class NativeProviderRendererTests: XCTestCase {
         let messages = try OpenAIChatPromptRenderer.messages(
             for: ChatRequest(
                 modelID: "gpt-5.4",
-                messages: [ChatMessage(role: .user, content: "Hello")],
+                messages: [makeTestChatMessage(role: .user, content: "Hello")],
                 context: ChatContext(systemPrompt: prompt)
             ),
             instructionRole: .developer
@@ -40,7 +40,7 @@ final class NativeProviderRendererTests: XCTestCase {
                 for: ChatRequest(
                     modelID: "gpt-5.4",
                     messages: [
-                        ChatMessage(
+                        makeTestChatMessage(
                             role: .user,
                             content: "Describe this image.",
                             attachments: [attachment]
@@ -67,7 +67,7 @@ final class NativeProviderRendererTests: XCTestCase {
                 for: ChatRequest(
                     modelID: "local-model",
                     messages: [
-                        ChatMessage(
+                        makeTestChatMessage(
                             role: .user,
                             content: "Describe this image.",
                             attachments: [attachment]
@@ -94,7 +94,7 @@ final class NativeProviderRendererTests: XCTestCase {
                 for: ChatRequest(
                     modelID: "openai/gpt-5.4",
                     messages: [
-                        ChatMessage(
+                        makeTestChatMessage(
                             role: .user,
                             content: "Describe this image.",
                             attachments: [attachment]
@@ -110,7 +110,7 @@ final class NativeProviderRendererTests: XCTestCase {
     }
 
     func testAnthropicRendererKeepsToolsAsContentBlocks() throws {
-        let prompt = SystemPromptRecord(
+        let prompt = makePrompt(
             title: "Tools",
             content: "Use tools when useful."
         )
@@ -124,9 +124,9 @@ final class NativeProviderRendererTests: XCTestCase {
             request: ChatRequest(
                 modelID: "claude-sonnet-4-5",
                 messages: [
-                    ChatMessage(role: .user, content: "Weather?"),
-                    ChatMessage(role: .assistant, content: "", toolCalls: [toolCall]),
-                    ChatMessage(
+                    makeTestChatMessage(role: .user, content: "Weather?"),
+                    makeTestChatMessage(role: .assistant, content: "", toolCalls: [toolCall]),
+                    makeTestChatMessage(
                         role: .tool,
                         content: "Sunny",
                         toolCallID: "toolu_1",
@@ -188,7 +188,7 @@ final class NativeProviderRendererTests: XCTestCase {
     }
 
     func testGeminiRendererKeepsToolsAsFunctionParts() throws {
-        let prompt = SystemPromptRecord(
+        let prompt = makePrompt(
             title: "Tools",
             content: "Use tools when useful."
         )
@@ -202,9 +202,9 @@ final class NativeProviderRendererTests: XCTestCase {
             request: ChatRequest(
                 modelID: "gemini-2.5-flash",
                 messages: [
-                    ChatMessage(role: .user, content: "Weather?"),
-                    ChatMessage(role: .assistant, content: "", toolCalls: [toolCall]),
-                    ChatMessage(
+                    makeTestChatMessage(role: .user, content: "Weather?"),
+                    makeTestChatMessage(role: .assistant, content: "", toolCalls: [toolCall]),
+                    makeTestChatMessage(
                         role: .tool,
                         content: "Sunny",
                         toolCallID: "gemini_tool_call_0",
@@ -251,7 +251,7 @@ final class NativeProviderRendererTests: XCTestCase {
             request: ChatRequest(
                 modelID: "gemini-3-pro-preview",
                 messages: [
-                    ChatMessage(role: .assistant, content: "", toolCalls: [toolCall])
+                    makeTestChatMessage(role: .assistant, content: "", toolCalls: [toolCall])
                 ],
                 context: ChatContext()
             )
@@ -267,7 +267,7 @@ final class NativeProviderRendererTests: XCTestCase {
             request: ChatRequest(
                 modelID: "gemini-2.5-flash",
                 messages: [
-                    ChatMessage(
+                    makeTestChatMessage(
                         role: .tool,
                         content: "Invalid tool input.",
                         toolCallID: "call_abc",
@@ -347,5 +347,19 @@ final class NativeProviderRendererTests: XCTestCase {
     private func encodedJSONObject<T: Encodable>(_ value: T) throws -> [String: Any] {
         let data = try JSONEncoder().encode(value)
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    private func makePrompt(
+        title: String,
+        content: String,
+        createdAt: Date = Date(timeIntervalSince1970: 1),
+        updatedAt: Date = Date(timeIntervalSince1970: 1)
+    ) -> SystemPromptRecord {
+        SystemPromptRecord(
+            title: title,
+            content: content,
+            createdAt: createdAt,
+            updatedAt: updatedAt
+        )
     }
 }

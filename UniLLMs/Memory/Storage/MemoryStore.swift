@@ -37,13 +37,16 @@ final class UserDefaultsMemoryStore: MemoryStore {
     }
 
     private let store: UserDefaultsStore
+    private let notificationCenter: NotificationCenter
     private let storageKey: String
 
     init(
         defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default,
         storageKey: String = "memoryRecords.v1"
     ) {
-        store = UserDefaultsStore(defaults: defaults)
+        store = UserDefaultsStore(defaults: defaults, notificationCenter: notificationCenter)
+        self.notificationCenter = notificationCenter
         self.storageKey = storageKey
     }
 
@@ -59,48 +62,48 @@ final class UserDefaultsMemoryStore: MemoryStore {
     }
 
     func saveMemory(_ memory: MemoryRecord) async throws {
-        var state = loadState()
-        let previousState = state
-        if let index = state.memories.firstIndex(where: { $0.id == memory.id }) {
-            state.memories[index] = memory
-        } else {
-            state.memories.append(memory)
+        try updateState { state in
+            if let index = state.memories.firstIndex(where: { $0.id == memory.id }) {
+                state.memories[index] = memory
+            } else {
+                state.memories.append(memory)
+            }
         }
-        saveState(state, replacing: previousState)
     }
 
     func deleteMemory(id: UUID) async throws {
-        var state = loadState()
-        let previousState = state
-        state.memories.removeAll {
-            $0.id == id
+        try updateState { state in
+            state.memories.removeAll {
+                $0.id == id
+            }
         }
-        saveState(state, replacing: previousState)
     }
 
     func deleteMemories(scope: MemoryScope?) async throws {
-        var state = loadState()
-        let previousState = state
-        if let scope {
-            state.memories.removeAll {
-                $0.scope == scope
+        try updateState { state in
+            if let scope {
+                state.memories.removeAll {
+                    $0.scope == scope
+                }
+            } else {
+                state.memories = []
             }
-        } else {
-            state.memories = []
         }
-        saveState(state, replacing: previousState)
     }
 
     private func loadState() -> PersistedState {
         store.load(PersistedState.self, forKey: storageKey) ?? PersistedState()
     }
 
-    private func saveState(_ state: PersistedState, replacing previousState: PersistedState) {
-        guard state != previousState else {
-            return
+    private func updateState(_ mutate: (inout PersistedState) -> Void) throws {
+        try store.updateOrThrow(PersistedState.self, forKey: storageKey, defaultValue: PersistedState()) { state in
+            mutate(&state)
+        } didSave: {
+            notifyDidChange()
         }
+    }
 
-        store.save(state, forKey: storageKey)
-        NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
+    private func notifyDidChange() {
+        notificationCenter.post(name: Self.didChangeNotification, object: self)
     }
 }

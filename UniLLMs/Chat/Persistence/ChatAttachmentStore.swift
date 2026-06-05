@@ -23,36 +23,104 @@ nonisolated enum ChatAttachmentStoreError: LocalizedError, Equatable {
     }
 }
 
+nonisolated enum ChatAttachmentStoreFailure: Error {
+    case rootDirectoryFallback(fallbackRootDirectory: URL, underlyingError: Error)
+    case initialDirectoryCreationFailed(rootDirectory: URL, underlyingError: Error)
+}
+
+nonisolated struct ChatAttachmentRootDirectoryResolution {
+    var rootDirectory: URL
+    var failure: ChatAttachmentStoreFailure?
+}
+
+nonisolated protocol ChatAttachmentRootDirectoryResolving {
+    func rootDirectory(fileManager: FileManager) -> ChatAttachmentRootDirectoryResolution
+}
+
+nonisolated struct ChatAttachmentRootDirectoryResolver: ChatAttachmentRootDirectoryResolving {
+    func rootDirectory(fileManager: FileManager) -> ChatAttachmentRootDirectoryResolution {
+        do {
+            let applicationSupportDirectory = try fileManager.url(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: true
+            )
+            return ChatAttachmentRootDirectoryResolution(
+                rootDirectory: Self.chatAttachmentsDirectory(in: applicationSupportDirectory),
+                failure: nil
+            )
+        } catch {
+            let fallbackRootDirectory = Self.chatAttachmentsDirectory(in: fileManager.temporaryDirectory)
+            return ChatAttachmentRootDirectoryResolution(
+                rootDirectory: fallbackRootDirectory,
+                failure: .rootDirectoryFallback(
+                    fallbackRootDirectory: fallbackRootDirectory,
+                    underlyingError: error
+                )
+            )
+        }
+    }
+
+    private static func chatAttachmentsDirectory(in baseDirectory: URL) -> URL {
+        baseDirectory
+            .appendingPathComponent("UniLLMs", isDirectory: true)
+            .appendingPathComponent("ChatAttachments", isDirectory: true)
+    }
+}
+
+nonisolated protocol ChatAttachmentCleanupStore {
+    @discardableResult
+    func deleteUnreferencedAttachments(
+        removing removedAttachments: [ChatAttachment],
+        referencedBy retainedAttachments: [ChatAttachment]
+    ) throws -> ChatAttachmentCleanupResult
+}
+
+nonisolated struct ChatAttachmentCleanupResult: Equatable, Sendable {
+    static let empty = ChatAttachmentCleanupResult(removedUnreferencedAttachments: [])
+
+    var removedUnreferencedAttachments: [ChatAttachment]
+
+    var isEmpty: Bool {
+        removedUnreferencedAttachments.isEmpty
+    }
+}
+
 nonisolated final class ChatAttachmentStore: @unchecked Sendable {
     static let shared = ChatAttachmentStore()
 
     private let fileManager: FileManager
     private let rootDirectory: URL
+    private let didFail: (ChatAttachmentStoreFailure) -> Void
     private let lock = NSLock()
 
     init(
         fileManager: FileManager = .default,
-        rootDirectory: URL? = nil
+        rootDirectory: URL? = nil,
+        rootDirectoryResolver: any ChatAttachmentRootDirectoryResolving = ChatAttachmentRootDirectoryResolver(),
+        didFail: @escaping (ChatAttachmentStoreFailure) -> Void = { _ in }
     ) {
         self.fileManager = fileManager
-        if let rootDirectory {
-            self.rootDirectory = rootDirectory
-        } else {
-            let applicationSupport = (try? fileManager.url(
-                for: .applicationSupportDirectory,
-                in: .userDomainMask,
-                appropriateFor: nil,
-                create: true
-            )) ?? URL(fileURLWithPath: NSTemporaryDirectory())
-            self.rootDirectory = applicationSupport
-                .appendingPathComponent("UniLLMs", isDirectory: true)
-                .appendingPathComponent("ChatAttachments", isDirectory: true)
-        }
+        self.didFail = didFail
+        let resolution = rootDirectory.map {
+            ChatAttachmentRootDirectoryResolution(rootDirectory: $0, failure: nil)
+        } ?? rootDirectoryResolver.rootDirectory(fileManager: fileManager)
+        self.rootDirectory = resolution.rootDirectory
 
-        try? fileManager.createDirectory(
-            at: self.rootDirectory,
-            withIntermediateDirectories: true
-        )
+        if let failure = resolution.failure {
+            reportFailure(failure)
+        }
+        do {
+            try ensureRootDirectoryExists()
+        } catch {
+            reportFailure(
+                .initialDirectoryCreationFailed(
+                    rootDirectory: resolution.rootDirectory,
+                    underlyingError: error
+                )
+            )
+        }
     }
 
     /// Copies the given file URL into the managed directory.
@@ -141,27 +209,32 @@ nonisolated final class ChatAttachmentStore: @unchecked Sendable {
     func deleteUnreferencedAttachments(
         removing removedAttachments: [ChatAttachment],
         referencedBy retainedAttachments: [ChatAttachment]
-    ) throws {
+    ) throws -> ChatAttachmentCleanupResult {
         guard !removedAttachments.isEmpty else {
-            return
+            return .empty
         }
 
         lock.lock()
         defer { lock.unlock() }
 
         let retainedAssetIDs = Set(retainedAttachments.map(\.assetID))
+        var removedUnreferencedAttachments: [ChatAttachment] = []
         var deletedAssetIDs = Set<UUID>()
 
         for attachment in removedAttachments where !retainedAssetIDs.contains(attachment.assetID) {
+            guard deletedAssetIDs.insert(attachment.assetID).inserted else {
+                continue
+            }
+            removedUnreferencedAttachments.append(attachment)
             guard let url = storedURL(for: attachment),
                   fileManager.fileExists(atPath: url.path) else {
                 continue
             }
-            guard deletedAssetIDs.insert(attachment.assetID).inserted else {
-                continue
-            }
             try fileManager.removeItem(at: url)
         }
+        return ChatAttachmentCleanupResult(
+            removedUnreferencedAttachments: removedUnreferencedAttachments
+        )
     }
 
     static func mimeType(forFilename filename: String) -> String? {
@@ -189,6 +262,10 @@ nonisolated final class ChatAttachmentStore: @unchecked Sendable {
         )
     }
 
+    private func reportFailure(_ failure: ChatAttachmentStoreFailure) {
+        didFail(failure)
+    }
+
     private func storedURL(for attachment: ChatAttachment) -> URL? {
         guard Self.isStoredRelativePath(attachment.relativePath) else {
             return nil
@@ -200,3 +277,5 @@ nonisolated final class ChatAttachmentStore: @unchecked Sendable {
         !relativePath.isEmpty && relativePath == (relativePath as NSString).lastPathComponent
     }
 }
+
+nonisolated extension ChatAttachmentStore: ChatAttachmentCleanupStore {}

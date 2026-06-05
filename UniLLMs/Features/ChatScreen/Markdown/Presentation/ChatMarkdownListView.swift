@@ -17,6 +17,7 @@ final class ChatMarkdownListView: UIView {
     private var listBlock: ChatMarkdownListBlock
     private let style: ChatMarkdownRenderStyle
     private let renderingTraitCollection: UITraitCollection
+    private let imageLoader: any ChatMarkdownImageLoading
     private let stackView = UIStackView()
     private var itemViews: [ChatMarkdownListItemView] = []
     private var markerColumnWidth: CGFloat
@@ -26,11 +27,13 @@ final class ChatMarkdownListView: UIView {
     init(
         listBlock: ChatMarkdownListBlock,
         style: ChatMarkdownRenderStyle,
-        traitCollection: UITraitCollection
+        traitCollection: UITraitCollection,
+        imageLoader: any ChatMarkdownImageLoading = URLSessionChatMarkdownImageLoader()
     ) {
         self.listBlock = listBlock
         self.style = style
         renderingTraitCollection = traitCollection
+        self.imageLoader = imageLoader
         markerColumnWidth = Self.markerColumnWidth(
             for: listBlock,
             style: style,
@@ -117,6 +120,7 @@ final class ChatMarkdownListView: UIView {
                 isOrdered: listBlock.isOrdered,
                 style: style,
                 traitCollection: renderingTraitCollection,
+                imageLoader: imageLoader,
                 onNeedsHeightUpdate: { [weak self] in
                     self?.onNeedsHeightUpdate?()
                 }
@@ -224,6 +228,7 @@ private final class ChatMarkdownListItemView: UIView {
     private let contentStackView = UIStackView()
     private var markerWidthConstraint: NSLayoutConstraint?
     private var childRecords: [ChatMarkdownRenderedBlockViewRecord] = []
+    private let imageLoader: any ChatMarkdownImageLoading
     private let onNeedsHeightUpdate: (() -> Void)?
 
     init(
@@ -232,6 +237,7 @@ private final class ChatMarkdownListItemView: UIView {
         isOrdered: Bool,
         style: ChatMarkdownRenderStyle,
         traitCollection: UITraitCollection,
+        imageLoader: any ChatMarkdownImageLoading,
         onNeedsHeightUpdate: (() -> Void)?
     ) {
         self.item = item
@@ -239,6 +245,7 @@ private final class ChatMarkdownListItemView: UIView {
         self.isOrdered = isOrdered
         self.style = style
         renderingTraitCollection = traitCollection
+        self.imageLoader = imageLoader
         self.onNeedsHeightUpdate = onNeedsHeightUpdate
         super.init(frame: .zero)
         configure()
@@ -390,7 +397,8 @@ private final class ChatMarkdownListItemView: UIView {
     private var blockViewConfiguration: ChatMarkdownRenderedBlockViewConfiguration {
         ChatMarkdownRenderedBlockViewConfiguration(
             style: style,
-            traitCollection: renderingTraitCollection
+            traitCollection: renderingTraitCollection,
+            imageLoader: imageLoader
         ) { [weak self] in
             self?.onNeedsHeightUpdate?()
         }

@@ -185,7 +185,7 @@ nonisolated struct ChatMessage: Equatable, Identifiable {
         toolDisplayName: String? = nil,
         toolStatus: ToolExecutionStatus? = nil,
         attachments: [ChatAttachment] = [],
-        createdAt: Date = Date()
+        createdAt: Date
     ) {
         self.id = id
         self.role = role
@@ -200,8 +200,8 @@ nonisolated struct ChatMessage: Equatable, Identifiable {
     }
 }
 
-nonisolated struct ChatAttachment: Codable, Equatable, Identifiable {
-    nonisolated enum Kind: String, Codable, Equatable {
+nonisolated struct ChatAttachment: Codable, Equatable, Identifiable, Sendable {
+    nonisolated enum Kind: String, Codable, Equatable, Sendable {
         case image
         case file
     }
@@ -243,8 +243,8 @@ nonisolated struct ChatSession: Codable, Equatable, Identifiable {
     init(
         id: UUID = UUID(),
         title: String = "",
-        createdAt: Date = Date(),
-        updatedAt: Date = Date(),
+        createdAt: Date,
+        updatedAt: Date,
         selectedSystemPromptID: UUID? = nil
     ) {
         self.id = id

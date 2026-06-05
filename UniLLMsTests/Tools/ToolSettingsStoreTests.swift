@@ -57,6 +57,52 @@ final class ToolSettingsStoreTests: UserDefaultsBackedTestCase {
         XCTAssertTrue(migratedStore.loadToolsEnabled())
     }
 
+    func testToolSettingsStoreIgnoresLegacyMCPStateWithoutGlobalToolsEnabled() throws {
+        let legacyJSON = #"{"servers":[{"name":"Team Tools"}]}"#
+        defaults.set(try XCTUnwrap(legacyJSON.data(using: .utf8)), forKey: "legacyMCPSettings")
+
+        let settingsStore = UserDefaultsToolSettingsStore(
+            defaults: defaults,
+            storageKey: "serverOnlyLegacyToolSettings",
+            legacyMCPStorageKey: "legacyMCPSettings"
+        )
+
+        XCTAssertFalse(settingsStore.loadToolsEnabled())
+
+        settingsStore.saveToolsEnabled(true)
+
+        XCTAssertTrue(settingsStore.loadToolsEnabled())
+    }
+
+    func testToolSettingsStorePostsOnlyOnInjectedNotificationCenter() {
+        let notificationCenter = NotificationCenter()
+        let settingsStore = UserDefaultsToolSettingsStore(
+            defaults: defaults,
+            notificationCenter: notificationCenter,
+            storageKey: "toolNotificationSettings",
+            legacyMCPStorageKey: "missingLegacyMCPSettings"
+        )
+        let injectedObserver = StoreNotificationObserver(
+            name: UserDefaultsToolSettingsStore.didChangeNotification,
+            object: settingsStore,
+            notificationCenter: notificationCenter
+        )
+        let defaultObserver = StoreNotificationObserver(
+            name: UserDefaultsToolSettingsStore.didChangeNotification,
+            object: settingsStore,
+            notificationCenter: .default
+        )
+        defer {
+            injectedObserver.invalidate()
+            defaultObserver.invalidate()
+        }
+
+        settingsStore.saveToolsEnabled(true)
+
+        XCTAssertEqual(injectedObserver.notificationCount, 1)
+        XCTAssertEqual(defaultObserver.notificationCount, 0)
+    }
+
     func testToolSettingsManagerUpdatesBuiltInToolsAsGroup() {
         let settingsStore = UserDefaultsToolSettingsStore(
             defaults: defaults,

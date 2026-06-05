@@ -7,16 +7,10 @@
 //
 
 import UIKit
-import PhotosUI
-import QuickLook
-import UniformTypeIdentifiers
 
 final class ChatViewController: UIViewController {
     private enum HeaderLayout {
         static var defaultModuleSelectionTitle: String { String(localized: .chatSelectModel) }
-        static let emptyConversationButtonSystemName = "app.dashed"
-        static let privateConversationActiveButtonSystemName = "lock.app.dashed"
-        static let newConversationButtonSystemName = "plus.message"
         static let buttonSize: CGFloat = 44.0
         static let horizontalInset: CGFloat = 16.0
         static let itemSpacing: CGFloat = 8.0
@@ -31,6 +25,7 @@ final class ChatViewController: UIViewController {
     private enum ComposerLayout {
         static let keyboardHorizontalInset: CGFloat = 14.0
         static let keyboardBottomSpacing: CGFloat = 8.0
+        static let attachmentThumbnailPointSize: CGFloat = 110.0
     }
 
     private enum MessagesLayout {
@@ -45,6 +40,7 @@ final class ChatViewController: UIViewController {
         static let autoScrollAnimationDuration: TimeInterval = 0.24
         static let existingMessageShiftVisibilityMargin: CGFloat = 80.0
         static let bottomLockTolerance: CGFloat = 2.0
+        static let sentAttachmentThumbnailPointSize: CGFloat = 48.0
     }
 
     private enum SideMenuLayout {
@@ -55,7 +51,13 @@ final class ChatViewController: UIViewController {
         static let shadowOpacity: Float = 0.18
         static let shadowRadius: CGFloat = 28.0
         static let shadowOffset = CGSize(width: -10.0, height: 0.0)
+        static let pageCornerRadius: CGFloat = 32.0
     }
+
+    private typealias ActiveAssistantResponseContext = ChatActiveAssistantResponseContext<
+        SentMessageBubbleView,
+        AssistantResponseTextView
+    >
 
     private var dependencies = AppEnvironment.shared.dependencies
     private let rootBackgroundView = UIView()
@@ -91,8 +93,11 @@ final class ChatViewController: UIViewController {
         title: HeaderLayout.defaultModuleSelectionTitle
     )
     private let rightHeaderButton = ChatViewController.makeHeaderButton(
-        systemName: HeaderLayout.emptyConversationButtonSystemName,
-        accessibilityLabel: String(localized: .chatPrivateChat)
+        presentation: .make(
+            isGeneratingResponse: false,
+            isPrivateModeEnabled: false,
+            hasChatContent: false
+        )
     )
     private let messagesScrollView = UIScrollView()
     private lazy var messagesScrollCoordinator = MessagesScrollCoordinator(
@@ -100,6 +105,32 @@ final class ChatViewController: UIViewController {
         bottomLockTolerance: MessagesLayout.bottomLockTolerance,
         autoScrollAnimationDuration: MessagesLayout.autoScrollAnimationDuration
     )
+    private lazy var existingMessagesShiftAnimator: ChatExistingMessagesShiftAnimator = {
+        ChatExistingMessagesShiftAnimator(
+            hostView: view,
+            referenceView: mainPageView,
+            scrollView: messagesScrollView,
+            stackView: messagesStackView,
+            visibilityMargin: MessagesLayout.existingMessageShiftVisibilityMargin,
+            animationDuration: MessagesLayout.sendAnimationDuration,
+            dampingRatio: MessagesLayout.sendAnimationDampingRatio
+        )
+    }()
+    private lazy var sentMessageSendAnimator: ChatSentMessageSendAnimator = {
+        ChatSentMessageSendAnimator(
+            hostView: view,
+            referenceView: mainPageView,
+            animationDuration: MessagesLayout.sendAnimationDuration,
+            dampingRatio: MessagesLayout.sendAnimationDampingRatio,
+            attachmentDisplayBuilder: { [weak self] attachments in
+                self?.attachmentPreviewDisplayBuilder.cachedDisplays(
+                    for: attachments,
+                    thumbnailMaxPointSize: MessagesLayout.sentAttachmentThumbnailPointSize
+                )
+                    ?? ChatAttachmentPreviewDisplay.placeholders(for: attachments)
+            }
+        )
+    }()
     private let messagesContentView = MessagesContentView()
     /// Empty title label sitting in the chat header band. It is placed behind
     /// the three header glass elements and in front of the messages scroll
@@ -110,31 +141,118 @@ final class ChatViewController: UIViewController {
     /// blur + fade — directly over this region.
     private let topTitleLabel = UILabel()
     private let messagesStackView = UIStackView()
+    private lazy var messageStackAdapter: ChatMessageStackAdapter = {
+        ChatMessageStackAdapter(
+            stackView: messagesStackView,
+            maximumBubbleWidthRatio: MessagesLayout.maximumBubbleWidthRatio,
+            attachmentDisplayBuilder: { [weak self] attachments in
+                self?.attachmentPreviewDisplayBuilder.cachedDisplays(
+                    for: attachments,
+                    thumbnailMaxPointSize: MessagesLayout.sentAttachmentThumbnailPointSize
+                )
+                    ?? ChatAttachmentPreviewDisplay.placeholders(for: attachments)
+            }
+        ) { [weak self] bubbleView, messageID in
+            self?.configureSentMessageActions(for: bubbleView, messageID: messageID)
+        }
+    }()
     private var messagesContentMinimumHeightConstraint: NSLayoutConstraint!
     private let composerView = GlassComposerBarView()
     private var composerLeadingConstraint: NSLayoutConstraint!
     private var composerTrailingConstraint: NSLayoutConstraint!
     private var composerKeyboardBottomConstraint: NSLayoutConstraint!
     private var composerRestingBottomConstraint: NSLayoutConstraint!
-    private var keyboardObservation: NotificationCenter.ObservationToken?
+    private var keyboardObservation: NSObjectProtocol?
     private var selectedModelSelectionObservation: NSObjectProtocol?
     private var chatHistoryObservation: NSObjectProtocol?
+    private var attachmentCleanupObservation: NSObjectProtocol?
+    private var attachmentThumbnailMemoryWarningObservation: NSObjectProtocol?
     private var systemPromptObservation: NSObjectProtocol?
-    private var historyReloadTask: Task<Void, Never>?
-    private var historySelectionTask: Task<Void, Never>?
     private var isKeyboardVisible = false
     private var isSideMenuOpen = false
     private var selectedModelSelection: ChatModelSelection?
-    private var activeResponseTask: Task<Void, Never>?
-    private var activeContinuationTask: ChatContinuationTask?
+    private let responseStreamController = ChatResponseStreamController()
+    private lazy var assistantResponseMutationAdapter = ChatAssistantResponseMutationAdapter<AssistantResponseTextView>(
+        invalidateLayout: { [weak self] in
+            self?.messagesStackView.setNeedsLayout()
+            self?.messagesContentView.setNeedsLayout()
+            self?.messagesScrollView.setNeedsLayout()
+            self?.mainPageView.setNeedsLayout()
+        }
+    )
+    private lazy var responseActivationPresentationAdapter = ChatResponseActivationPresentationAdapter(
+        setComposerSendingEnabled: { [weak self] isEnabled in
+            self?.composerView.isSendingEnabled = isEnabled
+        },
+        setComposerStreamingActive: { [weak self] isActive, animated in
+            self?.composerView.setStreamingResponseActive(isActive, animated: animated)
+        },
+        setBackgroundFlowing: { [weak self] isFlowing, animated in
+            self?.backgroundView.setFlowing(isFlowing, animated: animated)
+        },
+        updateHeader: { [weak self] animated in
+            self?.updateRightHeaderButtonState(animated: animated)
+        }
+    )
+    private lazy var assistantResponseFailurePresentationWorkflow = makeAssistantResponseFailurePresentationWorkflow()
+    private lazy var historyWorkflowController = ChatHistoryWorkflowController(historyStore: chatHistoryStore)
+    private lazy var conversationResetWorkflow = makeConversationResetWorkflow()
+    private lazy var historyPresentationWorkflow = makeHistoryPresentationWorkflow()
+    private lazy var messageRevisionSwitchWorkflow = makeMessageRevisionSwitchWorkflow()
+    private lazy var messageResendWorkflow = makeMessageResendWorkflow()
+    private lazy var messageActionPresentationWorkflow = makeMessageActionPresentationWorkflow()
     private weak var activeResponseView: AssistantResponseTextView?
-    private var pendingAttachments: [ChatAttachment] = []
-    private var privateModeAttachmentReferences: [ChatAttachment] = []
+    private var activeResponseContext: ActiveAssistantResponseContext?
     private let attachmentStore = ChatAttachmentStore.shared
-    private var attachmentPreviewItem: AttachmentPreviewItem?
+    private lazy var attachmentThumbnailProvider = ChatAttachmentThumbnailProvider(
+        scale: { [weak self] in
+            self?.view.window?.windowScene?.screen.scale
+                ?? self?.traitCollection.displayScale
+                ?? 2.0
+        }
+    )
+    private lazy var attachmentPreviewDisplayBuilder = ChatAttachmentPreviewDisplayBuilder(
+        thumbnailProvider: attachmentThumbnailProvider
+    )
+    private lazy var attachmentPreviewDisplayPipeline = ChatAttachmentPreviewDisplayPipeline(
+        displayBuilder: attachmentPreviewDisplayBuilder,
+        asyncLoader: ChatAttachmentAsyncThumbnailLoader(
+            fileURL: { [attachmentStore] attachment in
+                attachmentStore.fileURL(for: attachment)
+            },
+            scale: { [weak self] in
+                self?.view.window?.windowScene?.screen.scale
+                    ?? self?.traitCollection.displayScale
+                    ?? 2.0
+            }
+        )
+    )
+    private lazy var sentMessageAttachmentDisplayUpdater = ChatMessageAttachmentDisplayUpdater(
+        messageStackAdapter: messageStackAdapter,
+        attachmentPreviewDisplayPipeline: attachmentPreviewDisplayPipeline,
+        thumbnailMaxPointSize: MessagesLayout.sentAttachmentThumbnailPointSize
+    )
+    private lazy var attachmentImporter = ChatAttachmentImporter(attachmentStore: attachmentStore)
+    private lazy var systemPromptSelectionWorkflow = makeSystemPromptSelectionWorkflow()
+    private lazy var composerAddWorkflow = makeComposerAddWorkflow()
+    private lazy var idleModalPresenter = makeIdleModalPresenter()
+    private lazy var attachmentPreviewController = ChatAttachmentPreviewController { [attachmentStore] attachment in
+        attachmentStore.fileURL(for: attachment)
+    }
+    private lazy var attachmentPreviewWorkflow = makeAttachmentPreviewWorkflow()
+    private lazy var composerAttachmentWorkflow = makeComposerAttachmentWorkflow()
+    private lazy var attachmentAcquisitionWorkflow = makeAttachmentAcquisitionWorkflow()
+    private lazy var outgoingMessageTransactionWorkflow = makeOutgoingMessageTransactionWorkflow()
+    private lazy var outgoingTurnPreparationWorkflow = makeOutgoingTurnPreparationWorkflow()
+    private lazy var composerSendWorkflow = makeComposerSendWorkflow()
 
     func configure(dependencies: AppDependencyContainer) {
         self.dependencies = dependencies
+        systemPromptSelectionWorkflow = makeSystemPromptSelectionWorkflow()
+        outgoingTurnPreparationWorkflow = makeOutgoingTurnPreparationWorkflow()
+        if isViewLoaded {
+            installHistoryPersistenceFailureHandler()
+        }
     }
 
     override func viewDidLoad() {
@@ -152,6 +270,8 @@ final class ChatViewController: UIViewController {
         installKeyboardObserver()
         installSelectedModelSelectionObserver()
         installChatHistoryObserver()
+        installAttachmentThumbnailCacheObservers()
+        installHistoryPersistenceFailureHandler()
         installSystemPromptObserver()
         reloadSelectedModelSelection(animated: false)
         reloadSelectedSystemPrompt()
@@ -159,16 +279,22 @@ final class ChatViewController: UIViewController {
     }
 
     deinit {
-        activeResponseTask?.cancel()
-        if let activeContinuationTask {
-            Task { @MainActor in
-                activeContinuationTask.finish(success: false)
+        let responseStreamController = responseStreamController
+        let historyWorkflowController = historyWorkflowController
+        let attachmentAcquisitionWorkflow = attachmentAcquisitionWorkflow
+        let composerAttachmentWorkflow = composerAttachmentWorkflow
+        let attachmentPreviewDisplayPipeline = attachmentPreviewDisplayPipeline
+        let chatRuntime = chatRuntime
+        Task { @MainActor in
+            responseStreamController.cancel()
+            historyWorkflowController.cancel()
+            attachmentAcquisitionWorkflow.cancel()
+            attachmentPreviewDisplayPipeline.cancelAll()
+            if chatRuntime.isPrivacyModeEnabled {
+                composerAttachmentWorkflow.discardPrivateModeAttachments(
+                    including: chatRuntime.currentConversationAttachments
+                )
             }
-        }
-        historyReloadTask?.cancel()
-        historySelectionTask?.cancel()
-        if chatRuntime.isPrivacyModeEnabled {
-            discardPrivateModeAttachments(including: chatRuntime.currentConversationAttachments)
         }
         if let keyboardObservation {
             NotificationCenter.default.removeObserver(keyboardObservation)
@@ -178,6 +304,12 @@ final class ChatViewController: UIViewController {
         }
         if let chatHistoryObservation {
             NotificationCenter.default.removeObserver(chatHistoryObservation)
+        }
+        if let attachmentCleanupObservation {
+            NotificationCenter.default.removeObserver(attachmentCleanupObservation)
+        }
+        if let attachmentThumbnailMemoryWarningObservation {
+            NotificationCenter.default.removeObserver(attachmentThumbnailMemoryWarningObservation)
         }
         if let systemPromptObservation {
             NotificationCenter.default.removeObserver(systemPromptObservation)
@@ -373,7 +505,7 @@ final class ChatViewController: UIViewController {
     private func configureComposerView() {
         composerView.translatesAutoresizingMaskIntoConstraints = false
         composerView.onSend = { [weak self] transition in
-            self?.appendSentMessage(using: transition)
+            self?.appendSentMessage(using: transition) ?? false
         }
         composerView.onStop = { [weak self] in
             self?.cancelAssistantResponseStream()
@@ -385,10 +517,10 @@ final class ChatViewController: UIViewController {
             self?.updateMessagesContentInsets()
         }
         composerView.onRemoveAttachment = { [weak self] id in
-            self?.removePendingAttachment(id: id)
+            self?.composerAttachmentWorkflow.removePendingAttachment(id: id)
         }
         composerView.onPreviewAttachment = { [weak self] id in
-            self?.previewPendingAttachment(id: id)
+            self?.composerAttachmentWorkflow.previewPendingAttachment(id: id)
         }
         composerView.onRemoveSystemPrompt = { [weak self] in
             self?.clearSelectedSystemPrompt()
@@ -588,20 +720,23 @@ final class ChatViewController: UIViewController {
 
     private func installKeyboardObserver() {
         keyboardObservation = NotificationCenter.default.addObserver(
-            of: UIScreen.self,
-            for: .keyboardWillChangeFrame
-        ) { [weak self] message in
-            guard let self else {
+            forName: UIResponder.keyboardWillChangeFrameNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let keyboardFrameChange = ChatKeyboardFrameChange(
+                    notification: notification,
+                    screenBounds: self.view.window?.windowScene?.screen.bounds ?? self.view.bounds
+                  ) else {
                 return
             }
 
-            self.isKeyboardVisible = message.endFrame.minY < message.screen.bounds.maxY
-            let options = UIView.AnimationOptions(rawValue: UInt(message.animationCurve.rawValue << 16))
-                .union(.beginFromCurrentState)
+            self.isKeyboardVisible = keyboardFrameChange.isKeyboardVisible
             self.updateComposerLayout(
                 animated: true,
-                duration: message.animationDuration,
-                options: options
+                duration: keyboardFrameChange.animationDuration,
+                options: keyboardFrameChange.animationOptions
             )
         }
     }
@@ -652,89 +787,72 @@ final class ChatViewController: UIViewController {
     }
 
     @objc private func presentModelSelection() {
-        guard presentedViewController == nil else {
-            return
-        }
+        idleModalPresenter.presentIfIdle {
+            let modelSelectionViewController = ModelSelectionViewController(
+                dependencies: dependencies,
+                selectedModelSelection: selectedModelSelection
+            ) { [weak self] selection in
+                guard let self else {
+                    return
+                }
 
-        view.endEditing(true)
-
-        let modelSelectionViewController = ModelSelectionViewController(
-            dependencies: dependencies,
-            selectedModelSelection: selectedModelSelection
-        ) { [weak self] selection in
-            guard let self else {
-                return
+                selectedModelSelection = selection
+                providerStore.saveSelectedModelSelection(selection)
+                updateModuleSelectionTitle(animated: true)
             }
-
-            selectedModelSelection = selection
-            providerStore.saveSelectedModelSelection(selection)
-            updateModuleSelectionTitle(animated: true)
+            return ChatPageSheetPresentation.wrapInNavigationController(
+                rootViewController: modelSelectionViewController
+            )
         }
-        let navigationController = UINavigationController(rootViewController: modelSelectionViewController)
-        navigationController.modalPresentationStyle = .pageSheet
-        present(navigationController, animated: true)
     }
 
     @objc private func presentSettings() {
-        guard presentedViewController == nil else {
-            return
+        idleModalPresenter.presentIfIdle {
+            let settingsViewController = SettingsViewController(dependencies: dependencies)
+            return ChatPageSheetPresentation.wrapInNavigationController(
+                rootViewController: settingsViewController
+            )
         }
-
-        view.endEditing(true)
-
-        let settingsViewController = SettingsViewController(dependencies: dependencies)
-        let navigationController = UINavigationController(rootViewController: settingsViewController)
-        navigationController.modalPresentationStyle = .pageSheet
-        present(navigationController, animated: true)
     }
 
     @objc private func rightHeaderButtonPressed() {
-        if hasChatContent {
+        switch ChatHeaderActionPolicy.action(
+            isResponseActive: responseStreamController.isActive,
+            hasChatContent: hasChatContent
+        ) {
+        case .startNewConversation:
             startNewConversation()
-        } else {
+        case .togglePrivacyMode:
             togglePrivacyMode()
+        case .ignore:
+            return
         }
     }
 
     private func startNewConversation() {
-        guard activeResponseTask == nil,
-              hasChatContent else {
+        guard ChatHeaderActionPolicy.action(
+            isResponseActive: responseStreamController.isActive,
+            hasChatContent: hasChatContent
+        ) == .startNewConversation else {
             return
         }
 
-        let shouldKeepPrivacyMode = chatRuntime.isPrivacyModeEnabled
-        if chatRuntime.isPrivacyModeEnabled {
-            clearPendingAttachments(deleteFiles: true)
-        }
-        let discardedAttachments = chatRuntime.resetConversation(privacyMode: shouldKeepPrivacyMode)
-        discardPrivateModeAttachments(including: discardedAttachments)
-        removeChatContent()
-        reloadSelectedSystemPrompt()
-        messagesScrollCoordinator.lockToBottom()
-        updateRightHeaderButtonState(animated: true)
-        reloadHistorySessions(selectedSessionID: nil)
+        conversationResetWorkflow.perform(
+            .startNewConversation(isPrivacyModeEnabled: chatRuntime.isPrivacyModeEnabled)
+        )
     }
 
     private func togglePrivacyMode() {
-        guard activeResponseTask == nil,
-              !hasChatContent else {
+        guard ChatHeaderActionPolicy.action(
+            isResponseActive: responseStreamController.isActive,
+            hasChatContent: hasChatContent
+        ) == .togglePrivacyMode else {
             return
         }
 
-        if chatRuntime.isPrivacyModeEnabled {
-            clearPendingAttachments(deleteFiles: true)
-            let discardedAttachments = chatRuntime.resetConversation(privacyMode: false)
-            discardPrivateModeAttachments(including: discardedAttachments)
-        } else {
-            clearPendingAttachments(deleteFiles: true)
-            chatRuntime.resetConversation(privacyMode: true)
-        }
-
-        removeChatContent()
-        reloadSelectedSystemPrompt()
-        messagesScrollCoordinator.lockToBottom()
-        updateRightHeaderButtonState(animated: true)
-        reloadHistorySessions(selectedSessionID: nil)
+        conversationResetWorkflow.perform(
+            .togglePrivacyMode(isPrivacyModeEnabled: chatRuntime.isPrivacyModeEnabled)
+        )
     }
 
     private func setSideMenuOpen(_ isOpen: Bool, animated: Bool) {
@@ -783,21 +901,26 @@ final class ChatViewController: UIViewController {
     }
 
     private func updateSideMenuLayout() {
-        let revealWidth = view.bounds.width * SideMenuLayout.revealRatio
-        let pageCornerRadius = currentPageCornerRadius
+        let geometry = ChatSideMenuPageGeometry.make(
+            isOpen: isSideMenuOpen,
+            pageWidth: view.bounds.width,
+            revealRatio: SideMenuLayout.revealRatio,
+            openPageOpacity: SideMenuLayout.pageOpacity,
+            openCornerRadius: SideMenuLayout.pageCornerRadius,
+            openShadowOpacity: SideMenuLayout.shadowOpacity
+        )
 
-        mainPageContainerView.transform = isSideMenuOpen
-            ? CGAffineTransform(translationX: revealWidth, y: 0.0)
-            : .identity
-        mainPageContainerView.layer.shadowOpacity = isSideMenuOpen
-            ? SideMenuLayout.shadowOpacity
-            : 0.0
-        mainPageView.alpha = isSideMenuOpen ? SideMenuLayout.pageOpacity : 1.0
-        mainPageView.layer.cornerRadius = isSideMenuOpen ? pageCornerRadius : 0.0
-        mainPageView.layer.masksToBounds = isSideMenuOpen
-        sideMenuView.alpha = isSideMenuOpen ? 1.0 : 0.0
-        sideMenuDismissControl.alpha = isSideMenuOpen ? 1.0 : 0.0
-        updateMainPageShadowPath(cornerRadius: isSideMenuOpen ? pageCornerRadius : 0.0)
+        mainPageContainerView.transform = CGAffineTransform(
+            translationX: geometry.pageTranslationX,
+            y: 0.0
+        )
+        mainPageContainerView.layer.shadowOpacity = geometry.shadowOpacity
+        mainPageView.alpha = geometry.pageAlpha
+        mainPageView.layer.cornerRadius = geometry.pageCornerRadius
+        mainPageView.layer.masksToBounds = geometry.pageMasksToBounds
+        sideMenuView.alpha = geometry.sideMenuAlpha
+        sideMenuDismissControl.alpha = geometry.dismissControlAlpha
+        updateMainPageShadowPath(cornerRadius: geometry.pageCornerRadius)
     }
 
     private func updateComposerBottomConstraint() {
@@ -807,202 +930,40 @@ final class ChatViewController: UIViewController {
     }
 
     private func presentComposerAddSheet() {
-        view.endEditing(true)
-
-        let addViewController = ComposerAddSheetViewController()
-        addViewController.modalPresentationStyle = .pageSheet
-        if let sheet = addViewController.sheetPresentationController {
-            sheet.detents = [.medium(), .large()]
-            sheet.prefersGrabberVisible = true
-        }
-        addViewController.preferredTransition = .zoom { [weak self] _ in
-            self?.composerView.plusSourceView
-        }
-        addViewController.onAction = { [weak self] action in
-            self?.handleComposerAddSheetAction(action)
-        }
-        present(addViewController, animated: true)
-    }
-
-    private func handleComposerAddSheetAction(_ action: ComposerAddSheetViewController.Action) {
-        switch action {
-        case .systemPrompt:
-            presentSystemPromptSelection()
-        case .camera:
-            presentCameraPicker()
-        case .photoLibrary:
-            presentPhotoLibraryPicker()
-        case .files:
-            presentDocumentPicker()
+        idleModalPresenter.presentIfIdle {
+            composerAddWorkflow.makeAddSheetViewController()
         }
     }
 
     private func presentSystemPromptSelection() {
-        guard presentedViewController == nil else {
-            return
+        idleModalPresenter.presentIfIdle(endEditing: false) {
+            systemPromptSelectionWorkflow.makeSelectionViewController()
         }
-
-        let promptsViewController = SystemPromptsViewController(
-            dependencies: dependencies,
-            mode: .select(
-                selectedID: chatRuntime.selectedSystemPromptID,
-                onSelect: { [weak self] prompt in
-                    self?.selectSystemPrompt(prompt)
-                },
-                onClear: { [weak self] in
-                    self?.clearSelectedSystemPrompt()
-                }
-            )
-        )
-        let navigationController = UINavigationController(rootViewController: promptsViewController)
-        navigationController.modalPresentationStyle = .pageSheet
-        present(navigationController, animated: true)
-    }
-
-    private func presentCameraPicker() {
-        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
-            presentAttachmentError(String(localized: .chatAttachmentCameraUnavailable))
-            return
-        }
-
-        let picker = UIImagePickerController()
-        picker.sourceType = .camera
-        picker.cameraCaptureMode = .photo
-        picker.allowsEditing = false
-        picker.delegate = self
-        present(picker, animated: true)
-    }
-
-    private func presentPhotoLibraryPicker() {
-        var configuration = PHPickerConfiguration(photoLibrary: .shared())
-        configuration.filter = .images
-        configuration.selectionLimit = 0
-        configuration.preferredAssetRepresentationMode = .current
-
-        let picker = PHPickerViewController(configuration: configuration)
-        picker.delegate = self
-        present(picker, animated: true)
-    }
-
-    private func presentDocumentPicker() {
-        let picker = UIDocumentPickerViewController(
-            forOpeningContentTypes: [UTType.item],
-            asCopy: true
-        )
-        picker.allowsMultipleSelection = true
-        picker.delegate = self
-        present(picker, animated: true)
     }
 
     private func presentAttachmentError(_ message: String) {
-        let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+        presentChatAlert(title: nil, message: message)
+    }
+
+    private func presentChatHistoryPersistenceError(_ error: Error) {
+        presentChatAlert(
+            title: String(localized: .chatHistorySaveFailed),
+            message: error.localizedDescription
+        )
+    }
+
+    private func presentChatAlert(title: String?, message: String) {
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: String(localized: .generalOk), style: .default))
         present(alert, animated: true)
     }
 
-    private func appendPendingAttachments(_ attachments: [ChatAttachment]) {
-        guard !attachments.isEmpty else { return }
-        recordPrivateModeAttachments(attachments)
-        pendingAttachments.append(contentsOf: attachments)
-        refreshComposerAttachmentPreview()
-    }
-
-    private func removePendingAttachment(id: UUID) {
-        guard let index = pendingAttachments.firstIndex(where: { $0.id == id }) else {
-            return
-        }
-        let attachment = pendingAttachments.remove(at: index)
-        deletePendingAttachments([attachment])
-        refreshComposerAttachmentPreview()
-    }
-
-    private func clearPendingAttachments(deleteFiles: Bool = false) {
-        guard !pendingAttachments.isEmpty else { return }
-        let attachments = pendingAttachments
-        pendingAttachments.removeAll()
-        if deleteFiles {
-            deletePendingAttachments(attachments)
-        }
-        refreshComposerAttachmentPreview()
-    }
-
-    private func recordPrivateModeAttachments(_ attachments: [ChatAttachment]) {
-        guard chatRuntime.isPrivacyModeEnabled else {
-            return
-        }
-
-        privateModeAttachmentReferences.append(contentsOf: attachments)
-    }
-
-    private func deletePendingAttachments(_ attachments: [ChatAttachment]) {
-        guard !attachments.isEmpty else {
-            return
-        }
-
-        privateModeAttachmentReferences.removeAll { privateAttachment in
-            attachments.contains { $0.assetID == privateAttachment.assetID }
-        }
-        try? attachmentStore.deleteUnreferencedAttachments(
-            removing: attachments,
-            referencedBy: chatRuntime.currentConversationAttachments + pendingAttachments
-        )
-    }
-
-    private func discardPrivateModeAttachments(including attachments: [ChatAttachment] = []) {
-        let attachmentsToDelete = privateModeAttachmentReferences + attachments
-        guard !attachmentsToDelete.isEmpty else {
-            return
-        }
-
-        privateModeAttachmentReferences.removeAll()
-        try? attachmentStore.deleteUnreferencedAttachments(
-            removing: attachmentsToDelete,
-            referencedBy: []
-        )
-    }
-
     private func selectSystemPrompt(_ prompt: SystemPromptRecord) {
-        chatRuntime.selectSystemPrompt(id: prompt.id)
-        reloadSelectedSystemPrompt()
+        systemPromptSelectionWorkflow.select(prompt)
     }
 
     private func clearSelectedSystemPrompt() {
-        chatRuntime.clearSelectedSystemPrompt()
-        reloadSelectedSystemPrompt()
-    }
-
-    private func previewPendingAttachment(id: UUID) {
-        guard let attachment = pendingAttachments.first(where: { $0.id == id }) else {
-            return
-        }
-
-        presentAttachmentPreview(for: attachment)
-    }
-
-    private func presentAttachmentPreview(for attachment: ChatAttachment) {
-        guard presentedViewController == nil else {
-            return
-        }
-
-        guard let url = attachmentStore.fileURL(for: attachment) else {
-            presentAttachmentError(String(localized: .chatAttachmentFileMissing))
-            return
-        }
-
-        let previewItem = AttachmentPreviewItem(url: url, title: attachment.filename)
-        guard QLPreviewController.canPreview(previewItem) else {
-            presentAttachmentError(String(localized: .chatAttachmentPreviewUnavailable))
-            return
-        }
-
-        attachmentPreviewItem = previewItem
-        view.endEditing(true)
-
-        let previewController = QLPreviewController()
-        previewController.dataSource = self
-        previewController.delegate = self
-        previewController.currentPreviewItemIndex = 0
-        present(previewController, animated: true)
+        systemPromptSelectionWorkflow.clearSelection()
     }
 
     private func presentMessageEditor(
@@ -1010,101 +971,25 @@ final class ChatViewController: UIViewController {
         text: String,
         attachments: [ChatAttachment]
     ) {
-        guard activeResponseTask == nil else {
-            presentAttachmentError(String(localized: .chatResponseInProgress))
-            return
-        }
-
-        guard presentedViewController == nil else {
-            return
-        }
-
-        guard containsSentMessage(withID: messageID) else {
-            presentAttachmentError(String(localized: .chatMessageUnavailable))
-            return
-        }
-
-        view.endEditing(true)
-
-        let editorViewController = MessageEditViewController(
+        messageActionPresentationWorkflow.presentEditor(
+            messageID: messageID,
             text: text,
-            allowsEmptyText: !attachments.isEmpty
+            attachments: attachments
         )
-        editorViewController.onSubmit = { [weak self, weak editorViewController] editedText in
-            editorViewController?.dismiss(animated: true) {
-                self?.resendEditedMessage(
-                    messageID: messageID,
-                    text: editedText,
-                    attachments: attachments
-                )
-            }
-        }
-
-        let navigationController = UINavigationController(rootViewController: editorViewController)
-        navigationController.modalPresentationStyle = .pageSheet
-        if let sheet = navigationController.sheetPresentationController {
-            sheet.detents = [.medium(), .large()]
-            sheet.prefersGrabberVisible = true
-        }
-        present(navigationController, animated: true)
     }
 
     private func presentMessageRevisionHistory(messageID: UUID) {
-        guard presentedViewController == nil else {
-            return
-        }
-
-        guard containsSentMessage(withID: messageID) else {
-            presentAttachmentError(String(localized: .chatMessageUnavailable))
-            return
-        }
-
-        let revisions = chatRuntime.messageRevisions(for: messageID)
-        guard !revisions.isEmpty else {
-            return
-        }
-
-        view.endEditing(true)
-
-        let historyViewController = MessageRevisionHistoryViewController(revisions: revisions)
-        let navigationController = UINavigationController(rootViewController: historyViewController)
-        historyViewController.onSelectRevision = { [weak self, weak navigationController] revision in
-            navigationController?.dismiss(animated: true) {
-                self?.switchToMessageRevision(
-                    messageID: messageID,
-                    revisionID: revision.id
-                )
-            }
-        }
-        navigationController.modalPresentationStyle = .pageSheet
-        if let sheet = navigationController.sheetPresentationController {
-            sheet.detents = [.medium(), .large()]
-            sheet.prefersGrabberVisible = true
-        }
-        present(navigationController, animated: true)
+        messageActionPresentationWorkflow.presentRevisionHistory(messageID: messageID)
     }
 
     private func switchToMessageRevision(
         messageID: UUID,
         revisionID: UUID
     ) {
-        guard activeResponseTask == nil else {
-            presentAttachmentError(String(localized: .chatResponseInProgress))
-            return
-        }
-
-        do {
-            let events = try chatRuntime.switchToMessageRevision(
-                anchorUserMessageID: messageID,
-                revisionID: revisionID
-            )
-            renderConversationTimeline(events)
-            messagesScrollCoordinator.lockToBottom()
-            updateRightHeaderButtonState(animated: true)
-            reloadHistorySessions(selectedSessionID: chatRuntime.currentSessionID)
-        } catch {
-            presentAttachmentError(error.localizedDescription)
-        }
+        messageRevisionSwitchWorkflow.switchRevision(
+            messageID: messageID,
+            revisionID: revisionID
+        )
     }
 
     private func resendEditedMessage(
@@ -1112,10 +997,9 @@ final class ChatViewController: UIViewController {
         text: String,
         attachments: [ChatAttachment]
     ) {
-        let editedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        resendMessage(
+        messageResendWorkflow.resendEditedMessage(
             messageID: messageID,
-            text: editedText,
+            text: text,
             attachments: attachments
         )
     }
@@ -1125,121 +1009,489 @@ final class ChatViewController: UIViewController {
         text: String,
         attachments: [ChatAttachment]
     ) {
-        guard activeResponseTask == nil else {
-            presentAttachmentError(String(localized: .chatResponseInProgress))
-            return
-        }
-
-        guard !text.isEmpty || !attachments.isEmpty else {
-            return
-        }
-
-        mainPageView.layoutIfNeeded()
-        let existingMessageFrames = visibleMessageFrames()
-
-        guard let firstRemovedIndex = indexOfSentMessage(withID: messageID) else {
-            presentAttachmentError(String(localized: .chatMessageUnavailable))
-            return
-        }
-
-        let continuationTask: ChatContinuationTask?
-        do {
-            continuationTask = try beginResponseContinuationTaskIfNeeded()
-        } catch {
-            presentAttachmentError(error.localizedDescription)
-            return
-        }
-
-        let responseStream: AsyncThrowingStream<ChatResponseDelta, Error>
-        do {
-            responseStream = try chatRuntime.startTurn(
-                prompt: text,
-                attachments: attachments,
-                userMessageID: messageID,
-                replacingUserMessageID: messageID
-            )
-        } catch {
-            continuationTask?.finish(success: false)
-            presentAttachmentError(error.localizedDescription)
-            return
-        }
-
-        removeMessagesStarting(at: firstRemovedIndex)
-        let (bubbleView, responseView) = appendOutgoingMessageViews(
+        messageResendWorkflow.resendMessage(
             messageID: messageID,
             text: text,
             attachments: attachments
         )
+    }
 
-        mainPageView.layoutIfNeeded()
-        scrollMessagesToBottom(animated: false)
-        mainPageView.layoutIfNeeded()
+    private func presentMessageActionFailure(_ reason: ChatMessageActionPolicy.FailureReason) {
+        let presentation = ChatMessageActionFailurePresentation.make(reason: reason)
+        presentAttachmentError(presentation.message.localizedString)
+    }
 
-        activateAssistantResponseStream(
-            responseStream,
-            responseView: responseView,
-            continuationTask: continuationTask
+    private func loadSentMessageAttachmentDisplays(
+        messageID: UUID,
+        attachments: [ChatAttachment]
+    ) {
+        sentMessageAttachmentDisplayUpdater.loadDisplays(
+            messageID: messageID,
+            attachments: attachments
         )
-        refreshEditHistory(for: bubbleView)
-        animateExistingMessages(from: existingMessageFrames)
-        showAssistantLoadingIfNeeded(in: responseView)
-    }
-
-    private func refreshEditHistory(for bubbleView: SentMessageBubbleView) {
-        bubbleView.editHistoryCount = chatRuntime.messageRevisions(for: bubbleView.messageID).count
-    }
-
-    private func containsSentMessage(withID messageID: UUID) -> Bool {
-        indexOfSentMessage(withID: messageID) != nil
-    }
-
-    private func indexOfSentMessage(withID messageID: UUID) -> Int? {
-        messagesStackView.arrangedSubviews.firstIndex { view in
-            (view as? SentMessageBubbleView)?.messageID == messageID
-        }
-    }
-
-    private func removeMessagesStarting(at firstRemovedIndex: Int) {
-        let removedViews = Array(messagesStackView.arrangedSubviews[firstRemovedIndex...])
-        removedViews.forEach { messageView in
-            messagesStackView.removeArrangedSubview(messageView)
-            messageView.removeFromSuperview()
-        }
-    }
-
-    private func refreshComposerAttachmentPreview() {
-        let displays = pendingAttachments.map { attachment -> GlassComposerBarView.PendingAttachmentDisplay in
-            let image: UIImage?
-            switch attachment.kind {
-            case .image:
-                if let url = attachmentStore.fileURL(for: attachment),
-                   let data = try? Data(contentsOf: url) {
-                    image = UIImage(data: data)
-                } else {
-                    image = nil
-                }
-            case .file:
-                image = nil
-            }
-
-            return GlassComposerBarView.PendingAttachmentDisplay(
-                id: attachment.id,
-                image: image,
-                filename: attachment.filename,
-                isFile: attachment.kind == .file
-            )
-        }
-        composerView.setPendingAttachments(displays)
     }
 
     private func refreshComposerSystemPromptPreview() {
-        let display = chatRuntime.selectedSystemPrompt().map {
-            GlassComposerBarView.SelectedSystemPromptDisplay(
-                id: $0.id,
-                title: $0.displayTitle
-            )
+        systemPromptSelectionWorkflow.reloadComposerDisplay()
+    }
+
+    private func makeAssistantResponseFailurePresentationWorkflow() -> ChatAssistantResponseFailurePresentationWorkflow {
+        ChatAssistantResponseFailurePresentationWorkflow(
+            cancelMessageAttachmentDisplays: { [weak self] messageID in
+                self?.attachmentPreviewDisplayPipeline.cancel(scope: .message(messageID))
+            },
+            removeViews: { [weak self] views in
+                self?.messageStackAdapter.removeViews(views)
+            },
+            restoreComposerDraft: { [weak self] text, attachments in
+                self?.composerAttachmentWorkflow.append(attachments)
+                self?.composerView.setMessageText(text)
+            },
+            presentError: { [weak self] message in
+                self?.presentAttachmentError(message)
+            },
+            setResponseError: { [weak self] message, responseView in
+                self?.assistantResponseMutationAdapter.setError(message, in: responseView)
+            },
+            invalidateRemovedViewsLayout: { [weak self] in
+                self?.messagesStackView.setNeedsLayout()
+                self?.messagesContentView.setNeedsLayout()
+                self?.messagesScrollView.setNeedsLayout()
+                self?.mainPageView.setNeedsLayout()
+            },
+            reconcileAfterRemovedViews: { [weak self] in
+                self?.updateMessagesContentOffsetAfterLayoutChange(allowsAnimatedFollow: false)
+            }
+        )
+    }
+
+    private func makeHistoryPresentationWorkflow() -> ChatHistoryPresentationWorkflow {
+        ChatHistoryPresentationWorkflow(
+            isPrivacyModeEnabled: { [weak self] in
+                self?.chatRuntime.isPrivacyModeEnabled ?? false
+            },
+            clearPendingAttachments: { [weak self] deleteFiles in
+                self?.composerAttachmentWorkflow.clearPendingAttachments(deleteFiles: deleteFiles)
+            },
+            loadConversation: { [weak self] session, events in
+                self?.chatRuntime.loadConversation(session: session, events: events) ?? []
+            },
+            resetCurrentConversation: { [weak self] in
+                self?.conversationResetWorkflow.perform(.deleteCurrentHistorySession)
+            },
+            discardPrivateModeAttachments: { [weak self] attachments in
+                self?.composerAttachmentWorkflow.discardPrivateModeAttachments(including: attachments)
+            },
+            renderConversationTimeline: { [weak self] events in
+                self?.renderConversationTimeline(events)
+            },
+            removeChatContent: { [weak self] in
+                self?.removeChatContent()
+            },
+            reloadSelectedSystemPrompt: { [weak self] in
+                self?.reloadSelectedSystemPrompt()
+            },
+            lockMessagesToBottom: { [weak self] in
+                self?.messagesScrollCoordinator.lockToBottom()
+            },
+            updateHeader: { [weak self] in
+                self?.updateRightHeaderButtonState(animated: true)
+            },
+            confirmPendingSessionSelection: { [weak self] sessionID in
+                self?.sideMenuView.confirmPendingSessionSelection(sessionID)
+            },
+            reloadHistorySessions: { [weak self] selectedSessionID in
+                self?.reloadHistorySessions(selectedSessionID: selectedSessionID)
+            },
+            closeSideMenu: { [weak self] in
+                self?.setSideMenuOpen(false, animated: true)
+            },
+            currentSessionID: { [weak self] in
+                self?.chatRuntime.currentSessionID ?? UUID()
+            }
+        )
+    }
+
+    private func makeConversationResetWorkflow() -> ChatConversationResetWorkflow {
+        ChatConversationResetWorkflow(
+            clearPendingAttachments: { [weak self] deleteFiles in
+                self?.composerAttachmentWorkflow.clearPendingAttachments(deleteFiles: deleteFiles)
+            },
+            resetConversation: { [weak self] privacyMode in
+                if let privacyMode {
+                    return self?.chatRuntime.resetConversation(privacyMode: privacyMode) ?? []
+                }
+                return self?.chatRuntime.resetConversation() ?? []
+            },
+            discardPrivateModeAttachments: { [weak self] attachments in
+                self?.composerAttachmentWorkflow.discardPrivateModeAttachments(including: attachments)
+            },
+            removeChatContent: { [weak self] in
+                self?.removeChatContent()
+            },
+            reloadSelectedSystemPrompt: { [weak self] in
+                self?.reloadSelectedSystemPrompt()
+            },
+            lockMessagesToBottom: { [weak self] in
+                self?.messagesScrollCoordinator.lockToBottom()
+            },
+            updateHeader: { [weak self] in
+                self?.updateRightHeaderButtonState(animated: true)
+            },
+            reloadHistorySessions: { [weak self] selectedSessionID in
+                self?.reloadHistorySessions(selectedSessionID: selectedSessionID)
+            }
+        )
+    }
+
+    private func makeMessageRevisionSwitchWorkflow() -> ChatMessageRevisionSwitchWorkflow {
+        ChatMessageRevisionSwitchWorkflow(
+            isResponseActive: { [weak self] in
+                self?.responseStreamController.isActive ?? true
+            },
+            switchToMessageRevision: { [weak self] messageID, revisionID in
+                guard let self else {
+                    return []
+                }
+                return try self.chatRuntime.switchToMessageRevision(
+                    anchorUserMessageID: messageID,
+                    revisionID: revisionID
+                )
+            },
+            renderConversationTimeline: { [weak self] events in
+                self?.renderConversationTimeline(events)
+            },
+            lockMessagesToBottom: { [weak self] in
+                self?.messagesScrollCoordinator.lockToBottom()
+            },
+            updateHeader: { [weak self] in
+                self?.updateRightHeaderButtonState(animated: true)
+            },
+            reloadHistorySessions: { [weak self] selectedSessionID in
+                self?.reloadHistorySessions(selectedSessionID: selectedSessionID)
+            },
+            currentSessionID: { [weak self] in
+                self?.chatRuntime.currentSessionID ?? UUID()
+            },
+            presentActionFailure: { [weak self] reason in
+                self?.presentMessageActionFailure(reason)
+            },
+            presentError: { [weak self] message in
+                self?.presentAttachmentError(message)
+            }
+        )
+    }
+
+    private func makeMessageActionPresentationWorkflow() -> ChatMessageActionPresentationWorkflow {
+        ChatMessageActionPresentationWorkflow(
+            isResponseActive: { [weak self] in
+                self?.responseStreamController.isActive ?? true
+            },
+            isPresentingModal: { [weak self] in
+                self?.idleModalPresenter.isPresentingModal ?? true
+            },
+            containsMessage: { [weak self] messageID in
+                self?.messageStackAdapter.containsSentMessage(withID: messageID) ?? false
+            },
+            messageRevisions: { [weak self] messageID in
+                self?.chatRuntime.messageRevisions(for: messageID) ?? []
+            },
+            endEditing: { [weak self] in
+                self?.idleModalPresenter.endEditing()
+            },
+            makeEditor: { text, attachments, onSubmit in
+                ChatMessageActionPresentation.makeEditor(
+                    text: text,
+                    attachments: attachments,
+                    onSubmit: onSubmit
+                )
+            },
+            makeRevisionHistory: { revisions, onSelectRevision in
+                ChatMessageActionPresentation.makeRevisionHistory(
+                    revisions: revisions,
+                    onSelectRevision: onSelectRevision
+                )
+            },
+            presentViewController: { [weak self] viewController in
+                self?.idleModalPresenter.presentPrepared(viewController)
+            },
+            presentActionFailure: { [weak self] reason in
+                self?.presentMessageActionFailure(reason)
+            },
+            resendEditedMessage: { [weak self] messageID, text, attachments in
+                self?.resendEditedMessage(
+                    messageID: messageID,
+                    text: text,
+                    attachments: attachments
+                )
+            },
+            switchToMessageRevision: { [weak self] messageID, revisionID in
+                self?.switchToMessageRevision(
+                    messageID: messageID,
+                    revisionID: revisionID
+                )
+            }
+        )
+    }
+
+    private func makeMessageResendWorkflow() -> ChatMessageResendWorkflow {
+        ChatMessageResendWorkflow(
+            isResponseActive: { [weak self] in
+                self?.responseStreamController.isActive ?? true
+            },
+            firstRemovedIndex: { [weak self] messageID in
+                self?.messageStackAdapter.arrangedSubviewIndexOfSentMessage(withID: messageID)
+            },
+            layoutIfNeeded: { [weak self] in
+                self?.mainPageView.layoutIfNeeded()
+            },
+            captureExistingMessagesSnapshot: { [weak self] in
+                self?.existingMessagesShiftAnimator.captureSnapshot() ?? .empty
+            },
+            prepareOutgoingTurn: { [weak self] transactionPlan in
+                guard let self else {
+                    throw ChatMessageResendWorkflowFailure.unavailable
+                }
+                return try self.outgoingTurnPreparationWorkflow.prepare(transactionPlan)
+            },
+            performTransaction: { [weak self] transactionPlan, preparedStream, existingMessagesSnapshot in
+                self?.outgoingMessageTransactionWorkflow.perform(
+                    transactionPlan,
+                    preparedStream: preparedStream,
+                    existingMessagesSnapshot: existingMessagesSnapshot,
+                    sendTransition: nil
+                )
+            },
+            presentActionFailure: { [weak self] reason in
+                self?.presentMessageActionFailure(reason)
+            },
+            presentError: { [weak self] message in
+                self?.presentAttachmentError(message)
+            }
+        )
+    }
+
+    private func makeSystemPromptSelectionWorkflow() -> ChatSystemPromptSelectionWorkflow {
+        ChatSystemPromptSelectionWorkflow(
+            dependencies: dependencies,
+            chatRuntime: chatRuntime
+        ) { [weak self] display in
+            self?.setComposerSelectedSystemPromptDisplay(display)
         }
-        composerView.setSelectedSystemPrompt(display)
+    }
+
+    private func makeComposerAddWorkflow() -> ChatComposerAddWorkflow {
+        ChatComposerAddWorkflow(
+            sourceView: { [weak self] in
+                self?.composerView.plusSourceView
+            },
+            presentSystemPromptSelection: { [weak self] in
+                self?.presentSystemPromptSelection()
+            },
+            presentCameraPicker: { [weak self] in
+                self?.attachmentAcquisitionWorkflow.present(.camera)
+            },
+            presentPhotoLibraryPicker: { [weak self] in
+                self?.attachmentAcquisitionWorkflow.present(.photoLibrary)
+            },
+            presentDocumentPicker: { [weak self] in
+                self?.attachmentAcquisitionWorkflow.present(.documents)
+            }
+        )
+    }
+
+    private func makeAttachmentPreviewWorkflow() -> ChatAttachmentPreviewWorkflow {
+        ChatAttachmentPreviewWorkflow(
+            previewController: attachmentPreviewController,
+            isPresentingModal: { [weak self] in
+                self?.idleModalPresenter.isPresentingModal ?? true
+            },
+            endEditing: { [weak self] in
+                self?.idleModalPresenter.endEditing()
+            },
+            presentViewController: { [weak self] viewController in
+                self?.idleModalPresenter.presentPrepared(viewController)
+            },
+            presentError: { [weak self] message in
+                self?.presentAttachmentError(message)
+            }
+        )
+    }
+
+    private func makeAttachmentAcquisitionWorkflow() -> ChatAttachmentAcquisitionWorkflow {
+        ChatAttachmentAcquisitionWorkflow(
+            importController: ChatAttachmentImportController(
+                attachmentImporter: attachmentImporter
+            ),
+            photoLibraryImportController: ChatPhotoLibraryImportController(
+                attachmentImporter: attachmentImporter
+            ),
+            acceptImportedAttachments: { [weak self] attachments in
+                self?.composerAttachmentWorkflow.append(attachments)
+            },
+            presentError: { [weak self] message in
+                self?.presentAttachmentError(message)
+            },
+            presentViewController: { [weak self] makeViewController in
+                _ = self?.idleModalPresenter.presentIfIdle {
+                    makeViewController()
+                }
+            }
+        )
+    }
+
+    private func makeIdleModalPresenter() -> ChatIdleModalPresenter {
+        ChatIdleModalPresenter(
+            isPresentingModal: { [weak self] in
+                self?.presentedViewController != nil
+            },
+            endEditing: { [weak self] in
+                self?.view.endEditing(true)
+            },
+            presentViewController: { [weak self] viewController in
+                self?.present(viewController, animated: true)
+            }
+        )
+    }
+
+    private func makeComposerAttachmentWorkflow() -> ChatComposerAttachmentWorkflow {
+        let attachmentDraft = ChatAttachmentDraft(
+            attachmentStore: attachmentStore,
+            attachmentCleanupDidComplete: { [weak self] result in
+                self?.removeCachedAttachmentThumbnails(for: result)
+            },
+            didFail: { [weak self] error in
+                guard let self,
+                      self.viewIfLoaded?.window != nil,
+                      self.presentedViewController == nil else {
+                    return
+                }
+
+                self.presentAttachmentError(error.localizedDescription)
+            }
+        )
+        return ChatComposerAttachmentWorkflow(
+            attachmentDraft: attachmentDraft,
+            previewWorkflow: attachmentPreviewWorkflow,
+            previewDisplayPipeline: attachmentPreviewDisplayPipeline,
+            privacyModeEnabled: { [weak self] in
+                self?.chatRuntime.isPrivacyModeEnabled ?? false
+            },
+            retainedConversationAttachments: { [weak self] in
+                self?.chatRuntime.currentConversationAttachments ?? []
+            },
+            thumbnailMaxPointSize: ComposerLayout.attachmentThumbnailPointSize,
+            updatePendingDisplays: { [weak self] displays in
+                self?.setComposerPendingAttachmentDisplays(displays)
+            }
+        )
+    }
+
+    private func setComposerPendingAttachmentDisplays(_ displays: [ChatPendingAttachmentDisplay]) {
+        composerView.setPendingAttachments(
+            displays.map { display in
+                GlassComposerBarView.PendingAttachmentDisplay(
+                    id: display.id,
+                    image: display.image,
+                    filename: display.filename,
+                    isFile: display.isFile
+                )
+            }
+        )
+    }
+
+    private func setComposerSelectedSystemPromptDisplay(_ display: ChatSelectedSystemPromptDisplay?) {
+        composerView.setSelectedSystemPrompt(
+            display.map {
+                GlassComposerBarView.SelectedSystemPromptDisplay(
+                    id: $0.id,
+                    title: $0.title
+                )
+            }
+        )
+    }
+
+    private func makeOutgoingMessageTransactionWorkflow() -> ChatOutgoingMessageTransactionWorkflow {
+        ChatOutgoingMessageTransactionWorkflow(
+            messages: ChatOutgoingMessageTransactionMessageAdapter(
+                messageStackAdapter: messageStackAdapter,
+                attachmentDisplayUpdater: sentMessageAttachmentDisplayUpdater,
+                editHistoryCount: { [weak self] messageID in
+                    self?.chatRuntime.messageRevisions(for: messageID).count ?? 0
+                }
+            ),
+            screen: ChatOutgoingMessageTransactionScreenAdapter(
+                layoutView: mainPageView,
+                existingMessagesShiftAnimator: existingMessagesShiftAnimator,
+                sentMessageSendAnimator: sentMessageSendAnimator,
+                scrollToBottom: { [weak self] in
+                    self?.scrollMessagesToBottom(animated: false)
+                },
+                presentLoading: { [weak self] responseView in
+                    self?.showAssistantLoadingIfNeeded(in: responseView)
+                }
+            ),
+            responseActivator: ChatOutgoingMessageTransactionResponseActivationAdapter { [weak self]
+                responseStream,
+                responseView,
+                continuationTask,
+                context in
+                self?.activateAssistantResponseStream(
+                    responseStream,
+                    responseView: responseView,
+                    continuationTask: continuationTask,
+                    context: context
+                )
+            }
+        )
+    }
+
+    private func makeComposerSendWorkflow() -> ChatComposerSendWorkflow {
+        ChatComposerSendWorkflow(
+            isResponseActive: { [weak self] in
+                self?.responseStreamController.isActive ?? true
+            },
+            layoutIfNeeded: { [weak self] in
+                self?.mainPageView.layoutIfNeeded()
+            },
+            captureExistingMessagesSnapshot: { [weak self] in
+                self?.existingMessagesShiftAnimator.captureSnapshot() ?? .empty
+            },
+            prepareNewMessage: { [weak self] text in
+                guard let self else {
+                    throw ChatComposerSendWorkflowFailure.unavailable
+                }
+
+                return try self.outgoingTurnPreparationWorkflow.prepareNewMessage(text: text)
+            },
+            performTransaction: { [weak self] preparedTurn, existingMessagesSnapshot, transition in
+                self?.outgoingMessageTransactionWorkflow.perform(
+                    preparedTurn.transactionPlan,
+                    preparedStream: preparedTurn.preparedStream,
+                    existingMessagesSnapshot: existingMessagesSnapshot,
+                    sendTransition: transition
+                )
+            },
+            presentError: { [weak self] message in
+                self?.presentAttachmentError(message)
+            },
+            updateHeaderAfterPrepareFailure: { [weak self] in
+                self?.updateRightHeaderButtonState(animated: true)
+            }
+        )
+    }
+
+    private func makeOutgoingTurnPreparationWorkflow() -> ChatOutgoingTurnPreparationWorkflow {
+        ChatOutgoingTurnPreparationWorkflow(
+            turnStarter: chatRuntime,
+            continuationTaskPolicy: ChatAssistantResponseBackgroundContinuationTaskPolicy(
+                continuationTaskBeginner: chatContinuationTaskCoordinator,
+                isBackgroundRuntimeEnabled: { [weak self] in
+                    self?.dependencies.appSettingsStore.isBackgroundRuntimeEnabled ?? false
+                }
+            ),
+            composerAttachmentStaging: composerAttachmentWorkflow
+        )
     }
 
     private func installSystemPromptObserver() {
@@ -1260,143 +1512,13 @@ final class ChatViewController: UIViewController {
         refreshComposerSystemPromptPreview()
     }
 
-    private func appendOutgoingMessageViews(
-        messageID: UUID,
-        text: String,
-        attachments: [ChatAttachment],
-        initialBubbleAlpha: CGFloat = 1.0
-    ) -> (bubbleView: SentMessageBubbleView, responseView: AssistantResponseTextView) {
-        let bubbleView = SentMessageBubbleView(
-            messageID: messageID,
-            text: text,
-            attachments: attachments
+    private func appendSentMessage(using transition: GlassComposerBarView.SendTransition) -> Bool {
+        composerSendWorkflow.send(
+            ChatComposerSendTransition(
+                text: transition.text,
+                backgroundGlobalFrame: transition.backgroundGlobalFrame
+            )
         )
-        configureSentMessageActions(for: bubbleView)
-        bubbleView.translatesAutoresizingMaskIntoConstraints = false
-        bubbleView.alpha = initialBubbleAlpha
-        bubbleView.setContentHuggingPriority(.required, for: .vertical)
-        bubbleView.setContentCompressionResistancePriority(.required, for: .vertical)
-
-        let responseView = AssistantResponseTextView()
-        responseView.translatesAutoresizingMaskIntoConstraints = false
-        responseView.isHidden = true
-        responseView.setContentHuggingPriority(.required, for: .vertical)
-        responseView.setContentCompressionResistancePriority(.required, for: .vertical)
-
-        messagesStackView.addArrangedSubview(bubbleView)
-        bubbleView.widthAnchor.constraint(
-            lessThanOrEqualTo: messagesStackView.widthAnchor,
-            multiplier: MessagesLayout.maximumBubbleWidthRatio
-        ).isActive = true
-        messagesStackView.addArrangedSubview(responseView)
-        responseView.widthAnchor.constraint(
-            equalTo: messagesStackView.widthAnchor
-        ).isActive = true
-
-        return (bubbleView, responseView)
-    }
-
-    private func appendSentMessage(using transition: GlassComposerBarView.SendTransition) {
-        mainPageView.layoutIfNeeded()
-        let existingMessageFrames = visibleMessageFrames()
-        let messageID = UUID()
-
-        let attachmentsForTurn = pendingAttachments
-        pendingAttachments.removeAll()
-        refreshComposerAttachmentPreview()
-
-        let (bubbleView, responseView) = appendOutgoingMessageViews(
-            messageID: messageID,
-            text: transition.text,
-            attachments: attachmentsForTurn,
-            initialBubbleAlpha: 0.0
-        )
-
-        mainPageView.layoutIfNeeded()
-        scrollMessagesToBottom(animated: false)
-        mainPageView.layoutIfNeeded()
-
-        startAssistantResponseStream(
-            for: transition.text,
-            attachments: attachmentsForTurn,
-            userMessageID: messageID,
-            responseView: responseView
-        )
-        animateExistingMessages(from: existingMessageFrames)
-        animateSentMessage(
-            bubbleView,
-            from: transition,
-            attachments: attachmentsForTurn
-        ) { [weak self, weak responseView] in
-            guard let self,
-                  let responseView else {
-                return
-            }
-
-            self.showAssistantLoadingIfNeeded(in: responseView)
-        }
-    }
-
-    private func visibleMessageFrames() -> [(view: UIView, frame: CGRect)] {
-        let visibleFrame = messagesScrollView.convert(
-            messagesScrollView.bounds.insetBy(
-                dx: 0.0,
-                dy: -MessagesLayout.existingMessageShiftVisibilityMargin
-            ),
-            to: mainPageView
-        )
-
-        return messagesStackView.arrangedSubviews.compactMap { messageView in
-            let frame = messageView.convert(messageView.bounds, to: mainPageView)
-            guard frame.intersects(visibleFrame) else {
-                return nil
-            }
-
-            return (messageView, frame)
-        }
-    }
-
-    private func animateExistingMessages(from previousFrames: [(view: UIView, frame: CGRect)]) {
-        guard view.window != nil,
-              !UIAccessibility.isReduceMotionEnabled else {
-            return
-        }
-
-        let shiftedViews = previousFrames.compactMap { snapshot -> UIView? in
-            guard snapshot.view.superview != nil else {
-                return nil
-            }
-
-            let currentFrame = snapshot.view.convert(snapshot.view.bounds, to: mainPageView)
-            let deltaY = snapshot.frame.minY - currentFrame.minY
-            guard abs(deltaY) > 0.5 else {
-                return nil
-            }
-
-            snapshot.view.transform = CGAffineTransform(translationX: 0.0, y: deltaY)
-            return snapshot.view
-        }
-
-        guard !shiftedViews.isEmpty else {
-            return
-        }
-
-        let animator = UIViewPropertyAnimator(
-            duration: MessagesLayout.sendAnimationDuration,
-            dampingRatio: MessagesLayout.sendAnimationDampingRatio
-        ) {
-            shiftedViews.forEach { messageView in
-                messageView.transform = .identity
-            }
-        }
-        animator.isInterruptible = true
-        animator.isUserInteractionEnabled = true
-        animator.addCompletion { _ in
-            shiftedViews.forEach { messageView in
-                messageView.transform = .identity
-            }
-        }
-        animator.startAnimation()
     }
 
     private func scrollMessagesToBottom(animated: Bool) {
@@ -1413,189 +1535,68 @@ final class ChatViewController: UIViewController {
         )
     }
 
-    private func animateSentMessage(
-        _ bubbleView: SentMessageBubbleView,
-        from transition: GlassComposerBarView.SendTransition,
-        attachments: [ChatAttachment] = [],
-        completion: (() -> Void)? = nil
-    ) {
-        guard view.window != nil,
-              !UIAccessibility.isReduceMotionEnabled else {
-            bubbleView.alpha = 1.0
-            completion?()
-            return
-        }
-
-        let sourceBackgroundFrame = mainPageView.convert(transition.backgroundGlobalFrame, from: nil)
-        let targetBubbleFrame = bubbleView.convert(bubbleView.bounds, to: mainPageView)
-
-        let animatedBubbleView = SentMessageBubbleView(text: transition.text, attachments: attachments)
-        animatedBubbleView.frame = sourceBackgroundFrame
-        animatedBubbleView.alpha = 0.0
-        animatedBubbleView.isUserInteractionEnabled = false
-        animatedBubbleView.layoutIfNeeded()
-        mainPageView.addSubview(animatedBubbleView)
-
-        let animator = UIViewPropertyAnimator(
-            duration: MessagesLayout.sendAnimationDuration,
-            dampingRatio: MessagesLayout.sendAnimationDampingRatio
-        ) {
-            animatedBubbleView.frame = targetBubbleFrame
-            animatedBubbleView.alpha = 1.0
-            animatedBubbleView.layoutIfNeeded()
-        }
-        animator.isInterruptible = true
-        animator.isUserInteractionEnabled = true
-        animator.addCompletion { _ in
-            UIView.performWithoutAnimation {
-                animatedBubbleView.removeFromSuperview()
-                bubbleView.alpha = 1.0
-            }
-            completion?()
-        }
-        animator.startAnimation()
-    }
-
-    private func startAssistantResponseStream(
-        for prompt: String,
-        attachments: [ChatAttachment] = [],
-        userMessageID: UUID = UUID(),
-        responseView: AssistantResponseTextView
-    ) {
-        guard activeResponseTask == nil else {
-            setAssistantResponseError(String(localized: .chatResponseInProgress), in: responseView)
-            updateRightHeaderButtonState(animated: true)
-            return
-        }
-
-        let continuationTask: ChatContinuationTask?
-        do {
-            continuationTask = try beginResponseContinuationTaskIfNeeded()
-        } catch {
-            setAssistantResponseError(error.localizedDescription, in: responseView)
-            updateRightHeaderButtonState(animated: true)
-            return
-        }
-
-        let responseStream: AsyncThrowingStream<ChatResponseDelta, Error>
-        do {
-            responseStream = try chatRuntime.startTurn(
-                prompt: prompt,
-                attachments: attachments,
-                userMessageID: userMessageID
-            )
-        } catch {
-            continuationTask?.finish(success: false)
-            setAssistantResponseError(error.localizedDescription, in: responseView)
-            updateRightHeaderButtonState(animated: true)
-            return
-        }
-
-        activateAssistantResponseStream(
-            responseStream,
-            responseView: responseView,
-            continuationTask: continuationTask
-        )
-    }
-
     private func activateAssistantResponseStream(
         _ responseStream: AsyncThrowingStream<ChatResponseDelta, Error>,
         responseView: AssistantResponseTextView,
-        continuationTask: ChatContinuationTask?
+        continuationTask: ChatContinuationTask?,
+        context: ActiveAssistantResponseContext
     ) {
         activeResponseView = responseView
-        activeContinuationTask = continuationTask
-        activeContinuationTask?.onExpiration = { [weak self] in
-            self?.cancelAssistantResponseStream()
-        }
-        composerView.isSendingEnabled = false
-        composerView.setStreamingResponseActive(true, animated: true)
-        setBackgroundFlowing(true, animated: true)
+        activeResponseContext = context
+        responseActivationPresentationAdapter.prepareActivation(animated: true)
 
-        activeResponseTask = Task { [weak self, weak responseView] in
-            do {
-                for try await delta in responseStream {
-                    try Task.checkCancellation()
-
-                    await MainActor.run {
-                        guard let self,
-                              let responseView else {
-                            return
-                        }
-
-                        self.appendStreamingResponseDelta(delta, to: responseView)
-                    }
-                }
-
-                await MainActor.run {
-                    guard let self else {
+        let didActivateResponseStream = responseStreamController.activate(
+            responseStream: responseStream,
+            continuationTask: continuationTask,
+            handlers: ChatResponseStreamController.Handlers(
+                didReceiveDelta: { [weak self, weak responseView] delta in
+                    guard let self,
+                          let responseView else {
                         return
                     }
 
-                    self.finishAssistantResponseStream(success: true)
-                }
-            } catch is CancellationError {
-                await MainActor.run {
-                    guard let self else {
+                    self.appendStreamingResponseDelta(delta, to: responseView)
+                },
+                didFail: { [weak self, weak responseView] error in
+                    guard let self,
+                          let responseView else {
                         return
                     }
 
-                    self.finishAssistantResponseStream(success: false)
+                    let result = self.assistantResponseFailurePresentationWorkflow.presentFailure(
+                        message: error.localizedDescription,
+                        responseView: responseView,
+                        context: self.activeResponseContext,
+                        activeResponseView: self.activeResponseView
+                    )
+                    self.applyActiveResponseLifecyclePlan(
+                        .presentedFailure(
+                            shouldClearActiveResponseView: result.shouldClearActiveResponseView
+                        ),
+                        responseView: responseView
+                    )
+                },
+                didFinish: { [weak self] success in
+                    self?.finishAssistantResponseStream(success: success)
                 }
-            } catch {
-                await MainActor.run {
-                    guard let self else {
-                        return
-                    }
-
-                    if let responseView {
-                        self.setAssistantResponseError(error.localizedDescription, in: responseView)
-                    }
-                    self.finishAssistantResponseStream(success: false)
-                }
-            }
-        }
-        updateRightHeaderButtonState(animated: true)
-    }
-
-    private func beginResponseContinuationTaskIfNeeded() throws -> ChatContinuationTask? {
-        guard dependencies.appSettingsStore.isBackgroundRuntimeEnabled else {
-            return nil
-        }
-
-        return try chatContinuationTaskCoordinator.beginResponseTask()
+            )
+        )
+        assert(didActivateResponseStream, "Assistant response stream was already active.")
+        responseActivationPresentationAdapter.completeActivation(animated: true)
     }
 
     private func cancelAssistantResponseStream() {
-        guard let activeResponseTask else {
-            return
-        }
-
-        if let activeResponseView {
-            applyAssistantResponseChange(to: activeResponseView) {
-                activeResponseView.finishStreamingContent()
-                activeResponseView.setLoadingVisible(false)
-            }
-        }
-        activeContinuationTask?.finish(success: false)
-        activeResponseTask.cancel()
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        applyActiveResponseLifecyclePlan(
+            .cancelled(didCancel: responseStreamController.cancel()),
+            responseView: activeResponseView
+        )
     }
 
     private func appendStreamingResponseDelta(
         _ delta: ChatResponseDelta,
         to responseView: AssistantResponseTextView
     ) {
-        guard !delta.isEmpty else {
-            return
-        }
-
-        activeContinuationTask?.report(delta: delta)
-        applyAssistantResponseChange(to: responseView) {
-            for part in delta.displayParts {
-                responseView.appendDisplayPart(part)
-            }
-        }
+        applyActiveResponseLifecyclePlan(.received(delta: delta), responseView: responseView)
     }
 
     private func showAssistantLoadingIfNeeded(in responseView: AssistantResponseTextView) {
@@ -1603,51 +1604,55 @@ final class ChatViewController: UIViewController {
             return
         }
 
-        applyAssistantResponseChange(to: responseView) {
-            responseView.showLoadingIfNeeded()
+        assistantResponseMutationAdapter.showLoadingIfNeeded(in: responseView)
+    }
+
+    private func finishAssistantResponseStream(success _: Bool) {
+        applyActiveResponseLifecyclePlan(
+            .finished(hasActiveResponseView: activeResponseView != nil),
+            responseView: activeResponseView
+        )
+    }
+
+    private func applyActiveResponseLifecyclePlan(
+        _ plan: ChatActiveAssistantResponseLifecyclePlan,
+        responseView: AssistantResponseTextView?
+    ) {
+        for action in plan.actions {
+            applyActiveResponseLifecycleAction(action, responseView: responseView)
         }
     }
 
-    private func setAssistantResponseError(
-        _ message: String,
-        in responseView: AssistantResponseTextView
+    private func applyActiveResponseLifecycleAction(
+        _ action: ChatActiveAssistantResponseLifecyclePlan.Action,
+        responseView: AssistantResponseTextView?
     ) {
-        applyAssistantResponseChange(to: responseView) {
-            responseView.setError(message)
-        }
-    }
-
-    private func applyAssistantResponseChange(
-        to _: AssistantResponseTextView,
-        update: () -> Void
-    ) {
-        update()
-
-        messagesStackView.setNeedsLayout()
-        messagesContentView.setNeedsLayout()
-        messagesScrollView.setNeedsLayout()
-        mainPageView.setNeedsLayout()
-    }
-
-    private func finishAssistantResponseStream(success: Bool) {
-        if let activeResponseView {
-            applyAssistantResponseChange(to: activeResponseView) {
-                activeResponseView.finishStreamingContent()
-                activeResponseView.setLoadingVisible(false)
+        switch action {
+        case let .recordVisibleProgress(delta):
+            activeResponseContext?.recordVisibleProgress(from: delta)
+        case let .reportDelta(delta):
+            responseStreamController.report(delta: delta)
+        case let .appendDisplayParts(displayParts):
+            guard let responseView else {
+                assertionFailure("Missing response view for assistant display parts.")
+                return
             }
+            assistantResponseMutationAdapter.appendDisplayParts(displayParts, to: responseView)
+        case .clearActiveResponseView:
+            activeResponseView = nil
+        case .finishActiveResponseView:
+            guard let responseView else {
+                assertionFailure("Missing response view to finish assistant response.")
+                return
+            }
+            assistantResponseMutationAdapter.finishStreamingContent(in: responseView)
+        case .clearActiveResponseContext:
+            activeResponseContext = nil
+        case .deactivatePresentation:
+            responseActivationPresentationAdapter.deactivate(animated: true)
+        case .playCancellationFeedback:
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }
-        activeContinuationTask?.finish(success: success)
-        activeContinuationTask = nil
-        activeResponseView = nil
-        activeResponseTask = nil
-        composerView.isSendingEnabled = true
-        composerView.setStreamingResponseActive(false, animated: true)
-        setBackgroundFlowing(false, animated: true)
-        updateRightHeaderButtonState(animated: true)
-    }
-
-    private func setBackgroundFlowing(_ isFlowing: Bool, animated: Bool) {
-        backgroundView.setFlowing(isFlowing, animated: animated)
     }
 
     private func updateMainPageShadowPath(cornerRadius: CGFloat? = nil) {
@@ -1656,10 +1661,6 @@ final class ChatViewController: UIViewController {
             roundedRect: mainPageContainerView.bounds,
             cornerRadius: radius
         ).cgPath
-    }
-
-    private var currentPageCornerRadius: CGFloat {
-        view.window?.windowScene?.screen.displayCornerRadius ?? 0.0
     }
 
     private func installChatHistoryObserver() {
@@ -1676,15 +1677,47 @@ final class ChatViewController: UIViewController {
         }
     }
 
-    private func reloadHistorySessions(selectedSessionID: UUID?) {
-        historyReloadTask?.cancel()
-        historyReloadTask = Task { [weak self] in
-            guard let self else {
+    private func installAttachmentThumbnailCacheObservers() {
+        attachmentCleanupObservation = NotificationCenter.default.addObserver(
+            forName: UserDefaultsChatStore.attachmentCleanupDidCompleteNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let result = notification.userInfo?[UserDefaultsChatStore.attachmentCleanupResultUserInfoKey]
+                as? ChatAttachmentCleanupResult else {
                 return
             }
 
-            let sessions = (try? await self.chatHistoryStore.fetchSessions()) ?? []
-            guard !Task.isCancelled else {
+            self?.removeCachedAttachmentThumbnails(for: result)
+        }
+        attachmentThumbnailMemoryWarningObservation = NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.attachmentThumbnailProvider.removeAllCachedThumbnails()
+            }
+        }
+    }
+
+    private func removeCachedAttachmentThumbnails(for result: ChatAttachmentCleanupResult) {
+        attachmentThumbnailProvider.removeCachedThumbnails(
+            for: result.removedUnreferencedAttachments
+        )
+    }
+
+    private func installHistoryPersistenceFailureHandler() {
+        chatRuntime.setHistoryPersistenceFailureHandler { [weak self] error in
+            self?.presentChatHistoryPersistenceError(error)
+        }
+    }
+
+    private func reloadHistorySessions(selectedSessionID: UUID?) {
+        historyWorkflowController.reloadSessions(
+            selectedSessionID: selectedSessionID
+        ) { [weak self] sessions, selectedSessionID in
+            guard let self else {
                 return
             }
 
@@ -1692,66 +1725,45 @@ final class ChatViewController: UIViewController {
                 sessions: sessions,
                 selectedSessionID: selectedSessionID
             )
+        } didFail: { [weak self] error in
+            self?.presentAttachmentError(error.localizedDescription)
         }
     }
 
     private func selectHistorySession(_ session: ChatSession) {
-        guard activeResponseTask == nil else {
-            return
-        }
-
-        historySelectionTask?.cancel()
-        historySelectionTask = Task { [weak self] in
+        historyWorkflowController.selectSession(
+            session,
+            isResponseActive: { [weak self] in
+                self?.responseStreamController.isActive ?? true
+            }
+        ) { [weak self] session, events in
             guard let self else {
                 return
             }
 
-            let events = (try? await self.chatHistoryStore.fetchEvents(sessionID: session.id)) ?? []
-            guard !Task.isCancelled else {
-                return
-            }
-
-            if self.chatRuntime.isPrivacyModeEnabled {
-                self.clearPendingAttachments(deleteFiles: true)
-            }
-            let discardedAttachments = self.chatRuntime.loadConversation(session: session, events: events)
-            self.discardPrivateModeAttachments(including: discardedAttachments)
-            self.renderConversationTimeline(events)
-            self.reloadSelectedSystemPrompt()
-            self.messagesScrollCoordinator.lockToBottom()
-            self.updateRightHeaderButtonState(animated: true)
-            self.reloadHistorySessions(selectedSessionID: session.id)
-            self.setSideMenuOpen(false, animated: true)
+            self.historyPresentationWorkflow.presentLoadedSession(session, events: events)
+        } didReject: { [weak self] in
+            self?.sideMenuView.rejectPendingSessionSelection()
+        } didFail: { [weak self] error in
+            self?.sideMenuView.rejectPendingSessionSelection()
+            self?.presentAttachmentError(error.localizedDescription)
         }
     }
 
     private func deleteHistorySession(_ session: ChatSession) {
-        guard activeResponseTask == nil || session.id != chatRuntime.currentSessionID else {
-            return
-        }
-
-        historySelectionTask?.cancel()
-        historySelectionTask = Task { [weak self] in
-            guard let self else {
-                return
+        historyWorkflowController.deleteSession(
+            session,
+            currentSessionID: chatRuntime.currentSessionID,
+            isResponseActive: { [weak self] in
+                self?.responseStreamController.isActive ?? true
+            },
+            currentSessionIDProvider: { [weak self] in
+                self?.chatRuntime.currentSessionID ?? session.id
             }
-
-            try? await self.chatHistoryStore.deleteSession(id: session.id)
-            guard !Task.isCancelled else {
-                return
-            }
-
-            if session.id == self.chatRuntime.currentSessionID {
-                let discardedAttachments = self.chatRuntime.resetConversation()
-                self.discardPrivateModeAttachments(including: discardedAttachments)
-                self.removeChatContent()
-                self.reloadSelectedSystemPrompt()
-                self.messagesScrollCoordinator.lockToBottom()
-                self.updateRightHeaderButtonState(animated: true)
-                self.reloadHistorySessions(selectedSessionID: nil)
-            } else {
-                self.reloadHistorySessions(selectedSessionID: self.chatRuntime.currentSessionID)
-            }
+        ) { [weak self] completionDecision in
+            self?.historyPresentationWorkflow.presentDeleteCompletion(completionDecision)
+        } didFail: { [weak self] error in
+            self?.presentAttachmentError(error.localizedDescription)
         }
     }
 
@@ -1823,76 +1835,54 @@ final class ChatViewController: UIViewController {
     }
 
     private var hasChatContent: Bool {
-        !messagesStackView.arrangedSubviews.isEmpty
+        !messageStackAdapter.isEmpty
     }
 
     private func renderConversationTimeline(_ events: [ChatTimelineEvent]) {
         removeChatContent()
 
-        var currentAssistantView: AssistantResponseTextView?
-
-        func finishCurrentAssistantView() {
-            currentAssistantView?.finishStreamingContent()
-            currentAssistantView = nil
+        let plan = ChatTimelinePresentationPlan(events: events)
+        for row in plan.rows {
+            appendTimelineRow(row)
         }
 
-        func assistantView() -> AssistantResponseTextView {
-            if let currentAssistantView {
-                return currentAssistantView
-            }
-
-            let responseView = makeStoredAssistantResponseView()
-            currentAssistantView = responseView
-            return responseView
-        }
-
-        for event in ChatTimelineEvent.sortedChronologically(events) {
-            switch event.kind {
-            case let .userMessage(text):
-                finishCurrentAssistantView()
-                appendStoredUserMessage(id: event.id, text: text, attachments: [])
-            case let .userMessageWithAttachments(text, attachments):
-                finishCurrentAssistantView()
-                appendStoredUserMessage(id: event.id, text: text, attachments: attachments)
-            case let .assistantReasoning(text):
-                assistantView().appendStoredReasoning(text)
-            case let .assistantContent(markdown):
-                assistantView().appendStoredContentMarkdown(markdown)
-            case let .assistantToolCalls(toolCalls):
-                for toolCall in toolCalls {
-                    assistantView().appendDisplayPart(.toolEvent(.started(toolCall)))
-                }
-            case let .toolEvent(event):
-                assistantView().appendDisplayPart(.toolEvent(event))
-            case .messageRevision:
-                continue
-            }
-        }
-
-        finishCurrentAssistantView()
         mainPageView.layoutIfNeeded()
         scrollMessagesToBottom(animated: false)
     }
 
-    private func appendStoredUserMessage(id: UUID, text: String, attachments: [ChatAttachment]) {
-        let bubbleView = SentMessageBubbleView(messageID: id, text: text, attachments: attachments)
-        configureSentMessageActions(for: bubbleView)
-        bubbleView.translatesAutoresizingMaskIntoConstraints = false
-        bubbleView.setContentHuggingPriority(.required, for: .vertical)
-        bubbleView.setContentCompressionResistancePriority(.required, for: .vertical)
-
-        messagesStackView.addArrangedSubview(bubbleView)
-        bubbleView.widthAnchor.constraint(
-            lessThanOrEqualTo: messagesStackView.widthAnchor,
-            multiplier: MessagesLayout.maximumBubbleWidthRatio
-        ).isActive = true
+    private func appendTimelineRow(_ row: ChatTimelinePresentationPlan.Row) {
+        switch row {
+        case let .userMessage(id, text, attachments):
+            _ = messageStackAdapter.appendStoredUserMessage(
+                id: id,
+                text: text,
+                attachments: attachments
+            )
+            loadSentMessageAttachmentDisplays(messageID: id, attachments: attachments)
+        case let .assistantResponse(steps):
+            appendStoredAssistantResponse(steps)
+        }
     }
 
-    private func configureSentMessageActions(for bubbleView: SentMessageBubbleView) {
-        let messageID = bubbleView.messageID
+    private func appendStoredAssistantResponse(_ steps: [ChatTimelinePresentationPlan.AssistantStep]) {
+        let responseView = messageStackAdapter.appendAssistantResponseView()
+        for step in steps {
+            switch step {
+            case let .reasoning(text):
+                responseView.appendStoredReasoning(text)
+            case let .contentMarkdown(markdown):
+                responseView.appendStoredContentMarkdown(markdown)
+            case let .toolEvent(event):
+                responseView.appendDisplayPart(.toolEvent(event))
+            }
+        }
+        responseView.finishStreamingContent()
+    }
+
+    private func configureSentMessageActions(for bubbleView: SentMessageBubbleView, messageID: UUID) {
         bubbleView.editHistoryCount = chatRuntime.messageRevisions(for: messageID).count
         bubbleView.onPreviewAttachment = { [weak self] attachment in
-            self?.presentAttachmentPreview(for: attachment)
+            self?.attachmentPreviewWorkflow.presentPreview(for: attachment)
         }
         bubbleView.onResend = { [weak self, messageID] text, attachments in
             self?.resendMessage(
@@ -1913,77 +1903,32 @@ final class ChatViewController: UIViewController {
         }
     }
 
-    private func makeStoredAssistantResponseView() -> AssistantResponseTextView {
-        let responseView = AssistantResponseTextView()
-        responseView.translatesAutoresizingMaskIntoConstraints = false
-        responseView.setContentHuggingPriority(.required, for: .vertical)
-        responseView.setContentCompressionResistancePriority(.required, for: .vertical)
-        messagesStackView.addArrangedSubview(responseView)
-        responseView.widthAnchor.constraint(
-            equalTo: messagesStackView.widthAnchor
-        ).isActive = true
-        return responseView
-    }
-
     private func removeChatContent() {
-        let messageViews = messagesStackView.arrangedSubviews
-        guard !messageViews.isEmpty else {
+        attachmentPreviewDisplayPipeline.cancelMessageLoads()
+        guard messageStackAdapter.removeAll() else {
             return
-        }
-
-        messageViews.forEach {
-            messagesStackView.removeArrangedSubview($0)
-            $0.removeFromSuperview()
         }
         mainPageView.layoutIfNeeded()
         scrollMessagesToBottom(animated: false)
     }
 
     private func updateRightHeaderButtonState(animated: Bool) {
-        let isGeneratingResponse = activeResponseTask != nil
-        let isPrivateModeEnabled = chatRuntime.isPrivacyModeEnabled
-        let hasContent = hasChatContent
-        let systemName: String
-        if hasContent {
-            systemName = HeaderLayout.newConversationButtonSystemName
-        } else if isPrivateModeEnabled {
-            systemName = HeaderLayout.privateConversationActiveButtonSystemName
-        } else {
-            systemName = HeaderLayout.emptyConversationButtonSystemName
-        }
-        let accessibilityLabel = isGeneratingResponse
-            ? String(localized: .chatGeneratingResponse)
-            : (
-                hasContent
-                ? String(localized: .chatNewChat)
-                : (isPrivateModeEnabled ? String(localized: .chatPrivateChatActive) : String(localized: .chatPrivateChat))
-            )
-        let accessibilityHint = isGeneratingResponse || hasContent
-            ? nil
-            : (
-                isPrivateModeEnabled
-                ? String(localized: .chatPrivateChatActiveHint)
-                : String(localized: .chatPrivateChatHint)
-            )
-        let image = isGeneratingResponse
-            ? nil
-            : UIImage(
-                systemName: systemName,
-                withConfiguration: UIImage.SymbolConfiguration(
-                    pointSize: HeaderLayout.iconPointSize,
-                    weight: .semibold
-                )
-            )
+        let presentation = ChatHeaderActionPresentation.make(
+            isGeneratingResponse: responseStreamController.isActive,
+            isPrivateModeEnabled: chatRuntime.isPrivacyModeEnabled,
+            hasChatContent: hasChatContent
+        )
+        let image = Self.image(for: presentation.iconSystemName)
 
         let update = {
             var configuration = self.rightHeaderButton.configuration
             configuration?.image = image
-            configuration?.showsActivityIndicator = isGeneratingResponse
-            configuration?.baseForegroundColor = isPrivateModeEnabled && !hasContent ? .systemBlue : .label
+            configuration?.showsActivityIndicator = presentation.showsActivityIndicator
+            configuration?.baseForegroundColor = presentation.usesAccentColor ? .systemBlue : .label
             self.rightHeaderButton.configuration = configuration
-            self.rightHeaderButton.accessibilityLabel = accessibilityLabel
-            self.rightHeaderButton.accessibilityHint = accessibilityHint
-            self.rightHeaderButton.isSelected = isPrivateModeEnabled && !hasContent
+            self.rightHeaderButton.accessibilityLabel = presentation.accessibilityLabel.localizedString
+            self.rightHeaderButton.accessibilityHint = presentation.accessibilityHint?.localizedString
+            self.rightHeaderButton.isSelected = presentation.isSelected
             self.rightHeaderButton.isEnabled = true
         }
 
@@ -2002,22 +1947,33 @@ final class ChatViewController: UIViewController {
         )
     }
 
-    private static func makeHeaderButton(systemName: String, accessibilityLabel: String) -> UIButton {
+    private static func makeHeaderButton(presentation: ChatHeaderActionPresentation) -> UIButton {
         var configuration = UIButton.Configuration.clearGlass()
-        configuration.image = UIImage(
+        configuration.image = image(for: presentation.iconSystemName)
+        configuration.baseForegroundColor = presentation.usesAccentColor ? .systemBlue : .label
+        configuration.showsActivityIndicator = presentation.showsActivityIndicator
+        configuration.cornerStyle = .capsule
+        configuration.contentInsets = .zero
+
+        let button = UIButton(configuration: configuration)
+        button.accessibilityLabel = presentation.accessibilityLabel.localizedString
+        button.accessibilityHint = presentation.accessibilityHint?.localizedString
+        button.isSelected = presentation.isSelected
+        return button
+    }
+
+    private static func image(for systemName: String?) -> UIImage? {
+        guard let systemName else {
+            return nil
+        }
+
+        return UIImage(
             systemName: systemName,
             withConfiguration: UIImage.SymbolConfiguration(
                 pointSize: HeaderLayout.iconPointSize,
                 weight: .semibold
             )
         )
-        configuration.baseForegroundColor = .label
-        configuration.cornerStyle = .capsule
-        configuration.contentInsets = .zero
-
-        let button = UIButton(configuration: configuration)
-        button.accessibilityLabel = accessibilityLabel
-        return button
     }
 
     private static func makeHeaderPill(title: String) -> UIButton {
@@ -2079,243 +2035,6 @@ final class ChatViewController: UIViewController {
         }
     }
 
-    private final class MessagesScrollCoordinator {
-        private enum Metrics {
-            static let layoutEpsilon: CGFloat = 0.5
-        }
-
-        private weak var scrollView: UIScrollView?
-        private let bottomLockTolerance: CGFloat
-        private let autoScrollAnimationDuration: TimeInterval
-
-        private var isBottomLocked = true
-        private var hasRecordedLayout = false
-        private var lastContentSize: CGSize = .zero
-        private var lastBoundsSize: CGSize = .zero
-        private var lastAdjustedInsets: UIEdgeInsets = .zero
-        private var lastBottomOffsetY: CGFloat = 0.0
-        private var animationGeneration = 0
-
-        init(
-            scrollView: UIScrollView,
-            bottomLockTolerance: CGFloat,
-            autoScrollAnimationDuration: TimeInterval
-        ) {
-            self.scrollView = scrollView
-            self.bottomLockTolerance = bottomLockTolerance
-            self.autoScrollAnimationDuration = autoScrollAnimationDuration
-        }
-
-        func lockToBottom() {
-            isBottomLocked = true
-        }
-
-        func scrollToBottom(hostView: UIView?, animated: Bool) {
-            guard let scrollView else {
-                return
-            }
-
-            isBottomLocked = true
-            setContentOffset(
-                CGPoint(x: scrollView.contentOffset.x, y: bottomOffsetY()),
-                hostView: hostView,
-                animated: animated
-            )
-            recordCurrentLayout()
-        }
-
-        func reconcileAfterLayout(hostView: UIView?, allowsAnimatedFollow: Bool) {
-            guard let scrollView else {
-                return
-            }
-
-            let currentBottomOffsetY = bottomOffsetY()
-            let contentHeightIncreased = hasRecordedLayout
-                && scrollView.contentSize.height - lastContentSize.height > Metrics.layoutEpsilon
-            let bottomMovedDown = hasRecordedLayout
-                && currentBottomOffsetY - lastBottomOffsetY > Metrics.layoutEpsilon
-            let viewportChanged = hasRecordedLayout
-                && (
-                    abs(scrollView.bounds.size.height - lastBoundsSize.height) > Metrics.layoutEpsilon
-                    || abs(scrollView.adjustedContentInset.top - lastAdjustedInsets.top) > Metrics.layoutEpsilon
-                    || abs(scrollView.adjustedContentInset.bottom - lastAdjustedInsets.bottom) > Metrics.layoutEpsilon
-                )
-
-            if isBottomLocked {
-                let shouldAnimate = allowsAnimatedFollow
-                    && contentHeightIncreased
-                    && bottomMovedDown
-                    && !viewportChanged
-                    && !isUserInteracting
-                setContentOffset(
-                    CGPoint(x: scrollView.contentOffset.x, y: currentBottomOffsetY),
-                    hostView: hostView,
-                    animated: shouldAnimate
-                )
-            } else {
-                clampContentOffsetIfNeeded()
-            }
-
-            recordCurrentLayout()
-        }
-
-        func userWillBeginDragging() {
-            isBottomLocked = false
-            cancelInFlightScrollAnimation()
-        }
-
-        func userDidScroll() {
-            isBottomLocked = isScrolledToBottom()
-        }
-
-        func userWillEndDragging(targetOffsetY: CGFloat) {
-            isBottomLocked = isScrolledToBottom(offsetY: targetOffsetY)
-        }
-
-        func userDidFinishScrolling() {
-            isBottomLocked = isScrolledToBottom()
-        }
-
-        private func setContentOffset(
-            _ contentOffset: CGPoint,
-            hostView: UIView?,
-            animated: Bool
-        ) {
-            guard let scrollView else {
-                return
-            }
-
-            guard animated,
-                  hostView?.window != nil,
-                  !UIAccessibility.isReduceMotionEnabled,
-                  abs(scrollView.contentOffset.y - contentOffset.y) > Metrics.layoutEpsilon else {
-                animationGeneration += 1
-                scrollView.setContentOffset(contentOffset, animated: false)
-                return
-            }
-
-            animationGeneration += 1
-            let generation = animationGeneration
-            UIView.animate(
-                withDuration: autoScrollAnimationDuration,
-                delay: 0.0,
-                options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseOut]
-            ) {
-                scrollView.contentOffset = contentOffset
-            } completion: { [weak self, weak scrollView] _ in
-                guard let self,
-                      let scrollView,
-                      generation == self.animationGeneration,
-                      self.isBottomLocked,
-                      !self.isUserInteracting else {
-                    return
-                }
-
-                scrollView.setContentOffset(
-                    CGPoint(x: scrollView.contentOffset.x, y: self.bottomOffsetY()),
-                    animated: false
-                )
-                self.recordCurrentLayout()
-            }
-        }
-
-        private func cancelInFlightScrollAnimation() {
-            animationGeneration += 1
-            scrollView?.layer.removeAnimation(forKey: "bounds")
-        }
-
-        private var isUserInteracting: Bool {
-            guard let scrollView else {
-                return false
-            }
-
-            return scrollView.isTracking
-                || scrollView.isDragging
-                || scrollView.isDecelerating
-        }
-
-        private func isScrolledToBottom(offsetY: CGFloat? = nil) -> Bool {
-            guard let scrollView else {
-                return true
-            }
-
-            let candidateOffsetY = offsetY ?? scrollView.contentOffset.y
-            return candidateOffsetY >= bottomOffsetY() - bottomLockTolerance
-        }
-
-        private func bottomOffsetY() -> CGFloat {
-            contentOffsetBounds().maximum
-        }
-
-        private func contentOffsetBounds() -> (minimum: CGFloat, maximum: CGFloat) {
-            guard let scrollView else {
-                return (0.0, 0.0)
-            }
-
-            let adjustedInsets = scrollView.adjustedContentInset
-            let minimumOffsetY = -adjustedInsets.top
-            let maximumOffsetY = max(
-                minimumOffsetY,
-                scrollView.contentSize.height - scrollView.bounds.height + adjustedInsets.bottom
-            )
-
-            return (minimumOffsetY, maximumOffsetY)
-        }
-
-        private func clampContentOffsetIfNeeded() {
-            guard let scrollView,
-                  !isUserInteracting else {
-                return
-            }
-
-            let bounds = contentOffsetBounds()
-            let currentOffsetY = scrollView.contentOffset.y
-            let clampedOffsetY = min(max(currentOffsetY, bounds.minimum), bounds.maximum)
-            guard abs(currentOffsetY - clampedOffsetY) > CGFloat.ulpOfOne else {
-                return
-            }
-
-            animationGeneration += 1
-            scrollView.setContentOffset(
-                CGPoint(x: scrollView.contentOffset.x, y: clampedOffsetY),
-                animated: false
-            )
-        }
-
-        private func recordCurrentLayout() {
-            guard let scrollView else {
-                return
-            }
-
-            hasRecordedLayout = true
-            lastContentSize = scrollView.contentSize
-            lastBoundsSize = scrollView.bounds.size
-            lastAdjustedInsets = scrollView.adjustedContentInset
-            lastBottomOffsetY = bottomOffsetY()
-        }
-    }
-
-}
-
-extension ChatViewController: QLPreviewControllerDataSource, QLPreviewControllerDelegate {
-    func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
-        attachmentPreviewItem == nil ? 0 : 1
-    }
-
-    func previewController(
-        _ controller: QLPreviewController,
-        previewItemAt index: Int
-    ) -> any QLPreviewItem {
-        guard let attachmentPreviewItem else {
-            fatalError("Attachment preview requested without a preview item.")
-        }
-
-        return attachmentPreviewItem
-    }
-
-    func previewControllerDidDismiss(_ controller: QLPreviewController) {
-        attachmentPreviewItem = nil
-    }
 }
 
 extension ChatViewController: UIScrollViewDelegate {
@@ -2363,567 +2082,5 @@ extension ChatViewController: UIScrollViewDelegate {
         }
 
         messagesScrollCoordinator.userDidFinishScrolling()
-    }
-}
-
-extension ChatViewController: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-    func imagePickerController(
-        _ picker: UIImagePickerController,
-        didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
-    ) {
-        picker.dismiss(animated: true)
-
-        guard let image = info[.originalImage] as? UIImage else { return }
-        importCapturedImage(image)
-    }
-
-    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-        picker.dismiss(animated: true)
-    }
-
-    private func importCapturedImage(_ image: UIImage) {
-        guard let data = image.jpegData(compressionQuality: 0.9) else {
-            presentAttachmentError(String(localized: .chatAttachmentPhotoEncodingFailed))
-            return
-        }
-
-        let timestamp = Self.timestampFilenameFormatter.string(from: Date())
-        let filename = "\(String(localized: .chatAttachmentPhotoFilenameFormat(timestamp))).jpg"
-        do {
-            let attachment = try attachmentStore.store(
-                data: data,
-                filename: filename,
-                kind: .image,
-                contentType: "image/jpeg",
-                preferredExtension: "jpg"
-            )
-            appendPendingAttachments([attachment])
-        } catch {
-            presentAttachmentError(error.localizedDescription)
-        }
-    }
-
-    private static let timestampFilenameFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyyMMdd-HHmmss"
-        return formatter
-    }()
-}
-
-extension ChatViewController: PHPickerViewControllerDelegate {
-    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-        picker.dismiss(animated: true)
-
-        guard !results.isEmpty else { return }
-
-        let providers = results.map(\.itemProvider)
-
-        Task { [weak self] in
-            var attachments: [ChatAttachment] = []
-            for (index, provider) in providers.enumerated() {
-                guard provider.canLoadObject(ofClass: UIImage.self) else {
-                    continue
-                }
-
-                let image: UIImage? = await withCheckedContinuation { continuation in
-                    provider.loadObject(ofClass: UIImage.self) { object, _ in
-                        continuation.resume(returning: object as? UIImage)
-                    }
-                }
-
-                guard let image,
-                      let data = image.jpegData(compressionQuality: 0.9),
-                      let self else {
-                    continue
-                }
-
-                let suggestedName = provider.suggestedName.flatMap { name -> String? in
-                    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-                    return trimmed.isEmpty ? nil : "\(trimmed).jpg"
-                } ?? "\(String(localized: .chatAttachmentImageFilenameFormat(index + 1))).jpg"
-
-                if let attachment = try? self.attachmentStore.store(
-                    data: data,
-                    filename: suggestedName,
-                    kind: .image,
-                    contentType: "image/jpeg",
-                    preferredExtension: "jpg"
-                ) {
-                    attachments.append(attachment)
-                }
-            }
-
-            let importedAttachments = attachments
-            await MainActor.run { [weak self] in
-                self?.appendPendingAttachments(importedAttachments)
-            }
-        }
-    }
-}
-
-extension ChatViewController: UIDocumentPickerDelegate {
-    func documentPicker(
-        _ controller: UIDocumentPickerViewController,
-        didPickDocumentsAt urls: [URL]
-    ) {
-        var attachments: [ChatAttachment] = []
-        for url in urls {
-            let needsScope = url.startAccessingSecurityScopedResource()
-            defer {
-                if needsScope {
-                    url.stopAccessingSecurityScopedResource()
-                }
-            }
-
-            let kind: ChatAttachment.Kind
-            if let type = UTType(filenameExtension: url.pathExtension),
-               type.conforms(to: .image) {
-                kind = .image
-            } else {
-                kind = .file
-            }
-
-            do {
-                let attachment = try attachmentStore.importFile(
-                    from: url,
-                    suggestedFilename: url.lastPathComponent,
-                    kind: kind
-                )
-                attachments.append(attachment)
-            } catch {
-                presentAttachmentError(error.localizedDescription)
-            }
-        }
-        appendPendingAttachments(attachments)
-    }
-}
-
-private final class MessageEditViewController: UIViewController, UITextViewDelegate {
-    private enum Metrics {
-        static let horizontalInset: CGFloat = 16.0
-        static let topInset: CGFloat = 16.0
-        static let bottomInset: CGFloat = 16.0
-        static let textInset: CGFloat = 12.0
-        static let cornerRadius: CGFloat = 14.0
-        static let minimumTextHeight: CGFloat = 180.0
-    }
-
-    private let initialText: String
-    private let allowsEmptyText: Bool
-    private let textView = UITextView()
-    private var sendButtonItem: UIBarButtonItem?
-
-    var onSubmit: ((String) -> Void)?
-
-    init(text: String, allowsEmptyText: Bool) {
-        initialText = text
-        self.allowsEmptyText = allowsEmptyText
-        super.init(nibName: nil, bundle: nil)
-    }
-
-    required init?(coder: NSCoder) {
-        initialText = ""
-        allowsEmptyText = false
-        super.init(coder: coder)
-    }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-
-        configureNavigationItem()
-        configureTextView()
-    }
-
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-
-        textView.becomeFirstResponder()
-    }
-
-    func textViewDidChange(_ textView: UITextView) {
-        updateSendAvailability()
-    }
-
-    private func configureNavigationItem() {
-        title = String(localized: .chatEditMessage)
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            barButtonSystemItem: .cancel,
-            target: self,
-            action: #selector(cancelButtonPressed)
-        )
-        let sendItem = UIBarButtonItem(
-            title: String(localized: .generalSend),
-            style: .prominent,
-            target: self,
-            action: #selector(sendButtonPressed)
-        )
-        navigationItem.rightBarButtonItem = sendItem
-        sendButtonItem = sendItem
-        updateSendAvailability()
-    }
-
-    private func configureTextView() {
-        view.backgroundColor = .clear
-
-        textView.translatesAutoresizingMaskIntoConstraints = false
-        textView.backgroundColor = .secondarySystemBackground
-        textView.delegate = self
-        textView.font = .preferredFont(forTextStyle: .body)
-        textView.adjustsFontForContentSizeCategory = true
-        textView.textColor = .label
-        textView.tintColor = .systemBlue
-        textView.text = initialText
-        textView.textContainerInset = UIEdgeInsets(
-            top: Metrics.textInset,
-            left: Metrics.textInset,
-            bottom: Metrics.textInset,
-            right: Metrics.textInset
-        )
-        textView.textContainer.lineFragmentPadding = 0.0
-        textView.layer.cornerRadius = Metrics.cornerRadius
-        textView.layer.cornerCurve = .continuous
-        textView.isScrollEnabled = true
-        textView.alwaysBounceVertical = true
-        view.addSubview(textView)
-
-        NSLayoutConstraint.activate([
-            textView.topAnchor.constraint(
-                equalTo: view.safeAreaLayoutGuide.topAnchor,
-                constant: Metrics.topInset
-            ),
-            textView.leadingAnchor.constraint(
-                equalTo: view.safeAreaLayoutGuide.leadingAnchor,
-                constant: Metrics.horizontalInset
-            ),
-            textView.trailingAnchor.constraint(
-                equalTo: view.safeAreaLayoutGuide.trailingAnchor,
-                constant: -Metrics.horizontalInset
-            ),
-            textView.bottomAnchor.constraint(
-                equalTo: view.keyboardLayoutGuide.topAnchor,
-                constant: -Metrics.bottomInset
-            ),
-            textView.heightAnchor.constraint(greaterThanOrEqualToConstant: Metrics.minimumTextHeight)
-        ])
-        updateSendAvailability()
-    }
-
-    private func updateSendAvailability() {
-        let trimmedText = textView.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        sendButtonItem?.isEnabled = allowsEmptyText || !trimmedText.isEmpty
-    }
-
-    @objc private func cancelButtonPressed() {
-        dismiss(animated: true)
-    }
-
-    @objc private func sendButtonPressed() {
-        let trimmedText = textView.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard allowsEmptyText || !trimmedText.isEmpty else {
-            return
-        }
-
-        onSubmit?(trimmedText)
-    }
-}
-
-private final class MessageRevisionHistoryViewController: UITableViewController {
-    private enum ReuseIdentifier {
-        static let revisionCell = "MessageRevisionHistoryCell"
-    }
-
-    private let revisions: [ChatMessageRevision]
-    var onSelectRevision: ((ChatMessageRevision) -> Void)?
-
-    init(revisions: [ChatMessageRevision]) {
-        self.revisions = revisions
-        super.init(style: .plain)
-    }
-
-    required init?(coder: NSCoder) {
-        revisions = []
-        super.init(coder: coder)
-    }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-
-        title = String(localized: .generalHistory)
-        view.backgroundColor = .clear
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            barButtonSystemItem: .done,
-            target: self,
-            action: #selector(doneButtonPressed)
-        )
-        tableView.register(MessageRevisionHistoryCell.self, forCellReuseIdentifier: ReuseIdentifier.revisionCell)
-    }
-
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        revisions.count
-    }
-
-    override func tableView(
-        _ tableView: UITableView,
-        cellForRowAt indexPath: IndexPath
-    ) -> UITableViewCell {
-        let revision = revisions[indexPath.row]
-        let cell = tableView.dequeueReusableCell(
-            withIdentifier: ReuseIdentifier.revisionCell,
-            for: indexPath
-        )
-        (cell as? MessageRevisionHistoryCell)?.configure(with: revision)
-        cell.accessoryType = .none
-        return cell
-    }
-
-    override func tableView(
-        _ tableView: UITableView,
-        didSelectRowAt indexPath: IndexPath
-    ) {
-        tableView.deselectRow(at: indexPath, animated: true)
-        onSelectRevision?(revisions[indexPath.row])
-    }
-
-    @objc private func doneButtonPressed() {
-        dismiss(animated: true)
-    }
-}
-
-private final class MessageRevisionHistoryCell: UITableViewCell {
-    private enum Metrics {
-        static let horizontalInset: CGFloat = 16.0
-        static let verticalInset: CGFloat = 10.0
-        static let rowSpacing: CGFloat = 4.0
-        static let subtitleSpacing: CGFloat = 8.0
-        static let tagCornerRadius: CGFloat = 7.0
-    }
-
-    private let titleLabel = UILabel()
-    private let subtitleStackView = UIStackView()
-    private let dateLabel = UILabel()
-    private let countTagLabel = MessageRevisionCountTagLabel()
-    private let stackView = UIStackView()
-
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        configure()
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        configure()
-    }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
-
-        titleLabel.text = nil
-        dateLabel.text = nil
-        countTagLabel.text = nil
-        countTagLabel.isHidden = true
-    }
-
-    func configure(with revision: ChatMessageRevision) {
-        titleLabel.text = revision.historyTitle
-        dateLabel.text = revision.historySubtitle
-
-        let followUpCount = revision.followUpUserMessageCount
-        countTagLabel.text = "+\(followUpCount)"
-        countTagLabel.isHidden = followUpCount == 0
-    }
-
-    private func configure() {
-        selectionStyle = .default
-
-        titleLabel.font = .preferredFont(forTextStyle: .body)
-        titleLabel.adjustsFontForContentSizeCategory = true
-        titleLabel.textColor = .label
-        titleLabel.numberOfLines = 1
-        titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        dateLabel.font = .preferredFont(forTextStyle: .subheadline)
-        dateLabel.adjustsFontForContentSizeCategory = true
-        dateLabel.textColor = .secondaryLabel
-        dateLabel.numberOfLines = 1
-        dateLabel.lineBreakMode = .byTruncatingTail
-        dateLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        countTagLabel.font = .preferredFont(forTextStyle: .caption1)
-        countTagLabel.adjustsFontForContentSizeCategory = true
-        countTagLabel.textColor = .secondaryLabel
-        countTagLabel.textAlignment = .center
-        countTagLabel.backgroundColor = .tertiarySystemFill
-        countTagLabel.layer.cornerRadius = Metrics.tagCornerRadius
-        countTagLabel.layer.cornerCurve = .continuous
-        countTagLabel.clipsToBounds = true
-        countTagLabel.numberOfLines = 1
-        countTagLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-        countTagLabel.setContentHuggingPriority(.required, for: .horizontal)
-
-        subtitleStackView.axis = .horizontal
-        subtitleStackView.alignment = .center
-        subtitleStackView.spacing = Metrics.subtitleSpacing
-        subtitleStackView.translatesAutoresizingMaskIntoConstraints = false
-        subtitleStackView.addArrangedSubview(dateLabel)
-        subtitleStackView.addArrangedSubview(countTagLabel)
-
-        stackView.axis = .vertical
-        stackView.alignment = .fill
-        stackView.spacing = Metrics.rowSpacing
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-        stackView.addArrangedSubview(titleLabel)
-        stackView.addArrangedSubview(subtitleStackView)
-        contentView.addSubview(stackView)
-
-        NSLayoutConstraint.activate([
-            stackView.topAnchor.constraint(
-                equalTo: contentView.topAnchor,
-                constant: Metrics.verticalInset
-            ),
-            stackView.leadingAnchor.constraint(
-                equalTo: contentView.leadingAnchor,
-                constant: Metrics.horizontalInset
-            ),
-            stackView.trailingAnchor.constraint(
-                equalTo: contentView.trailingAnchor,
-                constant: -Metrics.horizontalInset
-            ),
-            stackView.bottomAnchor.constraint(
-                equalTo: contentView.bottomAnchor,
-                constant: -Metrics.verticalInset
-            )
-        ])
-    }
-}
-
-private final class MessageRevisionCountTagLabel: UILabel {
-    private let textInsets = UIEdgeInsets(top: 2.0, left: 7.0, bottom: 2.0, right: 7.0)
-
-    override func drawText(in rect: CGRect) {
-        super.drawText(in: rect.inset(by: textInsets))
-    }
-
-    override var intrinsicContentSize: CGSize {
-        let size = super.intrinsicContentSize
-        return CGSize(
-            width: size.width + textInsets.left + textInsets.right,
-            height: size.height + textInsets.top + textInsets.bottom
-        )
-    }
-
-    override func sizeThatFits(_ size: CGSize) -> CGSize {
-        let fittingSize = super.sizeThatFits(
-            CGSize(
-                width: max(0.0, size.width - textInsets.left - textInsets.right),
-                height: max(0.0, size.height - textInsets.top - textInsets.bottom)
-            )
-        )
-        return CGSize(
-            width: fittingSize.width + textInsets.left + textInsets.right,
-            height: fittingSize.height + textInsets.top + textInsets.bottom
-        )
-    }
-}
-
-private extension ChatMessageRevision {
-    var historyTitle: String {
-        let title = userMessageText.singleLineHistoryTitle
-        guard !title.isEmpty else {
-            return firstAttachmentTitle ?? String(localized: .chatAttachment)
-        }
-
-        return title
-    }
-
-    var historySubtitle: String {
-        Self.historyDateFormatter.string(from: archivedAt)
-    }
-
-    var followUpUserMessageCount: Int {
-        var hasSeenAnchorMessage = false
-        var count = 0
-        for event in events {
-            switch event.kind {
-            case .userMessage,
-                 .userMessageWithAttachments:
-                if hasSeenAnchorMessage {
-                    count += 1
-                } else {
-                    hasSeenAnchorMessage = true
-                }
-            case .assistantReasoning,
-                 .assistantContent,
-                 .assistantToolCalls,
-                 .toolEvent:
-                continue
-            }
-        }
-        return count
-    }
-
-    private var userMessageText: String {
-        for event in events {
-            switch event.kind {
-            case let .userMessage(text),
-                 let .userMessageWithAttachments(text, _):
-                return text
-            case .assistantReasoning,
-                 .assistantContent,
-                 .assistantToolCalls,
-                 .toolEvent:
-                continue
-            }
-        }
-        return ""
-    }
-
-    private var firstAttachmentTitle: String? {
-        for event in events {
-            guard case let .userMessageWithAttachments(_, attachments) = event.kind else {
-                continue
-            }
-
-            let filename = attachments.first?.filename
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return filename.isEmpty ? nil : filename
-        }
-
-        return nil
-    }
-
-    private static let historyDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter
-    }()
-}
-
-private extension String {
-    var singleLineHistoryTitle: String {
-        components(separatedBy: .newlines)
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-}
-
-private final class AttachmentPreviewItem: NSObject, QLPreviewItem {
-    private let url: URL
-    private let title: String
-
-    init(url: URL, title: String) {
-        self.url = url
-        self.title = title
-        super.init()
-    }
-
-    var previewItemURL: URL? {
-        url
-    }
-
-    var previewItemTitle: String? {
-        title
     }
 }

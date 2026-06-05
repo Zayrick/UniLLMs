@@ -26,18 +26,21 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
 
     private let dependencies: AppDependencyContainer
     private var saveButtonItem: UIBarButtonItem?
-    private var provider: LLMsProviderRecord
-    private var savedProvider: LLMsProviderRecord
+    private var draft: LLMsProviderConfigurationDraft
     private var isNewProvider: Bool
     private var isLoadingModels = false
     private var didStartInitialModelLoad = false
+
+    private var provider: LLMsProviderRecord {
+        draft.provider
+    }
 
     private var configurationFields: [LLMsProviderConfigurationField] {
         dependencies.providerManager.configurationFields(for: provider.kind)
     }
 
     private var modelSource: LLMsProviderModelSource? {
-        dependencies.providerManager.modelSource(for: provider.kind)
+        draft.modelSource
     }
 
     private lazy var updatedDateFormatter: DateFormatter = {
@@ -52,23 +55,29 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
         dependencies: AppDependencyContainer = AppEnvironment.shared.dependencies,
         isNewProvider: Bool = false
     ) {
-        self.provider = provider
-        savedProvider = provider
         self.isNewProvider = isNewProvider
         self.dependencies = dependencies
+        draft = LLMsProviderConfigurationDraft(
+            provider: provider,
+            modelSource: dependencies.providerManager.modelSource(for: provider.kind)
+        )
         super.init(style: .insetGrouped)
     }
 
     required init?(coder: NSCoder) {
         let dependencies = AppEnvironment.shared.dependencies
         self.dependencies = dependencies
-        provider = (try? dependencies.providerManager.makeDefaultProviderDraft())
+        let provider = (try? dependencies.providerManager.makeDefaultProviderDraft())
             ?? LLMsProviderRecord(
                 kind: LLMsProviderKind(rawValue: ""),
                 name: "",
-                configuration: LLMsProviderConfiguration()
+                configuration: LLMsProviderConfiguration(),
+                createdAt: dependencies.clock.now
             )
-        savedProvider = provider
+        draft = LLMsProviderConfigurationDraft(
+            provider: provider,
+            modelSource: dependencies.providerManager.modelSource(for: provider.kind)
+        )
         isNewProvider = true
         super.init(coder: coder)
     }
@@ -228,12 +237,11 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
         let modelIndex = indexPath.row - 1
         let deleteAction = UIContextualAction(style: .destructive, title: String(localized: .generalDelete)) { [weak self] _, _, completion in
             guard let self,
-                  provider.models.indices.contains(modelIndex) else {
+                  draft.removeManualModel(at: modelIndex) else {
                 completion(false)
                 return
             }
 
-            provider.models.remove(at: modelIndex)
             updateSaveButtonState()
             tableView.performBatchUpdates {
                 tableView.deleteRows(at: [indexPath], with: .fade)
@@ -404,24 +412,19 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
     }
 
     private var manualModelCount: Int {
-        provider.models
-            .filter { !$0.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            .count
+        draft.manualModelCount
     }
 
     private func value(for field: LLMsProviderConfigurationField) -> String {
-        provider.configurationValue(for: field.binding)
+        draft.value(for: field)
     }
 
     private func booleanValue(for field: LLMsProviderConfigurationField) -> Bool {
-        let normalizedValue = value(for: field)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        return ["true", "1", "yes", "on"].contains(normalizedValue)
+        draft.booleanValue(for: field)
     }
 
     private func setValue(_ text: String, for field: LLMsProviderConfigurationField) {
-        provider.setConfigurationValue(text, for: field.binding)
+        draft.setValue(text, for: field)
 
         switch field.binding {
         case .providerName:
@@ -477,16 +480,10 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
     }
 
     private func appendManualModelRow() {
-        provider.models.append(
-            LLMsProviderModel(
-                id: "",
-                name: nil,
-                contextLength: nil
-            )
-        )
+        let modelIndex = draft.appendManualModel()
 
         let insertedIndexPath = IndexPath(
-            row: provider.models.count,
+            row: modelIndex + 1,
             section: Section.models.rawValue
         )
         updateSaveButtonState()
@@ -500,13 +497,10 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
     }
 
     private func setManualModelID(_ text: String, at modelIndex: Int) {
-        guard provider.models.indices.contains(modelIndex) else {
+        let oldModelCount = manualModelCount
+        guard draft.setManualModelID(text, at: modelIndex) else {
             return
         }
-
-        let oldModelCount = manualModelCount
-        provider.models[modelIndex].id = text
-        provider.models[modelIndex].name = normalizedModelName(provider.models[modelIndex].name)
 
         updateSaveButtonState()
 
@@ -546,11 +540,8 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
 
             do {
                 let models = try await dependencies.providerManager.fetchModels(for: provider)
-                let modelsUpdatedAt = Date()
-                provider.models = models
-                provider.modelsUpdatedAt = modelsUpdatedAt
-                savedProvider.models = models
-                savedProvider.modelsUpdatedAt = modelsUpdatedAt
+                let modelsUpdatedAt = dependencies.clock.now
+                draft.replaceRemoteModels(models, updatedAt: modelsUpdatedAt)
                 if !isNewProvider {
                     dependencies.providerStore.updateProviderModels(
                         id: provider.id,
@@ -580,13 +571,34 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
 
     @objc private func saveConfiguration() {
         view.endEditing(true)
-        provider = providerForSaving
-        dependencies.providerStore.saveProvider(provider)
+        let validatedProvider = draft.providerForSaving(updatedAt: dependencies.clock.now)
+        do {
+            try dependencies.providerManager.validateChatConfiguration(for: validatedProvider)
+        } catch {
+            presentConfigurationSaveError(error)
+            return
+        }
+
+        dependencies.providerStore.saveProvider(validatedProvider)
         isNewProvider = false
-        savedProvider = provider
+        draft.markSaved(validatedProvider)
         title = dependencies.providerManager.displayName(for: provider)
         updateSaveButtonState()
         navigationController?.popViewController(animated: true)
+    }
+
+    private func presentConfigurationSaveError(_ error: Error) {
+        guard presentedViewController == nil else {
+            return
+        }
+
+        let alertController = UIAlertController(
+            title: String(localized: .providerConfigurationErrorUnableToSaveProvider),
+            message: error.localizedDescription,
+            preferredStyle: .alert
+        )
+        alertController.addAction(UIAlertAction(title: String(localized: .generalOk), style: .default))
+        present(alertController, animated: true)
     }
 
     private func updateSaveButtonState() {
@@ -594,71 +606,22 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
     }
 
     private var canSaveConfiguration: Bool {
-        hasRequiredConfigurationFields && (isNewProvider || hasUnsavedChanges)
+        draft.canSave(
+            isNewProvider: isNewProvider,
+            hasRequiredConfigurationFields: hasRequiredConfigurationFields
+        )
     }
 
     private var hasRequiredConfigurationFields: Bool {
         dependencies.providerManager.hasRequiredConfigurationFields(for: provider)
     }
 
-    private var hasUnsavedChanges: Bool {
-        providerForComparison(provider) != providerForComparison(savedProvider)
-    }
-
-    private var providerForSaving: LLMsProviderRecord {
-        var normalizedRecord = normalizedProvider(provider)
-        guard hasManualModelListChanges else {
-            return normalizedRecord
-        }
-
-        normalizedRecord.modelsUpdatedAt = Date()
-        return normalizedRecord
-    }
-
-    private func normalizedProvider(_ provider: LLMsProviderRecord) -> LLMsProviderRecord {
-        var normalizedRecord = provider
-        normalizedRecord.models = provider.models.compactMap { model in
-            let trimmedID = model.id.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmedID.isEmpty else {
-                return nil
-            }
-
-            return LLMsProviderModel(
-                id: trimmedID,
-                name: normalizedModelName(model.name),
-                contextLength: model.contextLength
-            )
-        }
-        return normalizedRecord
-    }
-
-    private func providerForComparison(_ provider: LLMsProviderRecord) -> LLMsProviderRecord {
-        var normalizedRecord = normalizedProvider(provider)
-        if modelSource == .manual {
-            normalizedRecord.modelsUpdatedAt = normalizedProvider(savedProvider).modelsUpdatedAt
-        }
-        return normalizedRecord
-    }
-
-    private var hasManualModelListChanges: Bool {
-        guard modelSource == .manual else {
-            return false
-        }
-
-        return normalizedProvider(provider).models != normalizedProvider(savedProvider).models
-    }
-
-    private func normalizedModelName(_ name: String?) -> String? {
-        let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmedName.isEmpty ? nil : trimmedName
-    }
-
     private func modelTitle(for model: LLMsProviderModel) -> String {
-        normalizedModelName(model.name) ?? model.id
+        draft.modelTitle(for: model)
     }
 
     private func modelSubtitle(for model: LLMsProviderModel) -> String? {
-        normalizedModelName(model.name) == nil ? nil : model.id
+        draft.modelSubtitle(for: model)
     }
 
     private func reloadManualModelsSummary() {

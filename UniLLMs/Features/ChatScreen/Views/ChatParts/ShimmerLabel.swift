@@ -33,7 +33,7 @@ final class ShimmerLabel: UILabel {
             textColor = baseColor
         }
     }
-    
+
     /// The color of the sweeping shine highlight.
     var shineColor: UIColor = .label {
         didSet {
@@ -56,11 +56,11 @@ final class ShimmerLabel: UILabel {
     override var adjustsFontForContentSizeCategory: Bool {
         didSet { shineLabel.adjustsFontForContentSizeCategory = adjustsFontForContentSizeCategory }
     }
-    
+
     override var numberOfLines: Int {
         didSet { shineLabel.numberOfLines = numberOfLines }
     }
-    
+
     override var lineBreakMode: NSLineBreakMode {
         didSet { shineLabel.lineBreakMode = lineBreakMode }
     }
@@ -91,20 +91,20 @@ final class ShimmerLabel: UILabel {
 
     private func configure() {
         textColor = baseColor
-        
+
         shineLabel.translatesAutoresizingMaskIntoConstraints = false
         shineLabel.textColor = shineColor
         shineLabel.isAccessibilityElement = false
         shineLabel.isHidden = true
         addSubview(shineLabel)
-        
+
         NSLayoutConstraint.activate([
             shineLabel.topAnchor.constraint(equalTo: topAnchor),
             shineLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
             shineLabel.trailingAnchor.constraint(equalTo: trailingAnchor),
             shineLabel.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
-        
+
         gradientMask.colors = [
             UIColor.clear.cgColor,
             UIColor.black.cgColor,
@@ -137,7 +137,7 @@ final class ShimmerLabel: UILabel {
         }
         isAnimating = true
         shineLabel.isHidden = false
-        
+
         setNeedsLayout()
         layoutIfNeeded()
 
@@ -154,7 +154,7 @@ final class ShimmerLabel: UILabel {
         animGroup.duration = Constants.speed
         animGroup.repeatCount = .infinity
         animGroup.isRemovedOnCompletion = false
-        
+
         gradientMask.add(animGroup, forKey: Constants.animationKey)
     }
 

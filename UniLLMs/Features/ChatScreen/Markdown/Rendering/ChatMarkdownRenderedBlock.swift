@@ -8,17 +8,17 @@
 
 import UIKit
 
-struct ChatMarkdownImageBlock: Equatable {
+nonisolated struct ChatMarkdownImageBlock: Equatable {
     let source: String
     let altText: String
 }
 
-struct ChatMarkdownCodeBlock: Equatable {
+nonisolated struct ChatMarkdownCodeBlock: Equatable {
     let code: String
     let language: String?
     let isStreaming: Bool
 
-    init(code: String, language: String?, isStreaming: Bool = false) {
+    nonisolated init(code: String, language: String?, isStreaming: Bool = false) {
         self.code = code
         self.language = language
         self.isStreaming = isStreaming
@@ -34,32 +34,32 @@ struct ChatMarkdownCodeBlock: Equatable {
     }
 }
 
-struct ChatMarkdownDetailsBlock {
+nonisolated struct ChatMarkdownDetailsBlock {
     let summary: String
     let isOpen: Bool
     let children: [ChatMarkdownRenderedBlock]
 }
 
-struct ChatMarkdownBlockQuoteBlock {
+nonisolated struct ChatMarkdownBlockQuoteBlock {
     let children: [ChatMarkdownRenderedBlock]
 }
 
-enum ChatMarkdownListMarker: Equatable {
+nonisolated enum ChatMarkdownListMarker: Equatable {
     case text(String)
     case checkbox(isChecked: Bool)
 }
 
-struct ChatMarkdownListItemBlock {
+nonisolated struct ChatMarkdownListItemBlock {
     let marker: ChatMarkdownListMarker
     let children: [ChatMarkdownRenderedBlock]
 }
 
-struct ChatMarkdownListBlock {
+nonisolated struct ChatMarkdownListBlock {
     let isOrdered: Bool
     let items: [ChatMarkdownListItemBlock]
 }
 
-enum ChatMarkdownRenderedBlock {
+nonisolated enum ChatMarkdownRenderedBlock {
     case text(NSAttributedString)
     case codeBlock(ChatMarkdownCodeBlock)
     case mathBlock(ChatMarkdownMathBlock)

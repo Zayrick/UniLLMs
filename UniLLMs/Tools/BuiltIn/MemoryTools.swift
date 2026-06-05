@@ -74,18 +74,11 @@ struct MemoryAddTool: Tool {
         do {
             let arguments = MemoryToolArguments(call.arguments)
             let text = try arguments.requiredTrimmedString("text")
-            let now = Date()
-            let memory = MemoryRecord(
-                scope: .user,
-                text: text,
-                createdAt: now,
-                updatedAt: now
-            )
+            let savedMemory = try await memoryManager.saveMemory(scope: .user, text: text)
 
-            try await memoryManager.saveMemory(memory)
             return ToolResult(
                 callID: call.id,
-                content: try MemoryToolFormatter.encodedAdd(memory: memory)
+                content: try MemoryToolFormatter.encodedAdd(memory: savedMemory)
             )
         } catch let error as MemoryToolInputError {
             return ToolResult(callID: call.id, content: error.localizedDescription, status: .error)
@@ -229,11 +222,10 @@ struct MemoryUpdateTool: Tool {
             }
 
             memory.text = text
-            memory.updatedAt = Date()
-            try await memoryManager.saveMemory(memory)
+            let savedMemory = try await memoryManager.saveMemory(memory)
             return ToolResult(
                 callID: call.id,
-                content: try MemoryToolFormatter.encodedUpdate(memory: memory)
+                content: try MemoryToolFormatter.encodedUpdate(memory: savedMemory)
             )
         } catch let error as MemoryToolInputError {
             return ToolResult(callID: call.id, content: error.localizedDescription, status: .error)

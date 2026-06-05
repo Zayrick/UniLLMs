@@ -487,6 +487,24 @@
         }
       }
     },
+    "chat.history_save_failed" : {
+      "comment" : "Alert title shown when the current chat could not be saved to local history.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unable to Save Chat"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法保存对话"
+          }
+        }
+      }
+    },
     "chat.private_chat" : {
       "comment" : "Accessibility label for the chat header button that starts a private chat.",
       "extractionState" : "manual",
@@ -1711,6 +1729,24 @@
         }
       }
     },
+    "mcp.error.invalid_headers_json" : {
+      "comment" : "Error when MCP HTTP headers JSON cannot be parsed as a string dictionary.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Headers must be a JSON object with string keys and string values."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请求头必须是键和值都为字符串的 JSON 对象。"
+          }
+        }
+      }
+    },
     "mcp.error.invalid_response_format" : {
       "comment" : "Error when an MCP server returns an invalid response.",
       "extractionState" : "manual",
@@ -2809,6 +2845,24 @@
         }
       }
     },
+    "provider_configuration.error.unable_to_save_provider" : {
+      "comment" : "Alert title when saving provider configuration fails.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unable to Save Provider"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法保存服务商"
+          }
+        }
+      }
+    },
     "provider_configuration.model_count_format" : {
       "comment" : "Manual model count summary.",
       "extractionState" : "manual",
@@ -3709,6 +3763,24 @@
         }
       }
     },
+    "runtime.error.tool_iteration_limit_format" : {
+      "comment" : "Error when a chat turn stops after too many tool-call rounds.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stopped after %lld tool-call rounds to prevent an infinite loop."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "为避免无限循环，已在 %lld 轮工具调用后停止。"
+          }
+        }
+      }
+    },
     "runtime.error.message_could_not_be_edited" : {
       "comment" : "Error when a message edit operation cannot find the target message.",
       "extractionState" : "manual",
@@ -3723,6 +3795,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无法编辑此消息。"
+          }
+        }
+      }
+    },
+    "runtime.error.message_could_not_be_sent" : {
+      "comment" : "Error when a message send operation cannot be prepared.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The message could not be sent."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法发送此消息。"
           }
         }
       }
@@ -4533,6 +4623,42 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "权限"
+          }
+        }
+      }
+    },
+    "storage.user_defaults_load_failed" : {
+      "comment" : "Error message shown when local app data could not be decoded from UserDefaults.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unable to read local app data."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法读取本地应用数据。"
+          }
+        }
+      }
+    },
+    "storage.user_defaults_save_failed" : {
+      "comment" : "Error message shown when local app data could not be encoded or saved to UserDefaults.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unable to save local app data."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法保存本地应用数据。"
           }
         }
       }

@@ -129,16 +129,11 @@ final class MemoryEditorViewController: UITableViewController {
 
     @objc private func saveMemory() {
         view.endEditing(true)
-        guard var memoryForSaving else {
+        guard let memoryForSaving else {
             updateSaveButtonState()
             return
         }
 
-        let now = Date()
-        if isNewMemory {
-            memoryForSaving.createdAt = now
-        }
-        memoryForSaving.updatedAt = now
         saveButtonItem.isEnabled = false
 
         saveTask?.cancel()
@@ -148,9 +143,9 @@ final class MemoryEditorViewController: UITableViewController {
             }
 
             do {
-                try await self.dependencies.memoryManager.saveMemory(memoryForSaving)
-                self.memory = memoryForSaving
-                self.savedMemory = memoryForSaving
+                let savedMemory = try await self.dependencies.memoryManager.saveMemory(memoryForSaving)
+                self.memory = savedMemory
+                self.savedMemory = savedMemory
                 self.isNewMemory = false
                 self.title = self.navigationTitle
                 self.updateSaveButtonState()

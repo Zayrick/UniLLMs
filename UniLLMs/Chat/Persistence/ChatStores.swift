@@ -26,24 +26,49 @@ protocol ChatTranscriptExporter {
 
 typealias ChatHistoryStore = ChatSessionStore & ChatTimelineStore
 
+struct ChatHistoryAttachmentCleanupFailure: LocalizedError {
+    var removedAttachments: [ChatAttachment]
+    var retainedAttachments: [ChatAttachment]
+    var underlyingError: Error
+
+    var errorDescription: String? {
+        underlyingError.localizedDescription
+    }
+}
+
 final class UserDefaultsChatStore: ChatHistoryStore {
+    static let attachmentCleanupDidCompleteNotification = Notification.Name(
+        "UserDefaultsChatStoreAttachmentCleanupDidComplete"
+    )
+    static let attachmentCleanupDidFailNotification = Notification.Name(
+        "UserDefaultsChatStoreAttachmentCleanupDidFail"
+    )
+    static let attachmentCleanupResultUserInfoKey = "result"
+    static let attachmentCleanupFailureUserInfoKey = "failure"
+
     private struct Payload: Codable {
         var sessions: [ChatSession] = []
         var eventsBySessionID: [String: [ChatTimelineEvent]] = [:]
     }
 
     private let store: UserDefaultsStore
+    private let notificationCenter: NotificationCenter
     private let storageKey: String
-    private let attachmentStore: ChatAttachmentStore
+    private let attachmentStore: any ChatAttachmentCleanupStore
+    private let attachmentCleanupDidFail: (ChatHistoryAttachmentCleanupFailure) -> Void
 
     init(
         defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default,
         storageKey: String = "chatHistory",
-        attachmentStore: ChatAttachmentStore = .shared
+        attachmentStore: any ChatAttachmentCleanupStore = ChatAttachmentStore.shared,
+        attachmentCleanupDidFail: @escaping (ChatHistoryAttachmentCleanupFailure) -> Void = { _ in }
     ) {
-        store = UserDefaultsStore(defaults: defaults)
+        store = UserDefaultsStore(defaults: defaults, notificationCenter: notificationCenter)
+        self.notificationCenter = notificationCenter
         self.storageKey = storageKey
         self.attachmentStore = attachmentStore
+        self.attachmentCleanupDidFail = attachmentCleanupDidFail
     }
 
     func fetchSessions() async throws -> [ChatSession] {
@@ -57,17 +82,20 @@ final class UserDefaultsChatStore: ChatHistoryStore {
         } else {
             payload.sessions.append(session)
         }
-        savePayload(payload)
+        try savePayload(payload)
     }
 
     func deleteSession(id: UUID) async throws {
         var payload = loadPayload()
         let removedEvents = payload.eventsBySessionID[id.uuidString] ?? []
+        let retainedEvents = payload.eventsBySessionID
+            .filter { $0.key != id.uuidString }
+            .values
+            .flatMap { $0 }
         payload.sessions.removeAll { $0.id == id }
         payload.eventsBySessionID[id.uuidString] = nil
-        let retainedEvents = payload.eventsBySessionID.values.flatMap { $0 }
-        savePayload(payload)
-        try deleteUnreferencedAttachments(removing: removedEvents, retainedBy: retainedEvents)
+        try savePayload(payload)
+        cleanupUnreferencedAttachments(removing: removedEvents, retainedBy: retainedEvents)
     }
 
     func fetchEvents(sessionID: UUID) async throws -> [ChatTimelineEvent] {
@@ -88,28 +116,60 @@ final class UserDefaultsChatStore: ChatHistoryStore {
         var payload = loadPayload()
         let previousEvents = payload.eventsBySessionID[sessionID.uuidString] ?? []
         let storedEvents = ChatTimelineEvent.sortedChronologically(events)
+        let retainedEvents = payload.eventsBySessionID
+            .filter { $0.key != sessionID.uuidString }
+            .values
+            .flatMap { $0 } + storedEvents
         payload.eventsBySessionID[sessionID.uuidString] = storedEvents
-        let retainedEvents = payload.eventsBySessionID.values.flatMap { $0 }
-        savePayload(payload)
-        try deleteUnreferencedAttachments(removing: previousEvents, retainedBy: retainedEvents)
+        try savePayload(payload)
+        cleanupUnreferencedAttachments(removing: previousEvents, retainedBy: retainedEvents)
     }
 
     private func loadPayload() -> Payload {
         store.load(Payload.self, forKey: storageKey) ?? Payload()
     }
 
-    private func savePayload(_ payload: Payload) {
-        store.save(payload, forKey: storageKey)
+    private func savePayload(_ payload: Payload) throws {
+        try store.saveOrThrow(payload, forKey: storageKey)
     }
 
-    private func deleteUnreferencedAttachments(
+    private func cleanupUnreferencedAttachments(
         removing removedEvents: [ChatTimelineEvent],
         retainedBy retainedEvents: [ChatTimelineEvent]
-    ) throws {
-        try attachmentStore.deleteUnreferencedAttachments(
-            removing: ChatTimelineEvent.attachments(from: removedEvents),
-            referencedBy: ChatTimelineEvent.attachments(from: retainedEvents)
-        )
+    ) {
+        let removedAttachments = ChatTimelineEvent.attachments(from: removedEvents)
+        guard !removedAttachments.isEmpty else {
+            return
+        }
+
+        let retainedAttachments = ChatTimelineEvent.attachments(from: retainedEvents)
+        do {
+            let result = try attachmentStore.deleteUnreferencedAttachments(
+                removing: removedAttachments,
+                referencedBy: retainedAttachments
+            )
+            guard !result.isEmpty else {
+                return
+            }
+
+            notificationCenter.post(
+                name: Self.attachmentCleanupDidCompleteNotification,
+                object: self,
+                userInfo: [Self.attachmentCleanupResultUserInfoKey: result]
+            )
+        } catch {
+            let failure = ChatHistoryAttachmentCleanupFailure(
+                removedAttachments: removedAttachments,
+                retainedAttachments: retainedAttachments,
+                underlyingError: error
+            )
+            attachmentCleanupDidFail(failure)
+            notificationCenter.post(
+                name: Self.attachmentCleanupDidFailNotification,
+                object: self,
+                userInfo: [Self.attachmentCleanupFailureUserInfoKey: failure]
+            )
+        }
     }
 
     private static func sortSessionsByLastSentDate(_ lhs: ChatSession, _ rhs: ChatSession) -> Bool {

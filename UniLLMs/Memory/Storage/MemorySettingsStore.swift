@@ -17,13 +17,16 @@ final class UserDefaultsMemorySettingsStore: MemorySettingsStore {
     static let didChangeNotification = Notification.Name("UserDefaultsMemorySettingsStoreDidChange")
 
     private let store: UserDefaultsStore
+    private let notificationCenter: NotificationCenter
     private let storageKey: String
 
     init(
         defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default,
         storageKey: String = "memoryInjectionSettings.v1"
     ) {
-        store = UserDefaultsStore(defaults: defaults)
+        store = UserDefaultsStore(defaults: defaults, notificationCenter: notificationCenter)
+        self.notificationCenter = notificationCenter
         self.storageKey = storageKey
     }
 
@@ -37,11 +40,12 @@ final class UserDefaultsMemorySettingsStore: MemorySettingsStore {
             filter: settings.filter,
             maximumMemories: settings.maximumMemories
         )
-        guard normalizedSettings != loadInjectionSettings() else {
-            return
+        store.save(normalizedSettings, replacing: loadInjectionSettings(), forKey: storageKey) {
+            notifyDidChange()
         }
+    }
 
-        store.save(normalizedSettings, forKey: storageKey)
-        NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
+    private func notifyDidChange() {
+        notificationCenter.post(name: Self.didChangeNotification, object: self)
     }
 }

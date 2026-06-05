@@ -10,6 +10,7 @@ import Foundation
 
 final class AppDependencyContainer {
     let coreDataStack: CoreDataStack
+    let clock: any AppClock
     let providerRegistry: LLMsProviderRegistry
     let providerStore: LLMsProviderStore
     let providerManager: LLMsProviderManager
@@ -32,6 +33,7 @@ final class AppDependencyContainer {
 
     init(
         coreDataStack: CoreDataStack = CoreDataStack(),
+        clock: any AppClock = SystemAppClock(),
         providerStore: LLMsProviderStore = .shared,
         appSettingsStore: any AppSettingsStore = UserDefaultsAppSettingsStore.shared,
         systemPromptStore: any SystemPromptStore = UserDefaultsSystemPromptStore.shared,
@@ -40,6 +42,7 @@ final class AppDependencyContainer {
         memorySettingsStore: any MemorySettingsStore = UserDefaultsMemorySettingsStore.shared
     ) {
         self.coreDataStack = coreDataStack
+        self.clock = clock
         self.providerStore = providerStore
         self.appSettingsStore = appSettingsStore
         self.systemPromptSettingsStore = systemPromptSettingsStore
@@ -52,13 +55,17 @@ final class AppDependencyContainer {
             store: providerStore
         )
 
-        systemPromptManager = SystemPromptManager(store: systemPromptStore)
+        systemPromptManager = SystemPromptManager(store: systemPromptStore, clock: clock)
         memoryManager = MemoryManager(
             store: memoryStore,
-            settingsStore: memorySettingsStore
+            settingsStore: memorySettingsStore,
+            clock: clock
         )
 
-        let toolRegistry = BuiltInToolCatalog.makeRegistry(memoryManager: memoryManager)
+        let toolRegistry = BuiltInToolCatalog.makeRegistry(
+            memoryManager: memoryManager,
+            clock: clock
+        )
         self.toolRegistry = toolRegistry
         let toolSettingsStore = UserDefaultsToolSettingsStore.shared
         // Preserve the previous MCP-owned global switch before MCP configuration is next saved.
@@ -70,7 +77,7 @@ final class AppDependencyContainer {
         )
         self.toolSettingsManager = toolSettingsManager
         chatHistoryStore = UserDefaultsChatStore()
-        let mcpServerManager = MCPServerManager()
+        let mcpServerManager = MCPServerManager(clock: clock)
         self.mcpServerManager = mcpServerManager
         toolCatalog = ToolCatalog(
             registry: toolRegistry,
@@ -87,10 +94,10 @@ final class AppDependencyContainer {
             toolCatalog: toolCatalog,
             systemPromptSettingsStore: systemPromptSettingsStore
         )
-        let responseStreamer = ChatResponseStreamer(providerManager: providerManager)
         let turnRunner = ChatTurnRunner(
-            responseStreamer: responseStreamer,
-            toolManager: toolManager
+            providerManager: providerManager,
+            toolManager: toolManager,
+            clock: clock
         )
         chatRuntime = ChatRuntime(
             providerStore: providerStore,

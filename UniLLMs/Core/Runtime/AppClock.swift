@@ -8,11 +8,11 @@
 
 import Foundation
 
-protocol AppClock {
+nonisolated protocol AppClock {
     var now: Date { get }
 }
 
-struct SystemAppClock: AppClock {
+nonisolated struct SystemAppClock: AppClock {
     var now: Date {
         Date()
     }

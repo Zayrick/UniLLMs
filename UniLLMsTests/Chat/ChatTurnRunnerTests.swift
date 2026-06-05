@@ -12,7 +12,7 @@ final class ChatTurnRunnerTests: LLMsProviderStoreTestCase {
     func testChatTurnRunnerMapsErrorToolResultToFailedToolEvent() async throws {
         let providerManager = makeProviderManager(adapters: [ToolLoopTestProvider()])
         let runner = ChatTurnRunner(
-            responseStreamer: ChatResponseStreamer(providerManager: providerManager),
+            providerManager: providerManager,
             toolManager: ToolManager(
                 catalog: ToolCatalog(
                     registry: ToolRegistry(tools: [ErrorStatusTool()]),
@@ -20,16 +20,12 @@ final class ChatTurnRunnerTests: LLMsProviderStoreTestCase {
                 )
             )
         )
-        let provider = LLMsProviderRecord(
-            kind: ToolLoopTestProvider.providerKind,
-            name: "Tool Loop Test",
-            configuration: LLMsProviderConfiguration()
-        )
+        let provider = makeProvider(kind: ToolLoopTestProvider.providerKind, name: "Tool Loop Test")
         let tool = ErrorStatusTool()
         let context = ChatContext(
-            session: ChatSession(title: "Tool Error"),
+            session: makeTestChatSession(title: "Tool Error"),
             messages: [
-                ChatMessage(role: .user, content: "Use the failing tool.")
+                makeTestChatMessage(role: .user, content: "Use the failing tool.")
             ],
             availableTools: [tool.definition]
         )
@@ -73,30 +69,28 @@ final class ChatTurnRunnerTests: LLMsProviderStoreTestCase {
     }
 
     func testChatTurnRunnerKeepsSystemPromptSingleAcrossToolLoop() async throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
         let adapter = CapturingToolLoopProvider()
         let providerManager = makeProviderManager(adapters: [adapter])
         let runner = ChatTurnRunner(
-            responseStreamer: ChatResponseStreamer(providerManager: providerManager),
+            providerManager: providerManager,
             toolManager: ToolManager(
                 catalog: ToolCatalog(
                     registry: ToolRegistry(tools: [ErrorStatusTool()]),
                     isEnabled: { true }
                 )
-            )
+            ),
+            clock: FixedClock(now: now)
         )
-        let provider = LLMsProviderRecord(
-            kind: CapturingToolLoopProvider.providerKind,
-            name: "Tool Loop Capture",
-            configuration: LLMsProviderConfiguration()
-        )
-        let prompt = SystemPromptRecord(
+        let provider = makeProvider(kind: CapturingToolLoopProvider.providerKind, name: "Tool Loop Capture")
+        let prompt = makePrompt(
             title: "Translator",
             content: "Always answer in Chinese."
         )
         let tool = ErrorStatusTool()
         let context = ChatContext(
             messages: [
-                ChatMessage(role: .user, content: "Use the failing tool.")
+                makeTestChatMessage(role: .user, content: "Use the failing tool.")
             ],
             systemPrompt: prompt,
             availableTools: [tool.definition]
@@ -115,6 +109,7 @@ final class ChatTurnRunnerTests: LLMsProviderStoreTestCase {
 
         XCTAssertEqual(adapter.requests[0].messages.map(\.role), [.user])
         XCTAssertEqual(adapter.requests[1].messages.map(\.role), [.user, .assistant, .tool])
+        XCTAssertEqual(adapter.requests[1].messages.dropFirst().map(\.createdAt), [now, now])
         XCTAssertTrue(adapter.requests.allSatisfy { request in
             request.context.systemPrompt == prompt
                 && !request.messages.contains(where: { $0.role == .system })
@@ -125,7 +120,7 @@ final class ChatTurnRunnerTests: LLMsProviderStoreTestCase {
         let adapter = CapturingToolLoopProvider()
         let providerManager = makeProviderManager(adapters: [adapter])
         let runner = ChatTurnRunner(
-            responseStreamer: ChatResponseStreamer(providerManager: providerManager),
+            providerManager: providerManager,
             toolManager: ToolManager(
                 catalog: ToolCatalog(
                     registry: ToolRegistry(tools: [MismatchedCallIDTool()]),
@@ -133,15 +128,11 @@ final class ChatTurnRunnerTests: LLMsProviderStoreTestCase {
                 )
             )
         )
-        let provider = LLMsProviderRecord(
-            kind: CapturingToolLoopProvider.providerKind,
-            name: "Tool Loop Capture",
-            configuration: LLMsProviderConfiguration()
-        )
+        let provider = makeProvider(kind: CapturingToolLoopProvider.providerKind, name: "Tool Loop Capture")
         let tool = MismatchedCallIDTool()
         let context = ChatContext(
             messages: [
-                ChatMessage(role: .user, content: "Use the tool.")
+                makeTestChatMessage(role: .user, content: "Use the tool.")
             ],
             availableTools: [tool.definition]
         )
@@ -160,7 +151,7 @@ final class ChatTurnRunnerTests: LLMsProviderStoreTestCase {
         let adapter = CapturingToolLoopProvider()
         let providerManager = makeProviderManager(adapters: [adapter])
         let runner = ChatTurnRunner(
-            responseStreamer: ChatResponseStreamer(providerManager: providerManager),
+            providerManager: providerManager,
             toolManager: ToolManager(
                 catalog: ToolCatalog(
                     registry: ToolRegistry(tools: [ErrorStatusTool()]),
@@ -168,17 +159,13 @@ final class ChatTurnRunnerTests: LLMsProviderStoreTestCase {
                 )
             )
         )
-        let provider = LLMsProviderRecord(
-            kind: CapturingToolLoopProvider.providerKind,
-            name: "Tool Loop Capture",
-            configuration: LLMsProviderConfiguration()
-        )
+        let provider = makeProvider(kind: CapturingToolLoopProvider.providerKind, name: "Tool Loop Capture")
         let tool = ErrorStatusTool()
         let sessionID = try XCTUnwrap(UUID(uuidString: "D78361F6-D8F0-4A7B-9092-C7C10CE8C2D8"))
         let context = ChatContext(
-            session: ChatSession(id: sessionID),
+            session: makeTestChatSession(id: sessionID),
             messages: [
-                ChatMessage(role: .user, content: "Use the tool.")
+                makeTestChatMessage(role: .user, content: "Use the tool.")
             ],
             availableTools: [tool.definition]
         )
@@ -198,6 +185,69 @@ final class ChatTurnRunnerTests: LLMsProviderStoreTestCase {
             ]
         )
     }
+
+    func testChatTurnRunnerStopsAfterMaximumToolIterations() async throws {
+        let adapter = RepeatingToolLoopProvider()
+        let providerManager = makeProviderManager(adapters: [adapter])
+        let tool = LoopingTool()
+        let runner = ChatTurnRunner(
+            providerManager: providerManager,
+            toolManager: ToolManager(
+                catalog: ToolCatalog(
+                    registry: ToolRegistry(tools: [tool]),
+                    isEnabled: { true }
+                )
+            ),
+            maximumToolIterations: 1
+        )
+        let provider = makeProvider(kind: RepeatingToolLoopProvider.providerKind, name: "Repeating Tool Loop")
+        let context = ChatContext(
+            messages: [
+                makeTestChatMessage(role: .user, content: "Keep using the tool.")
+            ],
+            availableTools: [tool.definition]
+        )
+
+        do {
+            for try await _ in runner.streamResponse(
+                provider: provider,
+                modelID: "test-model",
+                context: context
+            ) {}
+            XCTFail("Expected the tool iteration limit to stop the turn.")
+        } catch {
+            XCTAssertEqual(error as? ToolExecutionLoopError, .exceededMaximumIterations(1))
+        }
+
+        XCTAssertEqual(adapter.requests.count, 2)
+    }
+}
+
+private func makeProvider(kind: LLMsProviderKind, name: String) -> LLMsProviderRecord {
+    LLMsProviderRecord(
+        kind: kind,
+        name: name,
+        configuration: LLMsProviderConfiguration(),
+        createdAt: Date(timeIntervalSince1970: 1)
+    )
+}
+
+private func makePrompt(
+    title: String,
+    content: String,
+    createdAt: Date = Date(timeIntervalSince1970: 1),
+    updatedAt: Date = Date(timeIntervalSince1970: 1)
+) -> SystemPromptRecord {
+    SystemPromptRecord(
+        title: title,
+        content: content,
+        createdAt: createdAt,
+        updatedAt: updatedAt
+    )
+}
+
+private struct FixedClock: AppClock {
+    var now: Date
 }
 
 private struct ToolLoopTestProvider: LLMsProviderAdapter {
@@ -307,6 +357,58 @@ private final class CapturingToolLoopProvider: LLMsProviderAdapter {
     }
 }
 
+private final class RepeatingToolLoopProvider: LLMsProviderAdapter {
+    static let providerKind = LLMsProviderKind(rawValue: "repeatingToolLoopTest")
+
+    private(set) var requests: [ChatRequest] = []
+
+    var kind: LLMsProviderKind {
+        Self.providerKind
+    }
+
+    var displayName: String {
+        "Repeating Tool Loop Test Provider"
+    }
+
+    var capabilities: Set<LLMsProviderCapability> {
+        [.streamingChat, .tools]
+    }
+
+    var defaultConfiguration: LLMsProviderConfiguration {
+        LLMsProviderConfiguration()
+    }
+
+    var configurationFields: [LLMsProviderConfigurationField] {
+        []
+    }
+
+    var modelSource: LLMsProviderModelSource {
+        .manual
+    }
+
+    func streamChat(
+        request: ChatRequest,
+        configuration: LLMsProviderConfiguration
+    ) -> AsyncThrowingStream<ChatResponseDelta, Error> {
+        requests.append(request)
+        let callID = "call_\(requests.count)"
+        return AsyncThrowingStream { continuation in
+            continuation.yield(
+                ChatResponseDelta(
+                    toolCalls: [
+                        ChatToolCall(
+                            id: callID,
+                            toolID: LoopingTool.toolID,
+                            arguments: "{}"
+                        )
+                    ]
+                )
+            )
+            continuation.finish()
+        }
+    }
+}
+
 private struct ErrorStatusTool: Tool {
     static let toolID = "failing_tool"
 
@@ -337,5 +439,19 @@ private struct MismatchedCallIDTool: Tool {
             callID: "wrong_call_id",
             content: "OK"
         )
+    }
+}
+
+private struct LoopingTool: Tool {
+    static let toolID = "loop_tool"
+
+    let definition = ToolDefinition(
+        name: LoopingTool.toolID,
+        displayName: "Looping Tool",
+        summary: "Returns a successful result that the provider keeps reusing."
+    )
+
+    func execute(call: ToolCall, context: ToolExecutionContext) async throws -> ToolResult {
+        ToolResult(callID: call.id, content: "Loop result")
     }
 }

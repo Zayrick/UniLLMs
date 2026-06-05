@@ -9,10 +9,13 @@
 import Foundation
 
 enum BuiltInToolCatalog {
-    static func makeRegistry(memoryManager: MemoryManager) -> ToolRegistry {
+    static func makeRegistry(
+        memoryManager: MemoryManager,
+        clock: any AppClock = SystemAppClock()
+    ) -> ToolRegistry {
         ToolRegistry(
             tools: [
-                DateTimeTool(),
+                DateTimeTool(clock: clock),
                 MemoryAddTool(memoryManager: memoryManager),
                 MemoryDeleteTool(memoryManager: memoryManager),
                 MemoryListTool(memoryManager: memoryManager),

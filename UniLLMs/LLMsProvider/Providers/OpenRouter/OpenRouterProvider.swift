@@ -115,51 +115,26 @@ struct OpenRouterProvider: LLMsProviderAdapter {
                 supportsFileAttachments: true
             )
         } catch {
-            return AsyncThrowingStream { continuation in
-                continuation.finish(throwing: error)
-            }
+            return LLMsProviderStreamSupport.failedChatResponseStream(error)
         }
 
-        return AsyncThrowingStream { continuation in
-            let task = Task {
-                do {
-                    let tools = request.context.availableTools.map(OpenRouterChatTool.init(definition:))
-                    let stream = apiClient.streamChatCompletion(
-                        apiBase: configuration[ConfigurationKey.apiBase],
-                        apiKey: configuration[ConfigurationKey.apiKey],
-                        model: request.modelID,
-                        messages: messages,
-                        tools: tools,
-                        sessionID: request.providerContext.sessionIdentifier?.value(maxLength: 256)
-                    )
-                    for try await delta in stream {
-                        continuation.yield(
-                            ChatResponseDelta(
-                                content: delta.content,
-                                reasoning: delta.reasoning,
-                                toolCalls: delta.toolCalls
-                            )
-                        )
-                    }
-                    continuation.finish()
-                } catch is CancellationError {
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
+        let tools = request.context.availableTools.map(OpenRouterChatTool.init(definition:))
+        let stream = apiClient.streamChatCompletion(
+            apiBase: configuration[ConfigurationKey.apiBase],
+            apiKey: configuration[ConfigurationKey.apiKey],
+            model: request.modelID,
+            messages: messages,
+            tools: tools,
+            sessionID: request.providerContext.sessionIdentifier?.value(maxLength: 256)
+        )
 
-            continuation.onTermination = { _ in
-                task.cancel()
-            }
-        }
+        return LLMsProviderStreamSupport.chatResponseStream(from: stream)
     }
 }
 
 enum OpenRouterProviderError: LocalizedError, Equatable {
     case missingAPIKey(String)
     case unsupportedFileAttachments(String)
-    case missingAttachmentData(String)
 
     var errorDescription: String? {
         switch self {
@@ -167,8 +142,6 @@ enum OpenRouterProviderError: LocalizedError, Equatable {
             return String(localized: .providersErrorMissingApiKeyFormat(displayName))
         case let .unsupportedFileAttachments(displayName):
             return String(localized: .providersErrorUnsupportedFileAttachmentsFormat(displayName))
-        case let .missingAttachmentData(filename):
-            return String(localized: .providersErrorMissingAttachmentDataFormat(filename))
         }
     }
 }
@@ -176,14 +149,16 @@ enum OpenRouterProviderError: LocalizedError, Equatable {
 nonisolated enum OpenRouterChatPromptRenderer {
     static func messages(
         for request: ChatRequest,
-        supportsFileAttachments: Bool
+        supportsFileAttachments: Bool,
+        attachmentPayloadLoader: LLMsProviderAttachmentPayloadLoader = .shared
     ) throws -> [OpenRouterChatMessage] {
         try OpenAICompatibleChatPromptRenderer.messages(
             for: request,
             options: OpenAICompatibleChatPromptRenderingOptions(
                 instructionRole: .system,
                 supportsFileAttachments: supportsFileAttachments,
-                serviceName: "OpenRouter"
+                serviceName: "OpenRouter",
+                attachmentPayloadLoader: attachmentPayloadLoader
             )
         )
     }

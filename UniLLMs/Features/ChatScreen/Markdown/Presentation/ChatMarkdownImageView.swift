@@ -11,8 +11,8 @@ import UIKit
 final class ChatMarkdownImageView: UIView {
     private enum Metrics {
         static let cornerRadius: CGFloat = 8.0
-        static let placeholderHeight: CGFloat = 150.0
-        static let maxImageHeight: CGFloat = 400.0
+        static let placeholderHeight = ChatMarkdownImageSizePlan.defaultPlaceholderHeight
+        static let maxImageHeight = ChatMarkdownImageSizePlan.defaultMaxImageHeight
         static let verticalSpacing: CGFloat = 4.0
         static let iconPointSize: CGFloat = 36.0
         static let labelHorizontalInset: CGFloat = 16.0
@@ -22,22 +22,27 @@ final class ChatMarkdownImageView: UIView {
     var onImageSizeDidChange: (() -> Void)?
 
     private let imageBlock: ChatMarkdownImageBlock
+    private let imageLoader: any ChatMarkdownImageLoading
+    private let imageLoadController = ChatMarkdownImageLoadController()
     private let imageView = UIImageView()
     private let placeholderOverlayView = UIView()
     private let placeholderIconView = UIImageView()
     private let placeholderLabel = UILabel()
     private var imageWidthConstraint: NSLayoutConstraint!
     private var imageHeightConstraint: NSLayoutConstraint!
-    private var loadTask: URLSessionDataTask?
     private var loadedImage: UIImage?
     private var lastAppliedMaxWidth: CGFloat = 0.0
 
     init(
         imageBlock: ChatMarkdownImageBlock,
         style: ChatMarkdownRenderStyle,
-        traitCollection: UITraitCollection
+        traitCollection: UITraitCollection,
+        imageLoader: any ChatMarkdownImageLoading = URLSessionChatMarkdownImageLoader(),
+        onImageSizeDidChange: (() -> Void)? = nil
     ) {
         self.imageBlock = imageBlock
+        self.imageLoader = imageLoader
+        self.onImageSizeDidChange = onImageSizeDidChange
         super.init(frame: .zero)
         configure(style: style, traitCollection: traitCollection)
         loadImage()
@@ -45,10 +50,6 @@ final class ChatMarkdownImageView: UIView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-
-    deinit {
-        loadTask?.cancel()
     }
 
     override func layoutSubviews() {
@@ -173,48 +174,31 @@ final class ChatMarkdownImageView: UIView {
     }
 
     private func loadImage() {
-        guard let url = imageURL(from: imageBlock.source) else {
+        let didStartLoad = imageLoadController.loadImage(
+            source: imageBlock.source,
+            loader: imageLoader
+        ) { [weak self] image in
+            self?.handleLoadedImage(image)
+        }
+
+        if !didStartLoad {
+            placeholderLabel.text = unavailableText
+        }
+    }
+
+    private func handleLoadedImage(_ image: UIImage?) {
+        guard let image, image.size != .zero else {
             placeholderLabel.text = unavailableText
             return
         }
 
-        loadTask = URLSession.shared.dataTask(with: url) { [weak self] data, response, _ in
-            guard let self else {
-                return
-            }
-
-            let image = data.flatMap { data -> UIImage? in
-                guard Self.isSuccessfulResponse(response) else {
-                    return nil
-                }
-                return UIImage(data: data)
-            }
-
-            DispatchQueue.main.async {
-                self.loadTask = nil
-                guard let image, image.size != .zero else {
-                    self.placeholderLabel.text = self.unavailableText
-                    return
-                }
-
-                self.loadedImage = image
-                self.imageView.image = image
-                self.imageView.backgroundColor = .clear
-                self.placeholderOverlayView.isHidden = true
-                self.updateImageSize(maxWidth: self.bounds.width, force: true)
-                self.setNeedsLayout()
-                self.onImageSizeDidChange?()
-            }
-        }
-        loadTask?.resume()
-    }
-
-    private static func isSuccessfulResponse(_ response: URLResponse?) -> Bool {
-        guard let httpResponse = response as? HTTPURLResponse else {
-            return false
-        }
-
-        return (200..<300).contains(httpResponse.statusCode)
+        loadedImage = image
+        imageView.image = image
+        imageView.backgroundColor = .clear
+        placeholderOverlayView.isHidden = true
+        updateImageSize(maxWidth: bounds.width, force: true)
+        setNeedsLayout()
+        onImageSizeDidChange?()
     }
 
     private func updateImageSize(maxWidth: CGFloat, force: Bool = false) {
@@ -223,43 +207,15 @@ final class ChatMarkdownImageView: UIView {
             return
         }
 
-        let imageSize = scaledImageSize(maxWidth: effectiveMaxWidth)
+        let imageSize = ChatMarkdownImageSizePlan(
+            imageSize: loadedImage?.size,
+            maxWidth: effectiveMaxWidth,
+            placeholderHeight: Metrics.placeholderHeight,
+            maxImageHeight: Metrics.maxImageHeight
+        ).size
         imageWidthConstraint.constant = imageSize.width
         imageHeightConstraint.constant = imageSize.height
         lastAppliedMaxWidth = effectiveMaxWidth
-    }
-
-    private func scaledImageSize(maxWidth: CGFloat) -> CGSize {
-        guard let loadedImage,
-              loadedImage.size.width > 0.0,
-              loadedImage.size.height > 0.0 else {
-            return CGSize(width: max(1.0, maxWidth), height: Metrics.placeholderHeight)
-        }
-
-        let aspectRatio = loadedImage.size.width / loadedImage.size.height
-        var targetWidth = min(loadedImage.size.width, maxWidth)
-        var targetHeight = targetWidth / aspectRatio
-
-        if targetHeight > Metrics.maxImageHeight {
-            targetHeight = Metrics.maxImageHeight
-            targetWidth = targetHeight * aspectRatio
-        }
-
-        return CGSize(
-            width: ceil(max(1.0, targetWidth)),
-            height: ceil(max(1.0, targetHeight))
-        )
-    }
-
-    private func imageURL(from source: String) -> URL? {
-        let trimmedSource = source.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: trimmedSource),
-              let scheme = url.scheme?.lowercased(),
-              ["http", "https"].contains(scheme) else {
-            return nil
-        }
-
-        return url
     }
 
     private var placeholderText: String {

@@ -18,7 +18,7 @@ nonisolated struct MCPServerRecord: Codable, Equatable, Identifiable {
         id: UUID = UUID(),
         name: String,
         configuration: MCPServerConfiguration = MCPServerConfiguration(),
-        createdAt: Date = Date()
+        createdAt: Date
     ) {
         self.id = id
         self.name = name
@@ -97,13 +97,16 @@ final class MCPServerManager: DynamicToolSource {
 
     private let store: any MCPServerStore
     private let clientFactory: (MCPServerRecord) -> any MCPClient
+    private let clock: any AppClock
 
     init(
         store: any MCPServerStore = UserDefaultsMCPServerStore.shared,
-        clientFactory: @escaping (MCPServerRecord) -> any MCPClient = { MCPHTTPClient(server: $0) }
+        clientFactory: @escaping (MCPServerRecord) -> any MCPClient = { MCPHTTPClient(server: $0) },
+        clock: any AppClock = SystemAppClock()
     ) {
         self.store = store
         self.clientFactory = clientFactory
+        self.clock = clock
     }
 
     func configuredServers() -> [MCPServerRecord] {
@@ -111,7 +114,7 @@ final class MCPServerManager: DynamicToolSource {
     }
 
     func makeServerDraft() -> MCPServerRecord {
-        store.makeServerDraft()
+        MCPServerRecord(name: "", createdAt: clock.now)
     }
 
     func saveServer(_ server: MCPServerRecord) {

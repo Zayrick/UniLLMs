@@ -19,30 +19,28 @@ final class LLMsProviderStore {
         var modelID: String
     }
 
-    private let defaults: UserDefaults
+    private let store: UserDefaultsStore
+    private let notificationCenter: NotificationCenter
     private let storageKey: String
     private let selectedModelStorageKey: String
-    private let encoder = JSONEncoder()
-    private let decoder = JSONDecoder()
+    private let clock: any AppClock
 
     init(
         defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default,
         storageKey: String = "llmProviderConfigurations.v1",
-        selectedModelStorageKey: String = "selectedLLMModel.v1"
+        selectedModelStorageKey: String = "selectedLLMModel.v1",
+        clock: any AppClock = SystemAppClock()
     ) {
-        self.defaults = defaults
+        store = UserDefaultsStore(defaults: defaults, notificationCenter: notificationCenter)
+        self.notificationCenter = notificationCenter
         self.storageKey = storageKey
         self.selectedModelStorageKey = selectedModelStorageKey
-        encoder.dateEncodingStrategy = .iso8601
-        decoder.dateDecodingStrategy = .iso8601
+        self.clock = clock
     }
 
     func fetchProviders() -> [LLMsProviderRecord] {
-        guard let data = defaults.data(forKey: storageKey) else {
-            return []
-        }
-
-        return (try? decoder.decode([LLMsProviderRecord].self, from: data)) ?? []
+        store.load([LLMsProviderRecord].self, forKey: storageKey) ?? []
     }
 
     func fetchProvider(id: UUID) -> LLMsProviderRecord? {
@@ -66,7 +64,7 @@ final class LLMsProviderStore {
             configuration: configuration,
             models: models,
             modelsUpdatedAt: nil,
-            createdAt: Date()
+            createdAt: clock.now
         )
     }
 
@@ -155,29 +153,24 @@ final class LLMsProviderStore {
             providerID: selection.providerID,
             modelID: selection.modelID
         )
-        guard let data = try? encoder.encode(persistedSelection) else {
+        guard store.save(persistedSelection, forKey: selectedModelStorageKey) else {
             return
         }
 
-        defaults.set(data, forKey: selectedModelStorageKey)
         notifySelectedModelSelectionDidChange()
     }
 
     func clearSelectedModelSelection() {
-        guard defaults.object(forKey: selectedModelStorageKey) != nil else {
+        guard store.containsValue(forKey: selectedModelStorageKey) else {
             return
         }
 
-        defaults.removeObject(forKey: selectedModelStorageKey)
+        store.removeValue(forKey: selectedModelStorageKey)
         notifySelectedModelSelectionDidChange()
     }
 
     private func save(_ providers: [LLMsProviderRecord]) {
-        guard let data = try? encoder.encode(providers) else {
-            return
-        }
-
-        defaults.set(data, forKey: storageKey)
+        store.save(providers, forKey: storageKey)
     }
 
     private func makeUniqueProviderName(
@@ -199,11 +192,7 @@ final class LLMsProviderStore {
     }
 
     private func fetchPersistedModelSelection() -> PersistedModelSelection? {
-        guard let data = defaults.data(forKey: selectedModelStorageKey) else {
-            return nil
-        }
-
-        return try? decoder.decode(PersistedModelSelection.self, from: data)
+        store.load(PersistedModelSelection.self, forKey: selectedModelStorageKey)
     }
 
     private func resolvedModelSelection(
@@ -246,7 +235,7 @@ final class LLMsProviderStore {
     }
 
     private func notifySelectedModelSelectionDidChange() {
-        NotificationCenter.default.post(
+        notificationCenter.post(
             name: Self.selectedModelSelectionDidChangeNotification,
             object: self
         )

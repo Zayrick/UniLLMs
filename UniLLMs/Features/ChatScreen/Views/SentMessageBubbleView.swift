@@ -34,6 +34,7 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
     let messageID: UUID
     private let messageText: String
     private let attachments: [ChatAttachment]
+    private var attachmentDisplays: [ChatAttachmentPreviewDisplay]
     private let backgroundView = UIView()
     private let backgroundMaskLayer = CAShapeLayer()
     private let label = UILabel()
@@ -65,11 +66,13 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
     init(
         messageID: UUID = UUID(),
         text: String,
-        attachments: [ChatAttachment]
+        attachments: [ChatAttachment],
+        attachmentDisplays: [ChatAttachmentPreviewDisplay]? = nil
     ) {
         self.messageID = messageID
         messageText = text
         self.attachments = attachments
+        self.attachmentDisplays = attachmentDisplays ?? ChatAttachmentPreviewDisplay.placeholders(for: attachments)
         super.init(frame: .zero)
         configure()
     }
@@ -78,6 +81,7 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
         messageID = UUID()
         messageText = ""
         attachments = []
+        attachmentDisplays = []
         super.init(coder: coder)
         configure()
     }
@@ -89,6 +93,27 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
         let cornerRadius = currentCornerRadius
         updateCornerConfiguration(cornerRadius: cornerRadius)
         updateHistoryCutoutMask(cornerRadius: cornerRadius)
+    }
+
+    func updateAttachmentDisplays(_ displays: [ChatAttachmentPreviewDisplay]) {
+        guard displays.map(\.id) == attachmentDisplays.map(\.id) else {
+            return
+        }
+
+        attachmentDisplays = displays
+        guard let attachmentRowStackView else {
+            return
+        }
+
+        let chipsByID = attachmentRowStackView.arrangedSubviews
+            .compactMap { $0 as? AttachmentChipView }
+            .reduce(into: [UUID: AttachmentChipView]()) { result, chip in
+                result[chip.itemID] = chip
+            }
+        for display in displays.prefix(Metrics.maximumVisibleAttachmentCount) {
+            chipsByID[display.id]?.update(display: display)
+        }
+        setNeedsLayout()
     }
 
     private func configure() {
@@ -209,15 +234,15 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
         row.translatesAutoresizingMaskIntoConstraints = false
         addSubview(row)
 
-        let visibleAttachments = attachments.prefix(Metrics.maximumVisibleAttachmentCount)
-        for attachment in visibleAttachments {
-            let chip = makeAttachmentChip(for: attachment)
+        let visibleDisplays = attachmentDisplays.prefix(Metrics.maximumVisibleAttachmentCount)
+        for display in visibleDisplays {
+            let chip = makeAttachmentChip(for: display)
             row.addArrangedSubview(chip)
             chip.widthAnchor.constraint(equalToConstant: Metrics.attachmentChipSize).isActive = true
             chip.heightAnchor.constraint(equalToConstant: Metrics.attachmentChipSize).isActive = true
         }
 
-        let hiddenAttachmentCount = attachments.count - visibleAttachments.count
+        let hiddenAttachmentCount = attachmentDisplays.count - visibleDisplays.count
         if hiddenAttachmentCount > 0 {
             let chip = makeOverflowChip(hiddenAttachmentCount: hiddenAttachmentCount)
             row.addArrangedSubview(chip)
@@ -228,83 +253,10 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
         attachmentRowStackView = row
     }
 
-    private func makeAttachmentChip(for attachment: ChatAttachment) -> UIView {
-        let container = AttachmentChipView(attachment: attachment)
-        container.translatesAutoresizingMaskIntoConstraints = false
-        container.layer.cornerRadius = Metrics.attachmentChipCornerRadius
-        container.layer.cornerCurve = .continuous
-        container.clipsToBounds = true
-        container.backgroundColor = UIColor.white.withAlphaComponent(0.18)
-        container.isAccessibilityElement = true
-        container.accessibilityLabel = attachment.filename
-        container.accessibilityHint = String(localized: .generalOpensPreview)
-        container.accessibilityTraits = .button
-
+    private func makeAttachmentChip(for display: ChatAttachmentPreviewDisplay) -> UIView {
+        let container = AttachmentChipView(display: display)
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(attachmentChipTapped(_:)))
         container.addGestureRecognizer(tapGesture)
-
-        switch attachment.kind {
-        case .image:
-            let imageView = UIImageView()
-            imageView.translatesAutoresizingMaskIntoConstraints = false
-            imageView.contentMode = .scaleAspectFill
-            imageView.clipsToBounds = true
-            if let url = ChatAttachmentStore.shared.fileURL(for: attachment),
-               let data = try? Data(contentsOf: url),
-               let image = UIImage(data: data) {
-                imageView.image = image
-            } else {
-                imageView.image = UIImage(
-                    systemName: "photo",
-                    withConfiguration: UIImage.SymbolConfiguration(
-                        pointSize: Metrics.fileIconPointSize,
-                        weight: .semibold
-                    )
-                )
-                imageView.tintColor = .white
-                imageView.contentMode = .center
-            }
-            container.addSubview(imageView)
-            NSLayoutConstraint.activate([
-                imageView.topAnchor.constraint(equalTo: container.topAnchor),
-                imageView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-                imageView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-                imageView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
-            ])
-        case .file:
-            let iconView = UIImageView()
-            iconView.translatesAutoresizingMaskIntoConstraints = false
-            iconView.contentMode = .scaleAspectFit
-            iconView.tintColor = .white
-            iconView.image = UIImage(
-                systemName: "doc.text.fill",
-                withConfiguration: UIImage.SymbolConfiguration(
-                    pointSize: Metrics.fileIconPointSize,
-                    weight: .semibold
-                )
-            )
-            container.addSubview(iconView)
-
-            let nameLabel = UILabel()
-            nameLabel.translatesAutoresizingMaskIntoConstraints = false
-            nameLabel.text = attachment.filename
-            nameLabel.font = .systemFont(ofSize: Metrics.filenameFontSize, weight: .medium)
-            nameLabel.textColor = .white
-            nameLabel.textAlignment = .center
-            nameLabel.numberOfLines = 1
-            nameLabel.lineBreakMode = .byTruncatingMiddle
-            container.addSubview(nameLabel)
-
-            NSLayoutConstraint.activate([
-                iconView.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-                iconView.centerYAnchor.constraint(equalTo: container.centerYAnchor, constant: -4.0),
-
-                nameLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 3.0),
-                nameLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -3.0),
-                nameLabel.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -4.0)
-            ])
-        }
-
         return container
     }
 
@@ -453,54 +405,49 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
         UIContextMenuConfiguration(
             identifier: Self.contextMenuIdentifier,
             previewProvider: nil
-        ) { [weak self, messageText, attachments, editHistoryCount] _ in
-            var actions: [UIMenuElement] = []
-
-            let copyAction = UIAction(
-                title: String(localized: .chatCopy),
-                image: UIImage(systemName: "doc.on.doc")
-            ) { _ in
-                UIPasteboard.general.string = messageText
-            }
-            actions.append(copyAction)
-
-            let resendAction = UIAction(
-                title: String(localized: .chatResend),
-                image: UIImage(systemName: "arrow.clockwise")
-            ) { _ in
-                self?.performAfterContextMenuDismissal { [weak self] in
-                    self?.onResend?(messageText, attachments)
-                }
-            }
-            actions.append(resendAction)
-
-            let editAction = UIAction(
-                title: String(localized: .chatEditAndResend),
-                image: UIImage(systemName: "square.and.pencil")
-            ) { _ in
-                self?.performAfterContextMenuDismissal { [weak self] in
-                    self?.onEditAndResend?(messageText, attachments)
-                }
-            }
-            actions.append(editAction)
-
-            if editHistoryCount > 0 {
-                let historyTitle = editHistoryCount == 1
-                    ? String(localized: .generalHistory)
-                    : String(localized: .chatHistoryCountFormat(editHistoryCount))
-                let historyAction = UIAction(
-                    title: historyTitle,
-                    image: UIImage(systemName: "clock")
-                ) { _ in
-                    self?.performAfterContextMenuDismissal { [weak self] in
-                        self?.onShowHistory?()
-                    }
-                }
-                actions.append(historyAction)
-            }
-
-            return UIMenu(title: "", children: actions)
+        ) { [weak self, editHistoryCount] _ in
+            self?.makeContextMenu(editHistoryCount: editHistoryCount)
         }
+    }
+
+    func makeContextMenu(editHistoryCount: Int) -> UIMenu {
+        let items = SentMessageBubbleActionMenuPolicy.makeItems(editHistoryCount: editHistoryCount)
+        let actions = items.map { item in
+            UIAction(
+                title: item.title,
+                image: UIImage(systemName: item.systemImageName)
+            ) { [weak self] _ in
+                self?.performMessageAction(item.action)
+            }
+        }
+
+        return UIMenu(title: "", children: actions)
+    }
+
+    private func performMessageAction(_ action: SentMessageBubbleAction) {
+        makeMessageActionRouter().perform(action)
+    }
+
+    private func makeMessageActionRouter() -> SentMessageBubbleActionRouter {
+        SentMessageBubbleActionRouter(
+            messageText: messageText,
+            attachments: attachments,
+            copyText: { text in
+                UIPasteboard.general.string = text
+            },
+            performAfterDismissal: { [weak self] action in
+                self?.performAfterContextMenuDismissal(action)
+            },
+            resend: { [weak self] text, attachments in
+                self?.onResend?(text, attachments)
+            },
+            editAndResend: { [weak self] text, attachments in
+                self?.onEditAndResend?(text, attachments)
+            },
+            showHistory: { [weak self] in
+                self?.onShowHistory?()
+            }
+        )
     }
 
     func contextMenuInteraction(
@@ -546,15 +493,109 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
     }
 
     private final class AttachmentChipView: UIView {
-        let attachment: ChatAttachment
+        private let imageView = UIImageView()
+        private let fileIconView = UIImageView()
+        private let filenameLabel = UILabel()
+        private(set) var attachment: ChatAttachment
 
-        init(attachment: ChatAttachment) {
-            self.attachment = attachment
+        var itemID: UUID {
+            attachment.id
+        }
+
+        init(display: ChatAttachmentPreviewDisplay) {
+            attachment = display.attachment
             super.init(frame: .zero)
+            configure()
+            update(display: display)
         }
 
         required init?(coder: NSCoder) {
             return nil
+        }
+
+        func update(display: ChatAttachmentPreviewDisplay) {
+            guard display.id == itemID else {
+                return
+            }
+
+            attachment = display.attachment
+            accessibilityLabel = display.filename
+
+            switch display.attachment.kind {
+            case .image:
+                imageView.isHidden = false
+                fileIconView.isHidden = true
+                filenameLabel.isHidden = true
+                if let image = display.thumbnailImage {
+                    imageView.image = image
+                    imageView.tintColor = nil
+                    imageView.contentMode = .scaleAspectFill
+                } else {
+                    imageView.image = UIImage(
+                        systemName: "photo",
+                        withConfiguration: UIImage.SymbolConfiguration(
+                            pointSize: Metrics.fileIconPointSize,
+                            weight: .semibold
+                        )
+                    )
+                    imageView.tintColor = .white
+                    imageView.contentMode = .center
+                }
+            case .file:
+                imageView.isHidden = true
+                fileIconView.isHidden = false
+                filenameLabel.isHidden = false
+                filenameLabel.text = display.filename
+            }
+        }
+
+        private func configure() {
+            translatesAutoresizingMaskIntoConstraints = false
+            layer.cornerRadius = Metrics.attachmentChipCornerRadius
+            layer.cornerCurve = .continuous
+            clipsToBounds = true
+            backgroundColor = UIColor.white.withAlphaComponent(0.18)
+            isAccessibilityElement = true
+            accessibilityHint = String(localized: .generalOpensPreview)
+            accessibilityTraits = .button
+
+            imageView.translatesAutoresizingMaskIntoConstraints = false
+            imageView.clipsToBounds = true
+            addSubview(imageView)
+
+            fileIconView.translatesAutoresizingMaskIntoConstraints = false
+            fileIconView.contentMode = .scaleAspectFit
+            fileIconView.tintColor = .white
+            fileIconView.image = UIImage(
+                systemName: "doc.text.fill",
+                withConfiguration: UIImage.SymbolConfiguration(
+                    pointSize: Metrics.fileIconPointSize,
+                    weight: .semibold
+                )
+            )
+            addSubview(fileIconView)
+
+            filenameLabel.translatesAutoresizingMaskIntoConstraints = false
+            filenameLabel.font = .systemFont(ofSize: Metrics.filenameFontSize, weight: .medium)
+            filenameLabel.textColor = .white
+            filenameLabel.textAlignment = .center
+            filenameLabel.numberOfLines = 1
+            filenameLabel.lineBreakMode = .byTruncatingMiddle
+            addSubview(filenameLabel)
+
+            NSLayoutConstraint.activate([
+                imageView.topAnchor.constraint(equalTo: topAnchor),
+                imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                imageView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+                fileIconView.centerXAnchor.constraint(equalTo: centerXAnchor),
+                fileIconView.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -4.0),
+
+                filenameLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 3.0),
+                filenameLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -3.0),
+                filenameLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4.0)
+            ])
         }
     }
 }

@@ -67,15 +67,18 @@ final class UserDefaultsToolSettingsStore: ToolSettingsStore {
     }
 
     private let store: UserDefaultsStore
+    private let notificationCenter: NotificationCenter
     private let storageKey: String
     private let legacyMCPStorageKey: String
 
     init(
         defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default,
         storageKey: String = "toolSettings.v1",
         legacyMCPStorageKey: String = "mcpServerConfigurations.v1"
     ) {
-        store = UserDefaultsStore(defaults: defaults)
+        store = UserDefaultsStore(defaults: defaults, notificationCenter: notificationCenter)
+        self.notificationCenter = notificationCenter
         self.storageKey = storageKey
         self.legacyMCPStorageKey = legacyMCPStorageKey
     }
@@ -85,13 +88,9 @@ final class UserDefaultsToolSettingsStore: ToolSettingsStore {
     }
 
     func saveToolsEnabled(_ isEnabled: Bool) {
-        var state = loadState()
-        guard state.toolsEnabled != isEnabled else {
-            return
+        updateState { state in
+            state.toolsEnabled = isEnabled
         }
-
-        state.toolsEnabled = isEnabled
-        saveState(state)
     }
 
     func loadDisabledBuiltInToolIDs() -> Set<String> {
@@ -99,14 +98,10 @@ final class UserDefaultsToolSettingsStore: ToolSettingsStore {
     }
 
     func saveDisabledBuiltInToolIDs(_ ids: Set<String>) {
-        var state = loadState()
         let sortedIDs = ids.sorted()
-        guard state.disabledBuiltInToolIDs != sortedIDs else {
-            return
+        updateState { state in
+            state.disabledBuiltInToolIDs = sortedIDs
         }
-
-        state.disabledBuiltInToolIDs = sortedIDs
-        saveState(state)
     }
 
     private func loadState() -> PersistedState {
@@ -123,9 +118,16 @@ final class UserDefaultsToolSettingsStore: ToolSettingsStore {
         return migratedState
     }
 
-    private func saveState(_ state: PersistedState) {
-        store.save(state, forKey: storageKey)
-        NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
+    private func updateState(_ mutate: (inout PersistedState) -> Void) {
+        store.update(PersistedState.self, forKey: storageKey, defaultValue: loadState()) { state in
+            mutate(&state)
+        } didSave: {
+            notifyDidChange()
+        }
+    }
+
+    private func notifyDidChange() {
+        notificationCenter.post(name: Self.didChangeNotification, object: self)
     }
 
     private func loadLegacyToolsEnabled() -> Bool? {

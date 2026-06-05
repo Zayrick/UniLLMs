@@ -174,8 +174,7 @@ final class ThinkingSectionView: UIView {
 
     private var isCollapsed = false
     private var isThinking = true
-    private var reasoningStepCount = 0
-    private var toolCallIDs: Set<String> = []
+    private var headerSummary = ThinkingSectionHeaderSummary()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -210,7 +209,7 @@ final class ThinkingSectionView: UIView {
         let markdownView = makeReasoningMarkdownView()
         let row = makeRow(iconStyle: Self.reasoningIconStyle, hosted: markdownView)
         addRow(row)
-        reasoningStepCount += 1
+        headerSummary.recordReasoningStep()
         updateHeaderAfterTimelineChange()
         markdownView.append(text)
     }
@@ -422,7 +421,7 @@ final class ThinkingSectionView: UIView {
     // MARK: - Header state
 
     private func recordToolInvocation(callID: String) {
-        toolCallIDs.insert(callID)
+        headerSummary.recordToolInvocation(callID: callID)
         updateHeaderAfterTimelineChange()
     }
 
@@ -435,14 +434,7 @@ final class ThinkingSectionView: UIView {
     }
 
     private var finishedSummaryTitle: String? {
-        var parts: [String] = []
-        if reasoningStepCount > 0 {
-            parts.append("\(reasoningStepCount) \(Self.reasoningStepLabel(for: reasoningStepCount))")
-        }
-        if toolCallIDs.count > 0 {
-            parts.append("\(toolCallIDs.count) \(Self.toolCallLabel(for: toolCallIDs.count))")
-        }
-        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+        headerSummary.finishedTitle
     }
 
     private func applyProcessingHeader() {
@@ -466,14 +458,6 @@ final class ThinkingSectionView: UIView {
         titleLabel.isShimmering = isShimmering
         titleLabel.text = title
         headerButton.accessibilityLabel = title
-    }
-
-    private static func reasoningStepLabel(for count: Int) -> String {
-        count == 1 ? String(localized: .assistantReasoningStepSingular) : String(localized: .assistantReasoningStepPlural)
-    }
-
-    private static func toolCallLabel(for count: Int) -> String {
-        count == 1 ? String(localized: .assistantToolCallSingular) : String(localized: .assistantToolCallPlural)
     }
 
     // MARK: - Item helpers

@@ -9,7 +9,7 @@ import XCTest
 
 final class OpenAIChatPromptRendererTests: XCTestCase {
     func testRendererCombinesSystemPromptAndMemoriesIntoSingleSystemMessage() throws {
-        let prompt = SystemPromptRecord(
+        let prompt = makePrompt(
             title: "Translator",
             content: "Always answer in Chinese.",
             updatedAt: Date(timeIntervalSince1970: 10)
@@ -30,7 +30,7 @@ final class OpenAIChatPromptRendererTests: XCTestCase {
         let messages = try OpenAIChatPromptRenderer.messages(
             for: ChatRequest(
                 modelID: "test-model",
-                messages: [ChatMessage(role: .user, content: "Hello")],
+                messages: [makeTestChatMessage(role: .user, content: "Hello")],
                 context: ChatContext(systemPrompt: prompt, memories: memories)
             )
         )
@@ -48,7 +48,7 @@ final class OpenAIChatPromptRendererTests: XCTestCase {
     }
 
     func testRendererDoesNotDuplicateInstructionsAcrossToolLoopMessages() throws {
-        let prompt = SystemPromptRecord(
+        let prompt = makePrompt(
             title: "Tools",
             content: "Use tools when needed."
         )
@@ -62,9 +62,9 @@ final class OpenAIChatPromptRendererTests: XCTestCase {
             for: ChatRequest(
                 modelID: "test-model",
                 messages: [
-                    ChatMessage(role: .user, content: "Search"),
-                    ChatMessage(role: .assistant, content: "", toolCalls: [toolCall]),
-                    ChatMessage(role: .tool, content: "Result", toolCallID: "call_1")
+                    makeTestChatMessage(role: .user, content: "Search"),
+                    makeTestChatMessage(role: .assistant, content: "", toolCalls: [toolCall]),
+                    makeTestChatMessage(role: .tool, content: "Result", toolCallID: "call_1")
                 ],
                 context: ChatContext(systemPrompt: prompt)
             )
@@ -78,19 +78,16 @@ final class OpenAIChatPromptRendererTests: XCTestCase {
     }
 
     func testRendererOmitsBlankSystemPromptAndBlankMemories() throws {
-        let prompt = SystemPromptRecord(
+        let prompt = makePrompt(
             title: "Blank",
             content: " \n "
         )
-        let memory = MemoryRecord(
-            scope: .user,
-            text: " \n "
-        )
+        let memory = makeMemory(text: " \n ")
 
         let messages = try OpenAIChatPromptRenderer.messages(
             for: ChatRequest(
                 modelID: "test-model",
-                messages: [ChatMessage(role: .user, content: "Hello")],
+                messages: [makeTestChatMessage(role: .user, content: "Hello")],
                 context: ChatContext(systemPrompt: prompt, memories: [memory])
             )
         )
@@ -104,7 +101,7 @@ final class OpenAIChatPromptRendererTests: XCTestCase {
             for: ChatRequest(
                 modelID: "test-model",
                 messages: [
-                    ChatMessage(role: .assistant, content: "", reasoning: "Hidden reasoning")
+                    makeTestChatMessage(role: .assistant, content: "", reasoning: "Hidden reasoning")
                 ],
                 context: ChatContext()
             )
@@ -121,7 +118,7 @@ final class OpenAIChatPromptRendererTests: XCTestCase {
             for: ChatRequest(
                 modelID: "test-model",
                 messages: [
-                    ChatMessage(role: .assistant, content: "", reasoning: "Hidden reasoning")
+                    makeTestChatMessage(role: .assistant, content: "", reasoning: "Hidden reasoning")
                 ],
                 context: ChatContext()
             )
@@ -132,4 +129,32 @@ final class OpenAIChatPromptRendererTests: XCTestCase {
         XCTAssertEqual(payload["role"] as? String, "assistant")
         XCTAssertEqual(payload["content"] as? String, "")
     }
+}
+
+private func makePrompt(
+    title: String,
+    content: String,
+    createdAt: Date = Date(timeIntervalSince1970: 1),
+    updatedAt: Date = Date(timeIntervalSince1970: 1)
+) -> SystemPromptRecord {
+    SystemPromptRecord(
+        title: title,
+        content: content,
+        createdAt: createdAt,
+        updatedAt: updatedAt
+    )
+}
+
+private func makeMemory(
+    scope: MemoryScope = .user,
+    text: String,
+    createdAt: Date = Date(timeIntervalSince1970: 1),
+    updatedAt: Date? = nil
+) -> MemoryRecord {
+    MemoryRecord(
+        scope: scope,
+        text: text,
+        createdAt: createdAt,
+        updatedAt: updatedAt
+    )
 }

@@ -32,7 +32,7 @@ final class MCPServerConfigurationViewController: UITableViewController {
     private var isNewServer: Bool
     private var nameText: String
     private var endpointText: String
-    private var headersText: String
+    private var headersDraft: MCPHeadersDraft
     private var timeoutText: String
     private var isServerEnabled: Bool
 
@@ -47,7 +47,7 @@ final class MCPServerConfigurationViewController: UITableViewController {
         self.dependencies = dependencies
         nameText = server.name
         endpointText = server.configuration.endpoint
-        headersText = Self.headersText(from: server.configuration.headers)
+        headersDraft = MCPHeadersDraft(headers: server.configuration.headers)
         timeoutText = Self.timeoutText(from: server.configuration.timeout)
         isServerEnabled = server.configuration.isEnabled
         super.init(style: .insetGrouped)
@@ -61,7 +61,7 @@ final class MCPServerConfigurationViewController: UITableViewController {
         isNewServer = true
         nameText = server.name
         endpointText = server.configuration.endpoint
-        headersText = Self.headersText(from: server.configuration.headers)
+        headersDraft = MCPHeadersDraft(headers: server.configuration.headers)
         timeoutText = Self.timeoutText(from: server.configuration.timeout)
         isServerEnabled = server.configuration.isEnabled
         super.init(coder: coder)
@@ -180,12 +180,12 @@ final class MCPServerConfigurationViewController: UITableViewController {
         case .headers:
             return textFieldCell(
                 title: String(localized: .mcpHeaders),
-                text: headersText,
+                text: headersDraft.text,
                 placeholder: #"{"Authorization":"Bearer token"}"#,
                 keyboardType: .asciiCapable,
                 textContentType: nil
             ) { [weak self] text in
-                self?.headersText = text
+                self?.headersDraft.text = text
                 self?.updateAfterFieldChange()
             }
         case .timeout:
@@ -304,7 +304,7 @@ final class MCPServerConfigurationViewController: UITableViewController {
     private var serverForSaving: MCPServerRecord? {
         let trimmedEndpoint = endpointText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard Self.isValidEndpoint(trimmedEndpoint),
-              let headers = Self.parseHeaders(headersText),
+              let headers = headersDraft.headersForSaving(),
               let timeout = Self.parseTimeout(timeoutText) else {
             return nil
         }
@@ -334,19 +334,6 @@ final class MCPServerConfigurationViewController: UITableViewController {
         return true
     }
 
-    private static func parseHeaders(_ text: String) -> [String: String]? {
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedText.isEmpty else {
-            return [:]
-        }
-
-        guard let data = trimmedText.data(using: .utf8) else {
-            return nil
-        }
-
-        return try? JSONDecoder().decode([String: String].self, from: data)
-    }
-
     private static func parseTimeout(_ text: String) -> TimeInterval? {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let timeout = TimeInterval(trimmedText),
@@ -355,16 +342,6 @@ final class MCPServerConfigurationViewController: UITableViewController {
         }
 
         return timeout
-    }
-
-    private static func headersText(from headers: [String: String]) -> String {
-        guard !headers.isEmpty,
-              let data = try? JSONEncoder().encode(headers),
-              let text = String(data: data, encoding: .utf8) else {
-            return ""
-        }
-
-        return text
     }
 
     private static func timeoutText(from timeout: TimeInterval) -> String {

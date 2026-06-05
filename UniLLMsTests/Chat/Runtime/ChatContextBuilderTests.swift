@@ -10,9 +10,9 @@ import XCTest
 @MainActor
 final class ChatContextBuilderTests: XCTestCase {
     func testBuildContextLoadsToolsBeforeRetrievingMemories() async {
-        let session = ChatSession(title: "Session")
-        let messages = [ChatMessage(role: .user, content: "Remember this.")]
-        let memory = MemoryRecord(scope: .user, text: "Existing memory")
+        let session = makeTestChatSession(title: "Session")
+        let messages = [makeTestChatMessage(role: .user, content: "Remember this.")]
+        let memory = makeMemory(text: "Existing memory")
         let retriever = RecordingMemoryRetriever(result: [memory])
         let dynamicSource = RecordingDynamicToolSource(tools: [
             ContextBuilderTool(name: "lookup", displayName: "Lookup")
@@ -71,10 +71,14 @@ final class ChatContextBuilderTests: XCTestCase {
 
     func testBuildContextFallsBackToEmptyMemoriesWhenRetrieverFails() async {
         let retriever = RecordingMemoryRetriever(error: TestMemoryError.failed)
+        var failures: [ChatContextOptionalInputFailure.Source] = []
         let builder = ChatContextBuilder(
             memoryManager: MemoryManager(retriever: retriever),
             toolCatalog: ToolCatalog(registry: ToolRegistry(tools: []), isEnabled: { true }),
-            systemPromptSettingsStore: InMemorySystemPromptSettingsStore()
+            systemPromptSettingsStore: InMemorySystemPromptSettingsStore(),
+            buildPolicy: ChatContextBuildPolicy { failure in
+                failures.append(failure.source)
+            }
         )
 
         let context = await builder.buildContext(
@@ -85,11 +89,12 @@ final class ChatContextBuilderTests: XCTestCase {
         )
 
         XCTAssertTrue(context.memories.isEmpty)
+        XCTAssertEqual(failures, [.memories])
         XCTAssertEqual(retriever.capturedContexts.count, 1)
     }
 
     func testBuildContextIncludesSystemPromptForMemoryRetrievalAndResult() async {
-        let prompt = SystemPromptRecord(
+        let prompt = makePrompt(
             title: "Translator",
             content: "Always answer in Chinese."
         )
@@ -141,6 +146,34 @@ private enum TestMemoryError: Error {
 
 private struct FixedClock: AppClock {
     var now: Date
+}
+
+private func makePrompt(
+    title: String,
+    content: String,
+    createdAt: Date = Date(timeIntervalSince1970: 1),
+    updatedAt: Date = Date(timeIntervalSince1970: 1)
+) -> SystemPromptRecord {
+    SystemPromptRecord(
+        title: title,
+        content: content,
+        createdAt: createdAt,
+        updatedAt: updatedAt
+    )
+}
+
+private func makeMemory(
+    scope: MemoryScope = .user,
+    text: String,
+    createdAt: Date = Date(timeIntervalSince1970: 1),
+    updatedAt: Date? = nil
+) -> MemoryRecord {
+    MemoryRecord(
+        scope: scope,
+        text: text,
+        createdAt: createdAt,
+        updatedAt: updatedAt
+    )
 }
 
 private final class InMemorySystemPromptSettingsStore: SystemPromptSettingsStore {

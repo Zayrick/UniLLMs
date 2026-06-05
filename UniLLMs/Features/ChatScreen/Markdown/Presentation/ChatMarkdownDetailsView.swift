@@ -22,6 +22,7 @@ final class ChatMarkdownDetailsView: UIView {
     private var detailsBlock: ChatMarkdownDetailsBlock
     private let style: ChatMarkdownRenderStyle
     private let renderingTraitCollection: UITraitCollection
+    private let imageLoader: any ChatMarkdownImageLoading
     private let stackView = UIStackView()
     private let summaryButton = UIButton(type: .system)
     private let contentRow = UIStackView()
@@ -35,11 +36,13 @@ final class ChatMarkdownDetailsView: UIView {
     init(
         detailsBlock: ChatMarkdownDetailsBlock,
         style: ChatMarkdownRenderStyle,
-        traitCollection: UITraitCollection
+        traitCollection: UITraitCollection,
+        imageLoader: any ChatMarkdownImageLoading = URLSessionChatMarkdownImageLoader()
     ) {
         self.detailsBlock = detailsBlock
         self.style = style
         renderingTraitCollection = traitCollection
+        self.imageLoader = imageLoader
         isExpanded = detailsBlock.isOpen
         super.init(frame: .zero)
         configure()
@@ -226,7 +229,8 @@ final class ChatMarkdownDetailsView: UIView {
     private var blockViewConfiguration: ChatMarkdownRenderedBlockViewConfiguration {
         ChatMarkdownRenderedBlockViewConfiguration(
             style: style,
-            traitCollection: renderingTraitCollection
+            traitCollection: renderingTraitCollection,
+            imageLoader: imageLoader
         ) { [weak self] in
             self?.onNeedsHeightUpdate?()
         }

@@ -146,9 +146,7 @@ final class ChatMarkdownTextView: UITextView {
             return
         }
 
-        var firstChangedLineFrame: CGRect?
-        var firstChangedFadeFrame: CGRect?
-        var fadeFrames: [CGRect] = []
+        var lineFragments: [ChatMarkdownTextFadeMaskPlan.LineFragment] = []
         let origin = textContainerOrigin
 
         markdownLayoutManager.enumerateLineFragments(
@@ -165,24 +163,21 @@ final class ChatMarkdownTextView: UITextView {
             ).offsetBy(dx: origin.x, dy: origin.y)
             let lineFrame = lineFragmentRect.offsetBy(dx: origin.x, dy: origin.y)
             let usedFrame = usedRect.offsetBy(dx: origin.x, dy: origin.y)
-            let fadeFrame = self.fadeFrame(
-                changedRect: changedRect,
-                lineFrame: lineFrame,
-                usedFrame: usedFrame
+            lineFragments.append(
+                ChatMarkdownTextFadeMaskPlan.LineFragment(
+                    changedRect: changedRect,
+                    lineFrame: lineFrame,
+                    usedFrame: usedFrame
+                )
             )
-
-            if firstChangedLineFrame == nil {
-                firstChangedLineFrame = lineFrame
-                firstChangedFadeFrame = fadeFrame
-            }
-
-            if fadeFrame.width > Fade.minimumLayerSize,
-               fadeFrame.height > Fade.minimumLayerSize {
-                fadeFrames.append(fadeFrame)
-            }
         }
 
-        guard !fadeFrames.isEmpty else {
+        let fadeMaskPlan = ChatMarkdownTextFadeMaskPlan(
+            bounds: bounds,
+            minimumLayerSize: Fade.minimumLayerSize,
+            fragments: lineFragments
+        )
+        guard !fadeMaskPlan.isEmpty else {
             removeTextFadeMask()
             return
         }
@@ -194,31 +189,11 @@ final class ChatMarkdownTextView: UITextView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         maskLayer.frame = bounds
-        if let firstChangedLineFrame {
-            addOpaqueMaskLayer(
-                to: maskLayer,
-                frame: CGRect(
-                    x: 0.0,
-                    y: 0.0,
-                    width: bounds.width,
-                    height: max(0.0, firstChangedLineFrame.minY)
-                )
-            )
-
-            if let firstChangedFadeFrame {
-                addOpaqueMaskLayer(
-                    to: maskLayer,
-                    frame: CGRect(
-                        x: 0.0,
-                        y: firstChangedLineFrame.minY,
-                        width: max(0.0, firstChangedFadeFrame.minX),
-                        height: firstChangedLineFrame.height
-                    )
-                )
-            }
+        for opaqueFrame in fadeMaskPlan.opaqueFrames {
+            addOpaqueMaskLayer(to: maskLayer, frame: opaqueFrame)
         }
 
-        for fadeFrame in fadeFrames {
+        for fadeFrame in fadeMaskPlan.fadeFrames {
             let fadeLayer = CALayer()
             fadeLayer.backgroundColor = UIColor.black.cgColor
             fadeLayer.frame = fadeFrame
@@ -246,36 +221,7 @@ final class ChatMarkdownTextView: UITextView {
         }
     }
 
-    private func fadeFrame(
-        changedRect: CGRect,
-        lineFrame: CGRect,
-        usedFrame: CGRect
-    ) -> CGRect {
-        let effectiveChangedRect = changedRect.isNull || !changedRect.hasFiniteCoordinates
-            ? usedFrame
-            : changedRect
-        let y = max(0.0, min(lineFrame.minY, bounds.height))
-        let height = max(
-            0.0,
-            min(lineFrame.height, bounds.height - y)
-        )
-        let minX = max(
-            0.0,
-            min(effectiveChangedRect.minX, bounds.width)
-        )
-        let maxX = max(
-            minX,
-            min(max(effectiveChangedRect.maxX, usedFrame.maxX), bounds.width)
-        )
-        return CGRect(x: minX, y: y, width: maxX - minX, height: height)
-    }
-
     private func addOpaqueMaskLayer(to maskLayer: CALayer, frame: CGRect) {
-        guard frame.width > Fade.minimumLayerSize,
-              frame.height > Fade.minimumLayerSize else {
-            return
-        }
-
         let layer = CALayer()
         layer.backgroundColor = UIColor.black.cgColor
         layer.frame = frame
@@ -292,15 +238,6 @@ final class ChatMarkdownTextView: UITextView {
             x: textContainerInset.left - contentOffset.x,
             y: textContainerInset.top - contentOffset.y
         )
-    }
-}
-
-private extension CGRect {
-    var hasFiniteCoordinates: Bool {
-        origin.x.isFinite &&
-            origin.y.isFinite &&
-            size.width.isFinite &&
-            size.height.isFinite
     }
 }
 

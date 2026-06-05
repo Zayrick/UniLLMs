@@ -16,7 +16,13 @@ struct DateTimeTool: Tool {
         symbolName: "clock"
     )
 
+    private let clock: any AppClock
+
+    init(clock: any AppClock = SystemAppClock()) {
+        self.clock = clock
+    }
+
     func execute(call: ToolCall, context: ToolExecutionContext) async throws -> ToolResult {
-        ToolResult(callID: call.id, content: Date().formatted(date: .complete, time: .complete))
+        ToolResult(callID: call.id, content: clock.now.formatted(date: .complete, time: .complete))
     }
 }

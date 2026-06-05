@@ -25,13 +25,16 @@ final class UserDefaultsSystemPromptSettingsStore: SystemPromptSettingsStore {
     static let didChangeNotification = Notification.Name("UserDefaultsSystemPromptSettingsStoreDidChange")
 
     private let store: UserDefaultsStore
+    private let notificationCenter: NotificationCenter
     private let storageKey: String
 
     init(
         defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default,
         storageKey: String = "systemPromptInjectionSettings.v1"
     ) {
-        store = UserDefaultsStore(defaults: defaults)
+        store = UserDefaultsStore(defaults: defaults, notificationCenter: notificationCenter)
+        self.notificationCenter = notificationCenter
         self.storageKey = storageKey
     }
 
@@ -40,11 +43,12 @@ final class UserDefaultsSystemPromptSettingsStore: SystemPromptSettingsStore {
     }
 
     func saveInjectionSettings(_ settings: SystemPromptInjectionSettings) {
-        guard settings != loadInjectionSettings() else {
-            return
+        store.save(settings, replacing: loadInjectionSettings(), forKey: storageKey) {
+            notifyDidChange()
         }
+    }
 
-        store.save(settings, forKey: storageKey)
-        NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
+    private func notifyDidChange() {
+        notificationCenter.post(name: Self.didChangeNotification, object: self)
     }
 }
