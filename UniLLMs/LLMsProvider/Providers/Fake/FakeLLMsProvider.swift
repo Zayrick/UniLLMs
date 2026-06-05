@@ -553,6 +553,7 @@ The fixture ends with trailing punctuation, a final inline code span `done`, and
         static let stream = "stream"
         static let markdownStatic = "markdown-static"
         static let markdownStream = "markdown-stream"
+        static let markdownStream1 = "markdown-stream-1"
     }
 
     private let staticResponseDelayNanoseconds: UInt64
@@ -604,7 +605,11 @@ The fixture ends with trailing punctuation, a final inline code span `done`, and
             LLMsProviderModel(id: ModelID.staticResponse, name: String(localized: .providersFakeModelStatic)),
             LLMsProviderModel(id: ModelID.stream, name: String(localized: .providersFakeModelStream)),
             LLMsProviderModel(id: ModelID.markdownStatic, name: String(localized: .providersFakeModelMarkdownStatic)),
-            LLMsProviderModel(id: ModelID.markdownStream, name: String(localized: .providersFakeModelMarkdownStream))
+            LLMsProviderModel(id: ModelID.markdownStream, name: String(localized: .providersFakeModelMarkdownStream)),
+            LLMsProviderModel(
+                id: ModelID.markdownStream1,
+                name: String(localized: .providersFakeModelMarkdownStream1)
+            )
         ]
     }
 
@@ -628,8 +633,18 @@ The fixture ends with trailing punctuation, a final inline code span `done`, and
                         try Task.checkCancellation()
                         continuation.yield(ChatResponseDelta(content: Metadata.markdownResponse))
                     case ModelID.markdownStream:
+                        try await Task.sleep(nanoseconds: streamInitialDelayNanoseconds)
                         try await streamResponseRandomMarkdownChunks(
                             Metadata.markdownResponse,
+                            into: continuation
+                        )
+                    case ModelID.markdownStream1:
+                        try await Task.sleep(nanoseconds: streamInitialDelayNanoseconds)
+                        try await streamResponseRandomMarkdownChunks(
+                            try String(
+                                contentsOf: Bundle.main.url(forResource: "MarkdownStream1", withExtension: "md")!,
+                                encoding: .utf8
+                            ),
                             into: continuation
                         )
                     default:

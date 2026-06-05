@@ -100,4 +100,34 @@ final class FakeLLMsProviderTests: XCTestCase {
         XCTAssertTrue(streamedContent.contains("```mermaid"))
         XCTAssertTrue(streamedContent.contains("\\begin{bmatrix}"))
     }
+
+    func testFakeMarkdownStream1ModelYieldsMarkdownStream1ResourceInRandomSizedCharacterChunks() async throws {
+        let markdownStream1 = try String(
+            contentsOf: Bundle.main.url(forResource: "MarkdownStream1", withExtension: "md")!,
+            encoding: .utf8
+        )
+        let provider = FakeLLMsProvider(
+            streamInitialDelayNanoseconds: 0,
+            markdownStreamChunkDelayRangeNanoseconds: 0...0
+        )
+        var deltas: [ChatResponseDelta] = []
+        var streamedContent = ""
+
+        for try await delta in provider.streamChat(
+            request: ChatRequest(
+                modelID: FakeLLMsProvider.ModelID.markdownStream1,
+                messages: [],
+                context: ChatContext()
+            ),
+            configuration: LLMsProviderConfiguration()
+        ) {
+            deltas.append(delta)
+            XCTAssertGreaterThanOrEqual(delta.content.count, 1)
+            XCTAssertLessThanOrEqual(delta.content.count, 6)
+            streamedContent += delta.content
+        }
+
+        XCTAssertGreaterThan(deltas.count, 3)
+        XCTAssertEqual(streamedContent, markdownStream1)
+    }
 }

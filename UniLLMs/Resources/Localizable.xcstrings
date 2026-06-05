@@ -3529,6 +3529,24 @@
         }
       }
     },
+    "providers.fake.model.markdown_stream_1" : {
+      "comment" : "Fake provider streaming model name for the bundled MarkdownStream1.md fixture.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Markdown流式回复1"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Markdown流式回复1"
+          }
+        }
+      }
+    },
     "providers.fake.model.static" : {
       "comment" : "Fake provider static response model name.",
       "extractionState" : "manual",

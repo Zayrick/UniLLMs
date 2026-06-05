@@ -84,7 +84,11 @@ final class LLMsProviderManagerTests: LLMsProviderStoreTestCase {
                 LLMProviderModel(id: FakeLLMsProvider.ModelID.staticResponse, name: "Static"),
                 LLMProviderModel(id: FakeLLMsProvider.ModelID.stream, name: "Stream"),
                 LLMProviderModel(id: FakeLLMsProvider.ModelID.markdownStatic, name: "Markdown Static"),
-                LLMProviderModel(id: FakeLLMsProvider.ModelID.markdownStream, name: "Markdown Stream")
+                LLMProviderModel(id: FakeLLMsProvider.ModelID.markdownStream, name: "Markdown Stream"),
+                LLMProviderModel(
+                    id: FakeLLMsProvider.ModelID.markdownStream1,
+                    name: "Markdown流式回复1"
+                )
             ]
         )
         let fetchedModels = try await manager.fetchModels(for: draft)
