@@ -10,8 +10,9 @@ Provider configuration and model metadata are handled by `LLMProviderStore.swift
 
 Available Xcode validation levels and AI-agent boundaries:
 
-- Compile-only app validation is allowed with `xcodebuild ... -destination 'generic/platform=iOS Simulator' build`. This checks that the app target compiles for Simulator without booting, installing to, or launching a specific simulator.
-- Compile-only test validation is allowed with `xcodebuild build-for-testing ... -destination 'generic/platform=iOS Simulator'`. This checks that the app and test bundles compile without executing tests.
+- Xcode validation commands must run outside the managed filesystem sandbox with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`. Do not change global `xcode-select` state unless the user explicitly asks for that system-wide change.
+- Compile-only app validation is allowed with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild ... -destination 'generic/platform=iOS Simulator' build`. This checks that the app target compiles for Simulator without booting, installing to, or launching a specific simulator.
+- Compile-only test validation is allowed with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild build-for-testing ... -destination 'generic/platform=iOS Simulator'`. This checks that the app and test bundles compile without executing tests.
 - Runtime validation requires explicit user approval. Agents must not run `xcodebuild test`, `xcodebuild test-without-building`, Xcode Run/Test actions, simulator launches, `simctl install`, `simctl launch`, or equivalent commands that execute tests, install the app, or launch the app unless the user explicitly asks for that specific action.
 - Archive and distribution actions require explicit user approval. Agents must not run `xcodebuild archive`, export archives, change signing/provisioning, or perform distribution-related actions unless the user explicitly asks for that specific action.
 
@@ -42,10 +43,10 @@ Keep architecture and behavior extremely simple, clean, and direct. Solve the ro
 The following commands describe the available local workflows and the AI-agent boundary for each:
 
 - `open UniLLMs.xcodeproj` opens the project in Xcode for simulator runs and interface editing.
-- `xcodebuild -list -project UniLLMs.xcodeproj` lists available targets, configurations, and schemes.
-- `xcodebuild -project UniLLMs.xcodeproj -scheme UniLLMs -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath .DerivedData build` compiles the app for Simulator without running it. Agents may run this.
-- `xcodebuild build-for-testing -project UniLLMs.xcodeproj -scheme UniLLMs -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath .DerivedData -only-testing:UniLLMsTests` compiles the app and unit test bundle without running tests. Agents may run this.
-- `xcodebuild test -project UniLLMs.xcodeproj -scheme UniLLMs -destination 'platform=iOS Simulator,name=<Device Name>' -derivedDataPath .DerivedData` runs the unit and UI test targets when an appropriate simulator is available. Agents must only run this when explicitly asked.
+- `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -list -project UniLLMs.xcodeproj` lists available targets, configurations, and schemes.
+- `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project UniLLMs.xcodeproj -scheme UniLLMs -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath .DerivedData build` compiles the app for Simulator without running it. Agents may run this.
+- `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild build-for-testing -project UniLLMs.xcodeproj -scheme UniLLMs -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath .DerivedData` compiles the app and test bundles without running tests. Agents may run this.
+- `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -project UniLLMs.xcodeproj -scheme UniLLMs -destination 'platform=iOS Simulator,name=<Device Name>' -derivedDataPath .DerivedData` runs the unit and UI test targets when an appropriate simulator is available. Agents must only run this when explicitly asked.
 
 ## Coding Style & Naming Conventions
 
