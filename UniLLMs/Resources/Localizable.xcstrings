@@ -1369,6 +1369,60 @@
         }
       }
     },
+    "markdown.footnote.close" : {
+      "comment" : "Alert action title for closing a markdown footnote popup.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭"
+          }
+        }
+      }
+    },
+    "markdown.footnote.reference_accessibility_format" : {
+      "comment" : "Accessibility label for a markdown footnote reference. The placeholder is the displayed footnote number.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Footnote %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "脚注 %@"
+          }
+        }
+      }
+    },
+    "markdown.footnote.title_format" : {
+      "comment" : "Alert title for a markdown footnote popup. The placeholder is the displayed footnote number.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Footnote %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "脚注 %@"
+          }
+        }
+      }
+    },
     "markdown.formula_format" : {
       "comment" : "Accessibility label for a math formula.",
       "extractionState" : "manual",

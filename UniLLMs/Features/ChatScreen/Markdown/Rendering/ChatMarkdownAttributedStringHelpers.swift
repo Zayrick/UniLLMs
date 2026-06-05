@@ -12,6 +12,9 @@ extension NSAttributedString.Key {
     static let chatAccessibilityText = NSAttributedString.Key(
         "UniLLMs.ChatMarkdown.accessibilityText"
     )
+    static let chatFootnoteContent = NSAttributedString.Key(
+        "UniLLMs.ChatMarkdown.footnoteContent"
+    )
 }
 
 enum ChatMarkdownCheckboxRenderer {

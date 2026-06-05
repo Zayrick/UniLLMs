@@ -152,6 +152,82 @@ final class ChatMarkdownInlineRenderingTests: ChatMarkdownRenderingTestCase {
         )
     }
 
+    func testMarkdownFootnoteReferenceRendersAsSuperscriptLinkAndHidesDefinition() throws {
+        let attributedText = renderMarkdownText(
+            """
+            Fact[^note].
+
+            [^note]: Details **here**
+            """
+        )
+        let footnoteRange = try XCTUnwrap(attributedText.range(of: "1"))
+        let link = try XCTUnwrap(
+            attributedText.attribute(.link, at: footnoteRange.location, effectiveRange: nil) as? URL
+        )
+        let footnoteContent = try XCTUnwrap(
+            attributedText.attribute(
+                .chatFootnoteContent,
+                at: footnoteRange.location,
+                effectiveRange: nil
+            ) as? String
+        )
+        let footnoteFont = try XCTUnwrap(
+            attributedText.attribute(.font, at: footnoteRange.location, effectiveRange: nil) as? UIFont
+        )
+        let bodyFont = try XCTUnwrap(attributedText.font(containing: "Fact"))
+        let baselineOffset = try XCTUnwrap(attributedText.baselineOffset(containing: "1"))
+
+        XCTAssertEqual(attributedText.string, "Fact1.")
+        XCTAssertEqual(link.scheme, ChatMarkdownFootnoteLink.scheme)
+        XCTAssertEqual(footnoteContent, "Details **here**")
+        XCTAssertLessThan(footnoteFont.pointSize, bodyFont.pointSize)
+        XCTAssertGreaterThan(baselineOffset, 0.0)
+        XCTAssertFalse(attributedText.string.contains("[^note]:"))
+    }
+
+    func testMarkdownFootnoteDefinitionSupportsIndentedContinuation() throws {
+        let attributedText = renderMarkdownText(
+            """
+            Fact[^a].
+
+            [^a]: First line
+                Second line
+            """
+        )
+        let footnoteRange = try XCTUnwrap(attributedText.range(of: "1"))
+        let footnoteContent = try XCTUnwrap(
+            attributedText.attribute(
+                .chatFootnoteContent,
+                at: footnoteRange.location,
+                effectiveRange: nil
+            ) as? String
+        )
+
+        XCTAssertEqual(attributedText.string, "Fact1.")
+        XCTAssertEqual(footnoteContent, "First line\nSecond line")
+    }
+
+    func testMarkdownRepeatedFootnoteReferenceUsesSameNumber() {
+        let attributedText = renderMarkdownText(
+            """
+            A[^same] B[^same].
+
+            [^same]: Shared note
+            """
+        )
+
+        XCTAssertEqual(attributedText.string, "A1 B1.")
+    }
+
+    func testMarkdownUndefinedFootnoteReferenceStaysLiteral() {
+        let attributedText = renderMarkdownText("Fact[^missing].")
+
+        XCTAssertEqual(attributedText.string, "Fact[^missing].")
+        XCTAssertNil(attributedText.range(of: "missing").flatMap { range in
+            attributedText.attribute(.link, at: range.location, effectiveRange: nil) as? URL
+        })
+    }
+
     private func assertItalicPresentation(
         _ attributedText: NSAttributedString,
         containing text: String,

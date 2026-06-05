@@ -166,6 +166,9 @@ final class ChatMarkdownInlineRenderer {
     private static let linkDetector = try? NSDataDetector(
         types: NSTextCheckingResult.CheckingType.link.rawValue
     )
+    private static let footnoteReferenceExpression = try? NSRegularExpression(
+        pattern: #"(?<!\\)\[\^([^\]\r\n]+)\]"#
+    )
 
     private let context: ChatMarkdownRenderingContext
     private let inlineCodeRenderer: ChatMarkdownInlineCodeRenderer
@@ -316,6 +319,102 @@ final class ChatMarkdownInlineRenderer {
     }
 
     private func renderPlainText(
+        _ text: String,
+        mode: ChatMarkdownInlineRenderingMode
+    ) -> NSMutableAttributedString {
+        guard !text.isEmpty else {
+            return NSMutableAttributedString()
+        }
+
+        if mode.linkURL == nil,
+           !mode.isCode,
+           let footnoteReferenceExpression = Self.footnoteReferenceExpression {
+            let rendered = renderFootnotes(
+                in: text,
+                mode: mode,
+                expression: footnoteReferenceExpression
+            )
+            if let rendered {
+                return rendered
+            }
+        }
+
+        return renderPlainTextWithoutFootnotes(text, mode: mode)
+    }
+
+    private func renderFootnotes(
+        in text: String,
+        mode: ChatMarkdownInlineRenderingMode,
+        expression: NSRegularExpression
+    ) -> NSMutableAttributedString? {
+        let result = NSMutableAttributedString()
+        let fullRange = NSRange(location: 0, length: (text as NSString).length)
+        var cursor = text.startIndex
+        var didRenderFootnote = false
+
+        for match in expression.matches(in: text, options: [], range: fullRange) {
+            guard match.numberOfRanges >= 2,
+                  let matchRange = Range(match.range(at: 0), in: text),
+                  let labelRange = Range(match.range(at: 1), in: text),
+                  let footnote = context.footnotePresentation(forLabel: String(text[labelRange])) else {
+                continue
+            }
+
+            if cursor < matchRange.lowerBound {
+                result.append(
+                    renderPlainTextWithoutFootnotes(
+                        String(text[cursor..<matchRange.lowerBound]),
+                        mode: mode
+                    )
+                )
+            }
+
+            result.append(renderFootnoteReference(footnote, mode: mode))
+            cursor = matchRange.upperBound
+            didRenderFootnote = true
+        }
+
+        guard didRenderFootnote else {
+            return nil
+        }
+
+        if cursor < text.endIndex {
+            result.append(
+                renderPlainTextWithoutFootnotes(
+                    String(text[cursor..<text.endIndex]),
+                    mode: mode
+                )
+            )
+        }
+
+        return result
+    }
+
+    private func renderFootnoteReference(
+        _ footnote: ChatMarkdownFootnotePresentation,
+        mode: ChatMarkdownInlineRenderingMode
+    ) -> NSMutableAttributedString {
+        let superscriptMode = mode
+            .linked(
+                to: ChatMarkdownFootnoteLink.url(
+                    label: ChatMarkdownFootnoteLabel.normalized(footnote.label)
+                ),
+                color: context.style.linkColor
+            )
+            .scaledFont(by: 0.76)
+            .offsetBaseline(by: mode.font.pointSize * 0.36)
+
+        var attributes = superscriptMode.attributes()
+        attributes[.chatFootnoteContent] = footnote.content
+        attributes[.chatAccessibilityText] = footnote.accessibilityText
+
+        return NSMutableAttributedString(
+            string: footnote.displayText,
+            attributes: attributes
+        )
+    }
+
+    private func renderPlainTextWithoutFootnotes(
         _ text: String,
         mode: ChatMarkdownInlineRenderingMode
     ) -> NSMutableAttributedString {

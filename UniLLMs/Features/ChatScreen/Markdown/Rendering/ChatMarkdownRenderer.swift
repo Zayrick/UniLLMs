@@ -25,15 +25,17 @@ struct ChatMarkdownRenderer {
             return []
         }
 
+        let footnoteDocument = ChatMarkdownFootnotePreprocessor.process(markdown)
         let context = ChatMarkdownRenderingContext(
             style: style,
-            traitCollection: traitCollection
+            traitCollection: traitCollection,
+            footnotes: footnoteDocument.footnotes
         )
         let blockRenderer = ChatMarkdownBlockRenderer(context: context)
         let htmlTableRenderer = ChatMarkdownHTMLTableRenderer(context: context)
         var blocks: [ChatMarkdownRenderedBlock] = []
 
-        for segment in ChatMarkdownMathBlockSplitter.segments(in: markdown) {
+        for segment in ChatMarkdownMathBlockSplitter.segments(in: footnoteDocument.markdown) {
             switch segment {
             case let .markdown(markdownSegment):
                 let document = Self.parseDocument(markdownSegment)

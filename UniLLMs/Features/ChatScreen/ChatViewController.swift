@@ -923,7 +923,7 @@ final class ChatViewController: UIViewController {
         if deleteFiles {
             deletePendingAttachments(attachments)
         }
-        refreshComposerAttachmentPreview()
+        composerView.setPendingAttachments([])
     }
 
     private func recordPrivateModeAttachments(_ attachments: [ChatAttachment]) {
@@ -1208,28 +1208,24 @@ final class ChatViewController: UIViewController {
     }
 
     private func refreshComposerAttachmentPreview() {
-        let displays = pendingAttachments.map { attachment -> GlassComposerBarView.PendingAttachmentDisplay in
-            let image: UIImage?
-            switch attachment.kind {
-            case .image:
-                if let url = attachmentStore.fileURL(for: attachment),
-                   let data = try? Data(contentsOf: url) {
-                    image = UIImage(data: data)
-                } else {
-                    image = nil
-                }
-            case .file:
-                image = nil
-            }
-
-            return GlassComposerBarView.PendingAttachmentDisplay(
+        let displays = pendingAttachments.map { attachment in
+            GlassComposerBarView.PendingAttachmentDisplay(
                 id: attachment.id,
-                image: image,
+                image: loadAttachmentImage(for: attachment),
                 filename: attachment.filename,
                 isFile: attachment.kind == .file
             )
         }
         composerView.setPendingAttachments(displays)
+    }
+
+    private func loadAttachmentImage(for attachment: ChatAttachment) -> UIImage? {
+        guard attachment.kind == .image,
+              let url = attachmentStore.fileURL(for: attachment),
+              let data = try? Data(contentsOf: url) else {
+            return nil
+        }
+        return UIImage(data: data)
     }
 
     private func refreshComposerSystemPromptPreview() {

@@ -117,6 +117,8 @@ final class ChatMarkdownTextView: UITextView {
         isOpaque = false
         isEditable = false
         isScrollEnabled = false
+        isSelectable = true
+        delegate = self
         textContainerInset = .zero
         markdownTextContainer.lineFragmentPadding = ChatMarkdownInlineCodeStyle.horizontalPadding
         markdownLayoutManager.usesFontLeading = true
@@ -264,6 +266,91 @@ final class ChatMarkdownTextView: UITextView {
             x: textContainerInset.left - contentOffset.x,
             y: textContainerInset.top - contentOffset.y
         )
+    }
+}
+
+extension ChatMarkdownTextView: UITextViewDelegate {
+    func textView(
+        _ textView: UITextView,
+        primaryActionFor textItem: UITextItem,
+        defaultAction: UIAction
+    ) -> UIAction? {
+        guard case let .link(url) = textItem.content,
+              ChatMarkdownFootnoteLink.isFootnoteURL(url) else {
+            return defaultAction
+        }
+
+        let footnoteRange = textItem.range
+        return UIAction { [weak self] _ in
+            self?.presentFootnote(in: footnoteRange)
+        }
+    }
+
+    private func presentFootnote(in characterRange: NSRange) {
+        guard let content = footnoteContent(in: characterRange),
+              let presenter = nearestPresentingViewController else {
+            return
+        }
+
+        let displayText = footnoteDisplayText(in: characterRange)
+        let alert = UIAlertController(
+            title: String(
+                format: String(localized: "markdown.footnote.title_format"),
+                displayText
+            ),
+            message: content.isEmpty ? nil : content,
+            preferredStyle: .alert
+        )
+        alert.addAction(
+            UIAlertAction(
+                title: String(localized: "markdown.footnote.close"),
+                style: .default
+            )
+        )
+        presenter.present(alert, animated: true)
+    }
+
+    private func footnoteContent(in characterRange: NSRange) -> String? {
+        guard characterRange.location >= 0,
+              characterRange.location < markdownTextStorage.length else {
+            return nil
+        }
+
+        return markdownTextStorage.attribute(
+            .chatFootnoteContent,
+            at: characterRange.location,
+            effectiveRange: nil
+        ) as? String
+    }
+
+    private func footnoteDisplayText(in characterRange: NSRange) -> String {
+        let fullRange = NSRange(location: 0, length: markdownTextStorage.length)
+        guard NSLocationInRange(characterRange.location, fullRange),
+              NSMaxRange(characterRange) <= NSMaxRange(fullRange),
+              characterRange.length > 0 else {
+            return ""
+        }
+
+        return (markdownTextStorage.string as NSString).substring(with: characterRange)
+    }
+
+    private var nearestPresentingViewController: UIViewController? {
+        var responder: UIResponder? = self
+        while let nextResponder = responder?.next {
+            if let viewController = nextResponder as? UIViewController {
+                return topPresentedViewController(from: viewController)
+            }
+            responder = nextResponder
+        }
+        return window?.rootViewController.map(topPresentedViewController(from:))
+    }
+
+    private func topPresentedViewController(from viewController: UIViewController) -> UIViewController {
+        var currentViewController = viewController
+        while let presentedViewController = currentViewController.presentedViewController {
+            currentViewController = presentedViewController
+        }
+        return currentViewController
     }
 }
 

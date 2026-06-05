@@ -146,36 +146,35 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     }
 
     func setPendingAttachments(_ items: [PendingAttachmentDisplay]) {
-        let previousIDs = Set(pendingAttachments.map(\.id))
-        let nextIDs = Set(items.map(\.id))
-        let removedChips = attachmentPreviewStackView.arrangedSubviews
-            .compactMap { $0 as? ComposerAttachmentChipView }
-            .filter { !nextIDs.contains($0.itemID) }
-        let addedChips = items
-            .filter { !previousIDs.contains($0.id) }
-            .map(addAttachmentPreviewChip)
-
         pendingAttachments = items
 
-        if !items.isEmpty {
-            attachmentPreviewContainerView.isHidden = false
+        attachmentPreviewStackView.arrangedSubviews.forEach {
+            attachmentPreviewStackView.removeArrangedSubview($0)
+            $0.removeFromSuperview()
         }
+
+        items.forEach { item in
+            let chip = ComposerAttachmentChipView(item: item)
+            chip.onRemove = { [weak self] id in
+                self?.onRemoveAttachment?(id)
+            }
+            chip.onPreview = { [weak self] id in
+                self?.onPreviewAttachment?(id)
+            }
+            attachmentPreviewStackView.addArrangedSubview(chip)
+            NSLayoutConstraint.activate([
+                chip.widthAnchor.constraint(equalToConstant: Metrics.attachmentChipSize),
+                chip.heightAnchor.constraint(equalToConstant: Metrics.attachmentChipSize)
+            ])
+        }
+
+        attachmentPreviewContainerView.isHidden = items.isEmpty
         attachmentPreviewHeightConstraint.constant = items.isEmpty
             ? 0.0
             : Metrics.attachmentChipSize
         updateCapsulePreviewLayout()
         updateInputMode(animated: true)
-
-        animatePreviewLayoutChange(
-            animations: {
-                addedChips.forEach { $0.isHidden = false }
-                removedChips.forEach { $0.isHidden = true }
-            },
-            completion: {
-                removedChips.forEach { $0.removeFromSuperview() }
-                self.attachmentPreviewContainerView.isHidden = items.isEmpty
-            }
-        )
+        onLayoutChange?()
     }
 
     func setSelectedSystemPrompt(_ item: SelectedSystemPromptDisplay?) {
@@ -183,7 +182,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         systemPromptTitleLabel.text = item?.title
         systemPromptContainerView.isHidden = item == nil
         updateCapsulePreviewLayout()
-        animatePreviewLayoutChange()
+        onLayoutChange?()
     }
 
     private func configure() {
@@ -711,23 +710,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         }
 
         textHeightConstraint.constant = targetHeight
-
-        let layoutChanges = {
-            self.superview?.layoutIfNeeded()
-            self.onLayoutChange?()
-            return
-        }
-
-        if animated {
-            UIView.animate(
-                withDuration: 0.2,
-                delay: 0.0,
-                options: [.beginFromCurrentState, .curveEaseInOut],
-                animations: layoutChanges
-            )
-        } else {
-            layoutChanges()
-        }
+        onLayoutChange?()
     }
 
     private static func makeContainerEffect() -> UIGlassContainerEffect {
@@ -743,49 +726,11 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         return effect
     }
 
-    private func addAttachmentPreviewChip(for item: PendingAttachmentDisplay) -> ComposerAttachmentChipView {
-        let chip = ComposerAttachmentChipView(item: item)
-        chip.isHidden = true
-        chip.onRemove = { [weak self] id in
-            self?.onRemoveAttachment?(id)
-        }
-        chip.onPreview = { [weak self] id in
-            self?.onPreviewAttachment?(id)
-        }
-
-        attachmentPreviewStackView.addArrangedSubview(chip)
-        NSLayoutConstraint.activate([
-            chip.widthAnchor.constraint(equalToConstant: Metrics.attachmentChipSize),
-            chip.heightAnchor.constraint(equalToConstant: Metrics.attachmentChipSize)
-        ])
-        return chip
-    }
-
     private func updateCapsulePreviewLayout() {
         let hasPreviewContent = selectedSystemPrompt != nil || !pendingAttachments.isEmpty
         capsuleLayoutTopConstraint.constant = hasPreviewContent
             ? Metrics.capsulePreviewTopInset
             : Metrics.capsuleVerticalInset
-    }
-
-    private func animatePreviewLayoutChange(
-        animations: (() -> Void)? = nil,
-        completion: (() -> Void)? = nil
-    ) {
-        UIView.animate(
-            withDuration: 0.2,
-            delay: 0.0,
-            options: [.beginFromCurrentState, .curveEaseInOut],
-            animations: {
-                animations?()
-                self.superview?.layoutIfNeeded()
-                self.layoutIfNeeded()
-                self.onLayoutChange?()
-            },
-            completion: { _ in
-                completion?()
-            }
-        )
     }
 }
 

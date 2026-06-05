@@ -13,10 +13,18 @@ final class ChatMarkdownRenderingContext {
     let traitCollection: UITraitCollection
     private var listDepthValue = 0
     private var orderedListCounters: [Int] = []
+    private let footnotes: [String: ChatMarkdownFootnoteDefinition]
+    private var footnoteDisplayNumbers: [String: Int] = [:]
+    private var nextFootnoteDisplayNumber = 1
 
-    init(style: ChatMarkdownRenderStyle, traitCollection: UITraitCollection) {
+    init(
+        style: ChatMarkdownRenderStyle,
+        traitCollection: UITraitCollection,
+        footnotes: [String: ChatMarkdownFootnoteDefinition] = [:]
+    ) {
         self.style = style
         self.traitCollection = traitCollection
+        self.footnotes = footnotes
     }
 
     var listDepth: Int {
@@ -49,6 +57,28 @@ final class ChatMarkdownRenderingContext {
             orderedListCounters[orderedListCounters.count - 1] = current + 1
         }
         return current
+    }
+
+    func footnotePresentation(forLabel label: String) -> ChatMarkdownFootnotePresentation? {
+        let normalizedLabel = ChatMarkdownFootnoteLabel.normalized(label)
+        guard let footnote = footnotes[normalizedLabel] else {
+            return nil
+        }
+
+        let displayNumber: Int
+        if let existingDisplayNumber = footnoteDisplayNumbers[normalizedLabel] {
+            displayNumber = existingDisplayNumber
+        } else {
+            displayNumber = nextFootnoteDisplayNumber
+            footnoteDisplayNumbers[normalizedLabel] = displayNumber
+            nextFootnoteDisplayNumber += 1
+        }
+
+        return ChatMarkdownFootnotePresentation(
+            label: footnote.label,
+            displayText: "\(displayNumber)",
+            content: footnote.content
+        )
     }
 
     private func popList() {
