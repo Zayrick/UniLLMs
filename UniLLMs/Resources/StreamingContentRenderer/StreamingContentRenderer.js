@@ -16,6 +16,19 @@
     let lastRenderTime = 0;
     let lastRenderedContent = null;
     let lastRenderUsedMarkdown = false;
+    let markedRendererConfigured = false;
+
+    const taskListRenderer = {
+        listitem(item) {
+            const className = item.task ? ' class="task-list-item"' : '';
+            return `<li${className}>${this.parser.parse(item.tokens)}</li>\n`;
+        },
+
+        checkbox({ checked }) {
+            const marker = checked ? "\u2611" : "\u25A1";
+            return `<span class="task-list-marker" aria-hidden="true">${marker}</span> `;
+        }
+    };
 
     function postHeight() {
         heightScheduled = false;
@@ -35,9 +48,19 @@
     function hasMarkdownRenderer() {
         return window.streamingRendererMarked
             && typeof window.streamingRendererMarked.parse === "function"
+            && typeof window.streamingRendererMarked.use === "function"
             && window.streamingRendererDOMPurify
             && typeof window.streamingRendererDOMPurify.sanitize === "function"
             && typeof window.streamingRendererMorphdom === "function";
+    }
+
+    function configureMarkedRenderer() {
+        if (markedRendererConfigured) {
+            return;
+        }
+
+        window.streamingRendererMarked.use({ renderer: taskListRenderer });
+        markedRendererConfigured = true;
     }
 
     function renderPlainText(content) {
@@ -49,6 +72,7 @@
 
     function renderMarkdown(content) {
         try {
+            configureMarkedRenderer();
             const dirtyHTML = window.streamingRendererMarked.parse(content, { gfm: true });
             const cleanFragment = window.streamingRendererDOMPurify.sanitize(
                 String(dirtyHTML),

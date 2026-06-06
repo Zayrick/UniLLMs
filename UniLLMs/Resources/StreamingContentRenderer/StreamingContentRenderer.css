@@ -80,6 +80,19 @@ li {
     margin: 0.2em 0;
 }
 
+li.task-list-item {
+    list-style: none;
+}
+
+.task-list-marker {
+    display: inline-block;
+    width: 1.15em;
+    margin-left: -1.15em;
+    color: currentColor;
+    text-align: center;
+    white-space: nowrap;
+}
+
 blockquote {
     position: relative;
     padding-left: calc(0.8em + 3px);
