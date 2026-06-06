@@ -131,8 +131,11 @@
 
     window.streamingRenderer = {
         configure(configuration) {
-            document.body.style.color = configuration.color;
-            document.body.style.fontSize = `${configuration.fontSize}px`;
+            const colorScheme = configuration.colorScheme === "dark" ? "dark" : "light";
+            document.documentElement.style.colorScheme = colorScheme;
+            document.documentElement.style.setProperty("--streaming-text-color", configuration.color);
+            document.documentElement.style.setProperty("--streaming-link-color", configuration.linkColor);
+            document.documentElement.style.setProperty("--streaming-font-size", `${configuration.fontSize}px`);
             requestHeightUpdate();
         },
 

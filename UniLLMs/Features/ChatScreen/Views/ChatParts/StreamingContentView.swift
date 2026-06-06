@@ -45,6 +45,7 @@ final class StreamingContentView: UIView {
     private var isRenderScheduled = false
     private var contentHeight: CGFloat = 0.0
     private var lastMeasuredWidth: CGFloat = 0.0
+    private var traitChangeRegistration: (any UITraitChangeRegistration)?
 
     init(style: Style = .response) {
         self.style = style
@@ -133,7 +134,19 @@ final class StreamingContentView: UIView {
             webView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
 
+        configureTraitObservation()
         loadRenderer()
+    }
+
+    private func configureTraitObservation() {
+        traitChangeRegistration = registerForTraitChanges(
+            [
+                UITraitUserInterfaceStyle.self,
+                UITraitPreferredContentSizeCategory.self
+            ]
+        ) { (view: StreamingContentView, _) in
+            view.applyCurrentStyle()
+        }
     }
 
     private func scheduleRender() {
@@ -207,6 +220,8 @@ final class StreamingContentView: UIView {
         return """
         {
             color: \(Self.javaScriptStringLiteral(style.textColor.cssString(resolvedWith: traitCollection))),
+            linkColor: \(Self.javaScriptStringLiteral(UIColor.link.cssString(resolvedWith: traitCollection))),
+            colorScheme: \(Self.javaScriptStringLiteral(traitCollection.userInterfaceStyle == .dark ? "dark" : "light")),
             fontSize: \(font.pointSize * 0.96)
         }
         """

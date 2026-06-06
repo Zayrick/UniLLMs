@@ -1,3 +1,10 @@
+html {
+    color-scheme: light dark;
+    --streaming-text-color: CanvasText;
+    --streaming-link-color: LinkText;
+    --streaming-font-size: 16px;
+}
+
 html,
 body {
     margin: 0;
@@ -9,7 +16,9 @@ body {
 }
 
 body {
+    color: var(--streaming-text-color);
     font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: var(--streaming-font-size);
     line-height: 1.6;
 }
 
@@ -131,7 +140,7 @@ pre code {
 }
 
 a {
-    color: -webkit-link;
+    color: var(--streaming-link-color);
 }
 
 img {
