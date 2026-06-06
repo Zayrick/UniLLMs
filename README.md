@@ -10,7 +10,7 @@ UniLLMs is a native iOS LLM chat client for configuring multiple model providers
 
 - Configure OpenRouter, OpenAI, Anthropic, Gemini, Pollinations, and OpenAI-compatible providers.
 - Manage models, system prompts, long-term memories, and tool settings.
-- Render Markdown, code blocks, tables, math, images, and attachment previews.
+- Display chat responses as plain text with attachment previews.
 - Configure MCP servers to connect external tools to the chat runtime.
 - Access permission status, project information, contact details, source repository, and privacy policy from Settings.
 
@@ -63,8 +63,6 @@ xcodebuild build-for-testing \
 
 Dependencies are managed with Swift Package Manager. Locked versions are recorded in `UniLLMs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`.
 
-- `swift-markdown`
-- `swift-cmark`
 - `Yams`
 
 ## License

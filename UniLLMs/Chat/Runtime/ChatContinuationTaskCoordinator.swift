@@ -191,7 +191,7 @@ final class ChatContinuationTask {
         for part in delta.displayParts {
             switch part {
             case let .reasoning(text),
-                 let .content(text):
+                 let .rawText(text):
                 count += text.count
             case .toolEvent:
                 count += 12

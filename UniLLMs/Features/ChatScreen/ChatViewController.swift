@@ -1852,8 +1852,8 @@ final class ChatViewController: UIViewController {
                 appendStoredUserMessage(id: event.id, text: text, attachments: attachments)
             case let .assistantReasoning(text):
                 assistantView().appendStoredReasoning(text)
-            case let .assistantContent(markdown):
-                assistantView().appendStoredContentMarkdown(markdown)
+            case let .assistantRawText(rawText):
+                assistantView().appendStoredRawText(rawText)
             case let .assistantToolCalls(toolCalls):
                 for toolCall in toolCalls {
                     assistantView().appendDisplayPart(.toolEvent(.started(toolCall)))
@@ -2850,7 +2850,7 @@ private extension ChatMessageRevision {
                     hasSeenAnchorMessage = true
                 }
             case .assistantReasoning,
-                 .assistantContent,
+                 .assistantRawText,
                  .assistantToolCalls,
                  .toolEvent:
                 continue
@@ -2866,7 +2866,7 @@ private extension ChatMessageRevision {
                  let .userMessageWithAttachments(text, _):
                 return text
             case .assistantReasoning,
-                 .assistantContent,
+                 .assistantRawText,
                  .assistantToolCalls,
                  .toolEvent:
                 continue

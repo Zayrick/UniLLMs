@@ -2,7 +2,7 @@
 //  AssistantResponseTextView.swift
 //  UniLLMs
 //
-//  Displays assistant streaming content, reasoning text, loading state, and error messages.
+//  Displays assistant streaming raw text, reasoning text, loading state, and error messages.
 //  Created by Zayrick on 2026/5/11.
 //
 
@@ -24,7 +24,7 @@ final class AssistantResponseTextView: UIView {
 
     private enum TimelineSegmentKind {
         case thinking
-        case content
+        case rawText
     }
 
     private struct TimelineSegment {
@@ -39,7 +39,7 @@ final class AssistantResponseTextView: UIView {
     private let loadingLabel = UILabel()
     private let timelineStackView = UIStackView()
     private let copyButtonContainerView = UIView()
-    private let copyMarkdownButton = CopyMarkdownButton(
+    private let copyRawButton = CopyRawButton(
         symbolConfiguration: UIImage.SymbolConfiguration(
             pointSize: Metrics.copyIconPointSize,
             weight: .medium
@@ -48,7 +48,7 @@ final class AssistantResponseTextView: UIView {
     private let errorLabel = UILabel()
     private var timelineSegments: [TimelineSegment] = []
     private var isResponseFinished = false
-    private var rawContentMarkdown = ""
+    private var rawText = ""
     private var isLoading = false
     private var lastMeasuredTextWidth: CGFloat = 0.0
     private weak var activeThinkingSection: ThinkingSectionView?
@@ -67,19 +67,6 @@ final class AssistantResponseTextView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         updateTextViewHeightsIfNeeded()
-    }
-
-    func append(content contentDelta: String, reasoning reasoningDelta: String) {
-        guard !contentDelta.isEmpty || !reasoningDelta.isEmpty else {
-            return
-        }
-
-        appendDisplayParts(
-            ChatResponseDelta(
-                content: contentDelta,
-                reasoning: reasoningDelta
-            ).displayParts
-        )
     }
 
     func appendDisplayPart(_ part: ChatResponseDisplayPart) {
@@ -110,7 +97,7 @@ final class AssistantResponseTextView: UIView {
     func setError(_ message: String) {
         isLoading = false
         isResponseFinished = true
-        finishContentTimelineSegments()
+        finishRawTextTimelineSegments()
         finishAllThinkingSections(animated: true)
         errorLabel.text = message
         updateVisibility()
@@ -137,7 +124,7 @@ final class AssistantResponseTextView: UIView {
 
     func finishStreamingContent() {
         isResponseFinished = true
-        finishContentTimelineSegments()
+        finishRawTextTimelineSegments()
         finishAllThinkingSections(animated: true)
         updateVisibility()
     }
@@ -155,7 +142,7 @@ final class AssistantResponseTextView: UIView {
 
         configureLoadingView()
         configureTimelineStackView()
-        configureCopyMarkdownButton()
+        configureCopyRawButton()
         configureLabel(errorLabel, textStyle: .callout, color: .systemRed)
 
         stackView.addArrangedSubview(loadingView)
@@ -209,8 +196,8 @@ final class AssistantResponseTextView: UIView {
         switch part {
         case let .reasoning(text):
             appendReasoningTimelinePart(text)
-        case let .content(markdown):
-            appendContentTimelinePart(markdown)
+        case let .rawText(rawText):
+            appendRawTextTimelinePart(rawText)
         case let .toolEvent(event):
             appendToolTimelineEvent(event)
         }
@@ -224,16 +211,16 @@ final class AssistantResponseTextView: UIView {
         ensureActiveThinkingSection().appendReasoning(text)
     }
 
-    private func appendContentTimelinePart(_ markdown: String) {
-        guard !markdown.isEmpty else {
+    private func appendRawTextTimelinePart(_ rawTextDelta: String) {
+        guard !rawTextDelta.isEmpty else {
             return
         }
 
         // Like VS Code's look-ahead completion for thinking parts, visible
-        // assistant content is the boundary that ends the current thinking run.
+        // assistant raw text is the boundary that ends the current thinking run.
         finishActiveThinkingSection(animated: true)
-        rawContentMarkdown += markdown
-        appendContentTimelineSegment(markdown)
+        rawText += rawTextDelta
+        appendRawTextTimelineSegment(rawTextDelta)
     }
 
     private func appendToolTimelineEvent(_ event: ChatToolEvent) {
@@ -298,51 +285,51 @@ final class AssistantResponseTextView: UIView {
         activeThinkingSection = nil
     }
 
-    private func appendContentTimelineSegment(_ markdown: String) {
-        guard !markdown.isEmpty else {
+    private func appendRawTextTimelineSegment(_ rawTextDelta: String) {
+        guard !rawTextDelta.isEmpty else {
             return
         }
 
         if let lastSegment = timelineSegments.last,
-           lastSegment.kind == .content,
-           let markdownView = lastSegment.view as? StreamingMarkdownView {
-            markdownView.appendMarkdown(markdown)
+           lastSegment.kind == .rawText,
+           let textView = lastSegment.view as? StreamingPlainTextView {
+            textView.appendText(rawTextDelta)
             return
         }
 
-        let markdownView = makeContentMarkdownView()
-        timelineStackView.addArrangedSubview(markdownView)
+        let textView = makeRawTextView()
+        timelineStackView.addArrangedSubview(textView)
 
-        let heightConstraint = markdownView.heightAnchor.constraint(equalToConstant: 0.0)
+        let heightConstraint = textView.heightAnchor.constraint(equalToConstant: 0.0)
         heightConstraint.isActive = true
         timelineSegments.append(
             TimelineSegment(
-                kind: .content,
-                view: markdownView,
+                kind: .rawText,
+                view: textView,
                 heightConstraint: heightConstraint
             )
         )
-        markdownView.appendMarkdown(markdown)
+        textView.appendText(rawTextDelta)
     }
 
-    private func appendFinishedContentTimelineSegment(_ markdown: String) {
-        guard !markdown.isEmpty else {
+    private func appendFinishedRawTextTimelineSegment(_ rawText: String) {
+        guard !rawText.isEmpty else {
             return
         }
 
-        let markdownView = makeContentMarkdownView()
-        timelineStackView.addArrangedSubview(markdownView)
+        let textView = makeRawTextView()
+        timelineStackView.addArrangedSubview(textView)
 
-        let heightConstraint = markdownView.heightAnchor.constraint(equalToConstant: 0.0)
+        let heightConstraint = textView.heightAnchor.constraint(equalToConstant: 0.0)
         heightConstraint.isActive = true
         timelineSegments.append(
             TimelineSegment(
-                kind: .content,
-                view: markdownView,
+                kind: .rawText,
+                view: textView,
                 heightConstraint: heightConstraint
             )
         )
-        markdownView.setFinishedMarkdown(markdown)
+        textView.setFinishedText(rawText)
     }
 
     func appendStoredReasoning(_ text: String) {
@@ -352,8 +339,8 @@ final class AssistantResponseTextView: UIView {
         appendDisplayParts([.reasoning(text)])
     }
 
-    func appendStoredContentMarkdown(_ markdown: String) {
-        guard !markdown.isEmpty else {
+    func appendStoredRawText(_ rawText: String) {
+        guard !rawText.isEmpty else {
             return
         }
 
@@ -361,54 +348,50 @@ final class AssistantResponseTextView: UIView {
         isResponseFinished = false
         errorLabel.text = nil
         finishActiveThinkingSection(animated: false)
-        rawContentMarkdown += markdown
-        appendFinishedContentTimelineSegment(markdown)
+        self.rawText += rawText
+        appendFinishedRawTextTimelineSegment(rawText)
         updateVisibility()
     }
 
-    private func finishContentTimelineSegments() {
-        for segment in timelineSegments where segment.kind == .content {
-            (segment.view as? StreamingMarkdownView)?.finishStreamingContent()
+    private func finishRawTextTimelineSegments() {
+        for segment in timelineSegments where segment.kind == .rawText {
+            (segment.view as? StreamingPlainTextView)?.finishStreamingContent()
         }
     }
 
-    private func makeContentMarkdownView() -> StreamingMarkdownView {
-        let contentMarkdownView = StreamingMarkdownView()
-        contentMarkdownView.backgroundColor = .clear
-        contentMarkdownView.isOpaque = false
-        contentMarkdownView.onNeedsHeightUpdate = { [weak self] in
+    private func makeRawTextView() -> StreamingPlainTextView {
+        let rawTextView = StreamingPlainTextView()
+        rawTextView.onNeedsHeightUpdate = { [weak self] in
             self?.updateTextViewHeights()
         }
-        contentMarkdownView.setContentCompressionResistancePriority(.required, for: .vertical)
-        contentMarkdownView.setContentHuggingPriority(.required, for: .vertical)
-        contentMarkdownView.translatesAutoresizingMaskIntoConstraints = false
-        return contentMarkdownView
+        rawTextView.translatesAutoresizingMaskIntoConstraints = false
+        return rawTextView
     }
 
-    private func configureCopyMarkdownButton() {
+    private func configureCopyRawButton() {
         copyButtonContainerView.backgroundColor = .clear
         copyButtonContainerView.isOpaque = false
         copyButtonContainerView.setContentCompressionResistancePriority(.required, for: .vertical)
         copyButtonContainerView.setContentHuggingPriority(.required, for: .vertical)
         copyButtonContainerView.translatesAutoresizingMaskIntoConstraints = false
 
-        copyMarkdownButton.translatesAutoresizingMaskIntoConstraints = false
-        copyMarkdownButton.addTarget(
+        copyRawButton.translatesAutoresizingMaskIntoConstraints = false
+        copyRawButton.addTarget(
             self,
-            action: #selector(copyRawMarkdown),
+            action: #selector(copyRawText),
             for: .touchUpInside
         )
-        copyButtonContainerView.addSubview(copyMarkdownButton)
+        copyButtonContainerView.addSubview(copyRawButton)
 
         NSLayoutConstraint.activate([
-            copyMarkdownButton.topAnchor.constraint(equalTo: copyButtonContainerView.topAnchor),
-            copyMarkdownButton.leadingAnchor.constraint(equalTo: copyButtonContainerView.leadingAnchor),
-            copyMarkdownButton.bottomAnchor.constraint(equalTo: copyButtonContainerView.bottomAnchor),
-            copyMarkdownButton.trailingAnchor.constraint(
+            copyRawButton.topAnchor.constraint(equalTo: copyButtonContainerView.topAnchor),
+            copyRawButton.leadingAnchor.constraint(equalTo: copyButtonContainerView.leadingAnchor),
+            copyRawButton.bottomAnchor.constraint(equalTo: copyButtonContainerView.bottomAnchor),
+            copyRawButton.trailingAnchor.constraint(
                 lessThanOrEqualTo: copyButtonContainerView.trailingAnchor
             ),
-            copyMarkdownButton.widthAnchor.constraint(equalToConstant: Metrics.copyButtonSideLength),
-            copyMarkdownButton.heightAnchor.constraint(equalToConstant: Metrics.copyButtonSideLength)
+            copyRawButton.widthAnchor.constraint(equalToConstant: Metrics.copyButtonSideLength),
+            copyRawButton.heightAnchor.constraint(equalToConstant: Metrics.copyButtonSideLength)
         ])
     }
 
@@ -436,7 +419,7 @@ final class AssistantResponseTextView: UIView {
         }
 
         timelineStackView.isHidden = timelineSegments.isEmpty
-        let shouldShowCopyButton = shouldShowCopyMarkdownButton
+        let shouldShowCopyButton = shouldShowCopyRawButton
         let shouldAnimateCopyButtonAppearance = copyButtonContainerView.isHidden && shouldShowCopyButton
         copyButtonContainerView.isHidden = !shouldShowCopyButton
         errorLabel.isHidden = (errorLabel.text ?? "").isEmpty
@@ -444,25 +427,25 @@ final class AssistantResponseTextView: UIView {
         updateTextViewHeights()
 
         if shouldAnimateCopyButtonAppearance {
-            animateCopyMarkdownButtonAppearance()
+            animateCopyRawButtonAppearance()
         }
     }
 
-    private var shouldShowCopyMarkdownButton: Bool {
-        isResponseFinished && !rawContentMarkdown.isEmpty
+    private var shouldShowCopyRawButton: Bool {
+        isResponseFinished && !rawText.isEmpty
     }
 
-    @objc private func copyRawMarkdown() {
-        guard !rawContentMarkdown.isEmpty else {
+    @objc private func copyRawText() {
+        guard !rawText.isEmpty else {
             return
         }
 
-        UIPasteboard.general.string = rawContentMarkdown
-        copyMarkdownButton.showCopiedFeedback()
+        UIPasteboard.general.string = rawText
+        copyRawButton.showCopiedFeedback()
     }
 
-    private func animateCopyMarkdownButtonAppearance() {
-        copyMarkdownButton.playAppearAnimation()
+    private func animateCopyRawButtonAppearance() {
+        copyRawButton.playAppearAnimation()
 
         guard window != nil,
               !UIAccessibility.isReduceMotionEnabled else {
@@ -563,7 +546,7 @@ final class AssistantResponseTextView: UIView {
         )
     }
 
-    private final class CopyMarkdownButton: UIButton {
+    private final class CopyRawButton: UIButton {
         private enum SymbolName {
             static let copy = "square.on.square"
             static let copied = "checkmark"
@@ -602,7 +585,7 @@ final class AssistantResponseTextView: UIView {
                 }
 
                 self.setSymbol(named: SymbolName.copy, animated: true) { [weak self] in
-                    self?.accessibilityLabel = String(localized: .assistantCopyMarkdown)
+                    self?.accessibilityLabel = String(localized: .assistantCopyRaw)
                     self?.isUserInteractionEnabled = true
                     self?.isShowingFeedback = false
                 }
@@ -625,7 +608,7 @@ final class AssistantResponseTextView: UIView {
         private func configure() {
             backgroundColor = .clear
             isOpaque = false
-            accessibilityLabel = String(localized: .assistantCopyMarkdown)
+            accessibilityLabel = String(localized: .assistantCopyRaw)
             tintColor = .tertiaryLabel
 
             setSymbol(named: SymbolName.copy, animated: false)

@@ -61,7 +61,7 @@ final class ThinkingSectionViewTests: XCTestCase {
     }
 
     @MainActor
-    func testThinkingReasoningRendersMarkdownWithSecondaryStyle() throws {
+    func testThinkingReasoningDisplaysPlainTextWithSecondaryStyle() throws {
         let section = ThinkingSectionView()
         section.frame = CGRect(x: 0.0, y: 0.0, width: 320.0, height: 240.0)
 
@@ -71,44 +71,18 @@ final class ThinkingSectionViewTests: XCTestCase {
 
         let textView = try XCTUnwrap(
             section.recursiveTextViews.first {
-                ($0.attributedText?.string ?? "").contains("Need data")
+                $0.text.contains("Need **data**")
             }
         )
-        let attributedText = try XCTUnwrap(textView.attributedText)
-        let backingString = attributedText.string as NSString
         let traits = section.traitCollection
 
-        let dataRange = backingString.range(of: "data")
-        XCTAssertNotEqual(dataRange.location, NSNotFound)
+        XCTAssertEqual(textView.text, "Need **data** and `code`.")
 
-        let dataFont = try XCTUnwrap(
-            attributedText.attribute(.font, at: dataRange.location, effectiveRange: nil) as? UIFont
-        )
-        XCTAssertTrue(dataFont.fontDescriptor.symbolicTraits.contains(.traitBold))
-
-        let textColor = try XCTUnwrap(
-            attributedText.attribute(.foregroundColor, at: dataRange.location, effectiveRange: nil) as? UIColor
-        )
+        let textColor = try XCTUnwrap(textView.textColor)
         XCTAssertTrue(
             textColor
                 .resolvedColor(with: traits)
                 .isEqual(UIColor.secondaryLabel.resolvedColor(with: traits))
-        )
-
-        let codeRange = backingString.range(of: "code")
-        XCTAssertNotEqual(codeRange.location, NSNotFound)
-
-        let codeBackgroundColor = try XCTUnwrap(
-            attributedText.attribute(
-                .chatInlineCodeBackgroundColor,
-                at: codeRange.location,
-                effectiveRange: nil
-            ) as? UIColor
-        )
-        XCTAssertTrue(
-            codeBackgroundColor
-                .resolvedColor(with: traits)
-                .isEqual(UIColor.tertiarySystemFill.resolvedColor(with: traits))
         )
     }
 }

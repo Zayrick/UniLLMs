@@ -200,19 +200,19 @@ final class ThinkingSectionView: UIView {
         }
 
         if let lastRow = itemRows.last,
-           let reasoningMarkdownView = lastRow.hostedView as? ReasoningMarkdownView {
-            reasoningMarkdownView.append(text)
+           let reasoningTextView = lastRow.hostedView as? ReasoningTextView {
+            reasoningTextView.append(text)
             updateHeaderAfterTimelineChange()
             setNeedsConnectorLineUpdate()
             return
         }
 
-        let markdownView = makeReasoningMarkdownView()
-        let row = makeRow(iconStyle: Self.reasoningIconStyle, hosted: markdownView)
+        let textView = makeReasoningTextView()
+        let row = makeRow(iconStyle: Self.reasoningIconStyle, hosted: textView)
         addRow(row)
         reasoningStepCount += 1
         updateHeaderAfterTimelineChange()
-        markdownView.append(text)
+        textView.append(text)
     }
 
     /// Append a tool-call row. If a row for the same `callID` already exists, the
@@ -223,7 +223,7 @@ final class ThinkingSectionView: UIView {
         displayName: String,
         state: ToolInvocationView.State
     ) -> ToolInvocationView {
-        finishCurrentReasoningMarkdownView()
+        finishCurrentReasoningTextView()
         recordToolInvocation(callID: callID)
 
         if let existingRow = toolRowsByCallID[callID],
@@ -259,7 +259,7 @@ final class ThinkingSectionView: UIView {
         }
         isThinking = thinking
         if !thinking {
-            finishReasoningMarkdownViews()
+            finishReasoningTextViews()
         }
         if thinking {
             applyProcessingHeader()
@@ -485,12 +485,12 @@ final class ThinkingSectionView: UIView {
         return row
     }
 
-    private func makeReasoningMarkdownView() -> ReasoningMarkdownView {
-        let markdownView = ReasoningMarkdownView()
-        markdownView.onNeedsHeightUpdate = { [weak self] in
+    private func makeReasoningTextView() -> ReasoningTextView {
+        let textView = ReasoningTextView()
+        textView.onNeedsHeightUpdate = { [weak self] in
             self?.setNeedsConnectorLineUpdate()
         }
-        return markdownView
+        return textView
     }
 
     private static var reasoningIconStyle: TimelineIconStyle {
@@ -528,18 +528,18 @@ final class ThinkingSectionView: UIView {
         setNeedsConnectorLineUpdate()
     }
 
-    private func finishCurrentReasoningMarkdownView() {
+    private func finishCurrentReasoningTextView() {
         guard let lastRow = itemRows.last,
-              let reasoningMarkdownView = lastRow.hostedView as? ReasoningMarkdownView else {
+              let reasoningTextView = lastRow.hostedView as? ReasoningTextView else {
             return
         }
 
-        reasoningMarkdownView.finishStreaming()
+        reasoningTextView.finishStreaming()
     }
 
-    private func finishReasoningMarkdownViews() {
+    private func finishReasoningTextViews() {
         for row in itemRows {
-            (row.hostedView as? ReasoningMarkdownView)?.finishStreaming()
+            (row.hostedView as? ReasoningTextView)?.finishStreaming()
         }
     }
 
@@ -576,15 +576,15 @@ final class ThinkingSectionView: UIView {
         }
     }
 
-    // MARK: - Nested reasoning Markdown view
+    // MARK: - Nested reasoning text view
 
-    private final class ReasoningMarkdownView: UIView {
+    private final class ReasoningTextView: UIView {
         private enum Metrics {
             static let verticalInset: CGFloat = 6.0
         }
 
-        private let markdownView = StreamingMarkdownView(style: .thinking)
-        private var markdownHeightConstraint: NSLayoutConstraint?
+        private let textView = StreamingPlainTextView(style: .thinking)
+        private var textHeightConstraint: NSLayoutConstraint?
         private var lastMeasuredWidth: CGFloat = 0.0
         var onNeedsHeightUpdate: (() -> Void)?
 
@@ -602,7 +602,7 @@ final class ThinkingSectionView: UIView {
             CGSize(
                 width: UIView.noIntrinsicMetric,
                 height: ceil(
-                    (markdownHeightConstraint?.constant ?? 0.0)
+                    (textHeightConstraint?.constant ?? 0.0)
                         + Metrics.verticalInset * 2.0
                 )
             )
@@ -610,17 +610,17 @@ final class ThinkingSectionView: UIView {
 
         override func layoutSubviews() {
             super.layoutSubviews()
-            updateMarkdownHeightIfNeeded()
+            updateTextHeightIfNeeded()
         }
 
         override func sizeThatFits(_ size: CGSize) -> CGSize {
             let width = max(1.0, size.width)
-            let markdownHeight = markdownView.sizeThatFits(
+            let textHeight = textView.sizeThatFits(
                 CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
             ).height
             return CGSize(
                 width: width,
-                height: ceil(markdownHeight + Metrics.verticalInset * 2.0)
+                height: ceil(textHeight + Metrics.verticalInset * 2.0)
             )
         }
 
@@ -639,19 +639,19 @@ final class ThinkingSectionView: UIView {
             setContentCompressionResistancePriority(.required, for: .vertical)
             setContentHuggingPriority(.required, for: .vertical)
 
-            markdownView.translatesAutoresizingMaskIntoConstraints = false
-            markdownView.onNeedsHeightUpdate = { [weak self] in
-                self?.updateMarkdownHeight()
+            textView.translatesAutoresizingMaskIntoConstraints = false
+            textView.onNeedsHeightUpdate = { [weak self] in
+                self?.updateTextHeight()
             }
-            addSubview(markdownView)
+            addSubview(textView)
 
-            let heightConstraint = markdownView.heightAnchor.constraint(equalToConstant: 0.0)
-            markdownHeightConstraint = heightConstraint
+            let heightConstraint = textView.heightAnchor.constraint(equalToConstant: 0.0)
+            textHeightConstraint = heightConstraint
             NSLayoutConstraint.activate([
-                markdownView.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.verticalInset),
-                markdownView.leadingAnchor.constraint(equalTo: leadingAnchor),
-                markdownView.trailingAnchor.constraint(equalTo: trailingAnchor),
-                markdownView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Metrics.verticalInset),
+                textView.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.verticalInset),
+                textView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                textView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                textView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Metrics.verticalInset),
                 heightConstraint
             ])
         }
@@ -660,41 +660,41 @@ final class ThinkingSectionView: UIView {
             guard !string.isEmpty else {
                 return
             }
-            markdownView.appendMarkdown(string)
-            updateMarkdownHeight()
+            textView.appendText(string)
+            updateTextHeight()
         }
 
         func finishStreaming() {
-            markdownView.finishStreamingContent()
-            updateMarkdownHeight()
+            textView.finishStreamingContent()
+            updateTextHeight()
         }
 
-        private func updateMarkdownHeightIfNeeded() {
-            let width = markdownMeasurementWidth
+        private func updateTextHeightIfNeeded() {
+            let width = textMeasurementWidth
             guard abs(width - lastMeasuredWidth) > 0.5 else {
                 return
             }
 
-            updateMarkdownHeight()
+            updateTextHeight()
         }
 
-        private func updateMarkdownHeight() {
-            let width = markdownMeasurementWidth
+        private func updateTextHeight() {
+            let width = textMeasurementWidth
             guard width > 0.0 else {
                 return
             }
 
-            let fittingSize = markdownView.sizeThatFits(
+            let fittingSize = textView.sizeThatFits(
                 CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
             )
-            markdownHeightConstraint?.constant = ceil(fittingSize.height)
+            textHeightConstraint?.constant = ceil(fittingSize.height)
             lastMeasuredWidth = width
             invalidateIntrinsicContentSize()
             setNeedsLayout()
             onNeedsHeightUpdate?()
         }
 
-        private var markdownMeasurementWidth: CGFloat {
+        private var textMeasurementWidth: CGFloat {
             max(bounds.width, superview?.bounds.width ?? 0.0, 1.0)
         }
     }

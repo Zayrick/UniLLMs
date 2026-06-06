@@ -378,13 +378,13 @@ nonisolated extension ChatToolEvent {
 /// persisted history is represented by `ChatTimelineEvent`.
 nonisolated enum ChatResponseDisplayPart: Equatable {
     case reasoning(String)
-    case content(String)
+    case rawText(String)
     case toolEvent(ChatToolEvent)
 
     var isEmpty: Bool {
         switch self {
         case let .reasoning(text),
-             let .content(text):
+             let .rawText(text):
             return text.isEmpty
         case .toolEvent(_):
             return false
@@ -430,7 +430,7 @@ nonisolated struct ChatResponseDelta: Equatable {
             parts.append(.reasoning(reasoning))
         }
         if !content.isEmpty {
-            parts.append(.content(content))
+            parts.append(.rawText(content))
         }
         return parts
     }

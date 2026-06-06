@@ -114,7 +114,7 @@ final class ChatHistoryStoreTests: XCTestCase {
         let secondSession = ChatSession(title: "Second")
         let lateEvent = ChatTimelineEvent(
             timestamp: Date(timeIntervalSince1970: 20),
-            kind: .assistantContent(markdown: "Late")
+            kind: .assistantRawText(rawText: "Late")
         )
         let earlyEvent = ChatTimelineEvent(
             timestamp: Date(timeIntervalSince1970: 10),
@@ -210,7 +210,7 @@ final class ChatHistoryStoreTests: XCTestCase {
             accumulator.events.map(\.kind),
             [
                 .assistantReasoning(text: "Think once"),
-                .assistantContent(markdown: "Answer now")
+                .assistantRawText(rawText: "Answer now")
             ]
         )
     }
@@ -241,7 +241,7 @@ final class ChatHistoryStoreTests: XCTestCase {
             ),
             ChatTimelineEvent(
                 timestamp: Date(timeIntervalSince1970: 5),
-                kind: .assistantContent(markdown: "It is 20C.")
+                kind: .assistantRawText(rawText: "It is 20C.")
             )
         ]
 
@@ -255,6 +255,35 @@ final class ChatHistoryStoreTests: XCTestCase {
         XCTAssertEqual(messages[2].toolCallID, "call_1")
         XCTAssertEqual(messages[2].content, #"{"temperature":"20C"}"#)
         XCTAssertEqual(messages[3].content, "It is 20C.")
+    }
+
+    func testTimelineEventEncodesAssistantRawTextKey() throws {
+        let event = ChatTimelineEvent(
+            timestamp: Date(timeIntervalSince1970: 0),
+            kind: .assistantRawText(rawText: "Raw content")
+        )
+
+        let data = try JSONEncoder().encode(event)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let kind = try XCTUnwrap(object["kind"] as? [String: Any])
+        let assistantRawText = try XCTUnwrap(kind["assistantRawText"] as? [String: Any])
+
+        XCTAssertEqual(assistantRawText["rawText"] as? String, "Raw content")
+    }
+
+    func testTimelineRevisionEventEncodesAssistantRawTextKey() throws {
+        let timelineEvent = ChatTimelineEvent(
+            timestamp: Date(timeIntervalSince1970: 0),
+            kind: .assistantRawText(rawText: "Revision raw content")
+        )
+        let revisionEvent = try XCTUnwrap(ChatTimelineRevisionEvent(event: timelineEvent))
+
+        let data = try JSONEncoder().encode(revisionEvent)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let kind = try XCTUnwrap(object["kind"] as? [String: Any])
+        let assistantRawText = try XCTUnwrap(kind["assistantRawText"] as? [String: Any])
+
+        XCTAssertEqual(assistantRawText["rawText"] as? String, "Revision raw content")
     }
 
     func testTimelineEventsKeepToolCallBatchTogether() {

@@ -83,8 +83,8 @@ nonisolated private extension ChatTimelineEvent {
             return [text, attachmentText]
                 .filter { !$0.isEmpty }
                 .joined(separator: " ")
-        case let .assistantContent(markdown):
-            return markdown
+        case let .assistantRawText(rawText):
+            return rawText
         case let .assistantToolCalls(toolCalls):
             return toolCalls
                 .map { [$0.toolID, $0.presentationName, $0.serializedArguments].joined(separator: " ") }
@@ -112,8 +112,8 @@ nonisolated private extension ChatTimelineRevisionEvent {
             return [text, attachmentText]
                 .filter { !$0.isEmpty }
                 .joined(separator: " ")
-        case let .assistantContent(markdown):
-            return markdown
+        case let .assistantRawText(rawText):
+            return rawText
         case let .assistantToolCalls(toolCalls):
             return toolCalls
                 .map { [$0.toolID, $0.presentationName, $0.serializedArguments].joined(separator: " ") }

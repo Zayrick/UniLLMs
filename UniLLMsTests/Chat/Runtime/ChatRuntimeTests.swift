@@ -539,7 +539,7 @@ private extension ChatMessageRevision {
                  let .userMessageWithAttachments(text, _):
                 return text
             case .assistantReasoning,
-                 .assistantContent,
+                 .assistantRawText,
                  .assistantToolCalls,
                  .toolEvent:
                 continue

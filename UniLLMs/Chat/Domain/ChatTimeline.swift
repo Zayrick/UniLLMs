@@ -36,9 +36,96 @@ nonisolated struct ChatTimelineRevisionEvent: Codable, Equatable, Identifiable {
         case userMessage(text: String)
         case userMessageWithAttachments(text: String, attachments: [ChatAttachment])
         case assistantReasoning(text: String)
-        case assistantContent(markdown: String)
+        case assistantRawText(rawText: String)
         case assistantToolCalls([ChatToolCall])
         case toolEvent(ChatToolEvent)
+
+        private enum CodingKeys: String, CodingKey {
+            case userMessage
+            case userMessageWithAttachments
+            case assistantReasoning
+            case assistantRawText
+            case assistantToolCalls
+            case toolEvent
+        }
+
+        private enum TextCodingKeys: String, CodingKey {
+            case rawText
+            case text
+        }
+
+        private enum UserMessageWithAttachmentsCodingKeys: String, CodingKey {
+            case text
+            case attachments
+        }
+
+        private enum SingleValueCodingKeys: String, CodingKey {
+            case value = "_0"
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            if container.contains(.userMessage) {
+                let nested = try container.nestedContainer(keyedBy: TextCodingKeys.self, forKey: .userMessage)
+                self = .userMessage(text: try nested.decode(String.self, forKey: .text))
+            } else if container.contains(.userMessageWithAttachments) {
+                let nested = try container.nestedContainer(
+                    keyedBy: UserMessageWithAttachmentsCodingKeys.self,
+                    forKey: .userMessageWithAttachments
+                )
+                self = .userMessageWithAttachments(
+                    text: try nested.decode(String.self, forKey: .text),
+                    attachments: try nested.decode([ChatAttachment].self, forKey: .attachments)
+                )
+            } else if container.contains(.assistantReasoning) {
+                let nested = try container.nestedContainer(keyedBy: TextCodingKeys.self, forKey: .assistantReasoning)
+                self = .assistantReasoning(text: try nested.decode(String.self, forKey: .text))
+            } else if container.contains(.assistantRawText) {
+                let nested = try container.nestedContainer(keyedBy: TextCodingKeys.self, forKey: .assistantRawText)
+                self = .assistantRawText(rawText: try nested.decode(String.self, forKey: .rawText))
+            } else if container.contains(.assistantToolCalls) {
+                let nested = try container.nestedContainer(keyedBy: SingleValueCodingKeys.self, forKey: .assistantToolCalls)
+                self = .assistantToolCalls(try nested.decode([ChatToolCall].self, forKey: .value))
+            } else if container.contains(.toolEvent) {
+                let nested = try container.nestedContainer(keyedBy: SingleValueCodingKeys.self, forKey: .toolEvent)
+                self = .toolEvent(try nested.decode(ChatToolEvent.self, forKey: .value))
+            } else {
+                throw DecodingError.dataCorrupted(
+                    DecodingError.Context(
+                        codingPath: decoder.codingPath,
+                        debugDescription: "Unknown chat timeline revision event kind."
+                    )
+                )
+            }
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            switch self {
+            case let .userMessage(text):
+                var nested = container.nestedContainer(keyedBy: TextCodingKeys.self, forKey: .userMessage)
+                try nested.encode(text, forKey: .text)
+            case let .userMessageWithAttachments(text, attachments):
+                var nested = container.nestedContainer(
+                    keyedBy: UserMessageWithAttachmentsCodingKeys.self,
+                    forKey: .userMessageWithAttachments
+                )
+                try nested.encode(text, forKey: .text)
+                try nested.encode(attachments, forKey: .attachments)
+            case let .assistantReasoning(text):
+                var nested = container.nestedContainer(keyedBy: TextCodingKeys.self, forKey: .assistantReasoning)
+                try nested.encode(text, forKey: .text)
+            case let .assistantRawText(rawText):
+                var nested = container.nestedContainer(keyedBy: TextCodingKeys.self, forKey: .assistantRawText)
+                try nested.encode(rawText, forKey: .rawText)
+            case let .assistantToolCalls(toolCalls):
+                var nested = container.nestedContainer(keyedBy: SingleValueCodingKeys.self, forKey: .assistantToolCalls)
+                try nested.encode(toolCalls, forKey: .value)
+            case let .toolEvent(toolEvent):
+                var nested = container.nestedContainer(keyedBy: SingleValueCodingKeys.self, forKey: .toolEvent)
+                try nested.encode(toolEvent, forKey: .value)
+            }
+        }
     }
 
     var id: UUID
@@ -55,8 +142,8 @@ nonisolated struct ChatTimelineRevisionEvent: Codable, Equatable, Identifiable {
             kind = .userMessageWithAttachments(text: text, attachments: attachments)
         case let .assistantReasoning(text):
             kind = .assistantReasoning(text: text)
-        case let .assistantContent(markdown):
-            kind = .assistantContent(markdown: markdown)
+        case let .assistantRawText(rawText):
+            kind = .assistantRawText(rawText: rawText)
         case let .assistantToolCalls(toolCalls):
             kind = .assistantToolCalls(toolCalls)
         case let .toolEvent(toolEvent):
@@ -78,8 +165,8 @@ nonisolated struct ChatTimelineRevisionEvent: Codable, Equatable, Identifiable {
             eventKind = .userMessageWithAttachments(text: text, attachments: attachments)
         case let .assistantReasoning(text):
             eventKind = .assistantReasoning(text: text)
-        case let .assistantContent(markdown):
-            eventKind = .assistantContent(markdown: markdown)
+        case let .assistantRawText(rawText):
+            eventKind = .assistantRawText(rawText: rawText)
         case let .assistantToolCalls(toolCalls):
             eventKind = .assistantToolCalls(toolCalls)
         case let .toolEvent(toolEvent):
@@ -101,7 +188,7 @@ nonisolated extension ChatTimelineRevisionEvent {
             return attachments
         case .userMessage,
              .assistantReasoning,
-             .assistantContent,
+             .assistantRawText,
              .assistantToolCalls,
              .toolEvent:
             return []
@@ -114,11 +201,105 @@ nonisolated struct ChatTimelineEvent: Codable, Equatable, Identifiable {
         case userMessage(text: String)
         case userMessageWithAttachments(text: String, attachments: [ChatAttachment])
         case assistantReasoning(text: String)
-        case assistantContent(markdown: String)
+        case assistantRawText(rawText: String)
         /// One provider-facing assistant message can request multiple tools.
         case assistantToolCalls([ChatToolCall])
         case toolEvent(ChatToolEvent)
         case messageRevision(ChatMessageRevision)
+
+        private enum CodingKeys: String, CodingKey {
+            case userMessage
+            case userMessageWithAttachments
+            case assistantReasoning
+            case assistantRawText
+            case assistantToolCalls
+            case toolEvent
+            case messageRevision
+        }
+
+        private enum TextCodingKeys: String, CodingKey {
+            case rawText
+            case text
+        }
+
+        private enum UserMessageWithAttachmentsCodingKeys: String, CodingKey {
+            case text
+            case attachments
+        }
+
+        private enum SingleValueCodingKeys: String, CodingKey {
+            case value = "_0"
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            if container.contains(.userMessage) {
+                let nested = try container.nestedContainer(keyedBy: TextCodingKeys.self, forKey: .userMessage)
+                self = .userMessage(text: try nested.decode(String.self, forKey: .text))
+            } else if container.contains(.userMessageWithAttachments) {
+                let nested = try container.nestedContainer(
+                    keyedBy: UserMessageWithAttachmentsCodingKeys.self,
+                    forKey: .userMessageWithAttachments
+                )
+                self = .userMessageWithAttachments(
+                    text: try nested.decode(String.self, forKey: .text),
+                    attachments: try nested.decode([ChatAttachment].self, forKey: .attachments)
+                )
+            } else if container.contains(.assistantReasoning) {
+                let nested = try container.nestedContainer(keyedBy: TextCodingKeys.self, forKey: .assistantReasoning)
+                self = .assistantReasoning(text: try nested.decode(String.self, forKey: .text))
+            } else if container.contains(.assistantRawText) {
+                let nested = try container.nestedContainer(keyedBy: TextCodingKeys.self, forKey: .assistantRawText)
+                self = .assistantRawText(rawText: try nested.decode(String.self, forKey: .rawText))
+            } else if container.contains(.assistantToolCalls) {
+                let nested = try container.nestedContainer(keyedBy: SingleValueCodingKeys.self, forKey: .assistantToolCalls)
+                self = .assistantToolCalls(try nested.decode([ChatToolCall].self, forKey: .value))
+            } else if container.contains(.toolEvent) {
+                let nested = try container.nestedContainer(keyedBy: SingleValueCodingKeys.self, forKey: .toolEvent)
+                self = .toolEvent(try nested.decode(ChatToolEvent.self, forKey: .value))
+            } else if container.contains(.messageRevision) {
+                let nested = try container.nestedContainer(keyedBy: SingleValueCodingKeys.self, forKey: .messageRevision)
+                self = .messageRevision(try nested.decode(ChatMessageRevision.self, forKey: .value))
+            } else {
+                throw DecodingError.dataCorrupted(
+                    DecodingError.Context(
+                        codingPath: decoder.codingPath,
+                        debugDescription: "Unknown chat timeline event kind."
+                    )
+                )
+            }
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            switch self {
+            case let .userMessage(text):
+                var nested = container.nestedContainer(keyedBy: TextCodingKeys.self, forKey: .userMessage)
+                try nested.encode(text, forKey: .text)
+            case let .userMessageWithAttachments(text, attachments):
+                var nested = container.nestedContainer(
+                    keyedBy: UserMessageWithAttachmentsCodingKeys.self,
+                    forKey: .userMessageWithAttachments
+                )
+                try nested.encode(text, forKey: .text)
+                try nested.encode(attachments, forKey: .attachments)
+            case let .assistantReasoning(text):
+                var nested = container.nestedContainer(keyedBy: TextCodingKeys.self, forKey: .assistantReasoning)
+                try nested.encode(text, forKey: .text)
+            case let .assistantRawText(rawText):
+                var nested = container.nestedContainer(keyedBy: TextCodingKeys.self, forKey: .assistantRawText)
+                try nested.encode(rawText, forKey: .rawText)
+            case let .assistantToolCalls(toolCalls):
+                var nested = container.nestedContainer(keyedBy: SingleValueCodingKeys.self, forKey: .assistantToolCalls)
+                try nested.encode(toolCalls, forKey: .value)
+            case let .toolEvent(toolEvent):
+                var nested = container.nestedContainer(keyedBy: SingleValueCodingKeys.self, forKey: .toolEvent)
+                try nested.encode(toolEvent, forKey: .value)
+            case let .messageRevision(revision):
+                var nested = container.nestedContainer(keyedBy: SingleValueCodingKeys.self, forKey: .messageRevision)
+                try nested.encode(revision, forKey: .value)
+            }
+        }
     }
 
     var id: UUID
@@ -145,7 +326,7 @@ nonisolated extension ChatTimelineEvent {
             return revision.attachments
         case .userMessage,
              .assistantReasoning,
-             .assistantContent,
+             .assistantRawText,
              .assistantToolCalls,
              .toolEvent:
             return []
@@ -158,7 +339,7 @@ nonisolated extension ChatTimelineEvent {
              .userMessageWithAttachments:
             return true
         case .assistantReasoning,
-             .assistantContent,
+             .assistantRawText,
              .assistantToolCalls,
              .toolEvent,
              .messageRevision:
@@ -173,8 +354,8 @@ nonisolated extension ChatTimelineEvent {
             return text.isEmpty
         case let .userMessageWithAttachments(text, attachments):
             return text.isEmpty && attachments.isEmpty
-        case let .assistantContent(markdown):
-            return markdown.isEmpty
+        case let .assistantRawText(rawText):
+            return rawText.isEmpty
         case let .assistantToolCalls(toolCalls):
             return toolCalls.isEmpty
         case let .messageRevision(revision):
@@ -273,12 +454,12 @@ nonisolated extension ChatTimelineEvent {
                 }
                 ensureAssistantDraft(startedAt: event.timestamp)
                 assistantDraft?.reasoning += text
-            case let .assistantContent(markdown):
-                guard !markdown.isEmpty else {
+            case let .assistantRawText(rawText):
+                guard !rawText.isEmpty else {
                     continue
                 }
                 ensureAssistantDraft(startedAt: event.timestamp)
-                assistantDraft?.content += markdown
+                assistantDraft?.content += rawText
             case let .assistantToolCalls(toolCalls):
                 ensureAssistantDraft(startedAt: event.timestamp)
                 assistantDraft?.toolCalls.append(contentsOf: toolCalls)
@@ -362,8 +543,8 @@ nonisolated struct ChatTimelineAccumulator: Equatable {
         switch event.kind {
         case let .assistantReasoning(text):
             appendText(text, timestamp: event.timestamp, kind: .reasoning)
-        case let .assistantContent(markdown):
-            appendText(markdown, timestamp: event.timestamp, kind: .content)
+        case let .assistantRawText(rawText):
+            appendText(rawText, timestamp: event.timestamp, kind: .rawText)
         case .userMessage,
              .userMessageWithAttachments,
              .assistantToolCalls,
@@ -378,8 +559,8 @@ nonisolated struct ChatTimelineAccumulator: Equatable {
             switch part {
             case let .reasoning(text):
                 appendText(text, timestamp: timestamp, kind: .reasoning)
-            case let .content(markdown):
-                appendText(markdown, timestamp: timestamp, kind: .content)
+            case let .rawText(rawText):
+                appendText(rawText, timestamp: timestamp, kind: .rawText)
             case .toolEvent:
                 continue
             }
@@ -388,7 +569,7 @@ nonisolated struct ChatTimelineAccumulator: Equatable {
 
     private enum TextKind {
         case reasoning
-        case content
+        case rawText
     }
 
     private mutating func appendText(_ text: String, timestamp: Date, kind: TextKind) {
@@ -401,11 +582,11 @@ nonisolated struct ChatTimelineAccumulator: Equatable {
             case let (.reasoning, .assistantReasoning(existingText)):
                 events[lastIndex].kind = .assistantReasoning(text: existingText + text)
                 return
-            case let (.content, .assistantContent(existingMarkdown)):
-                events[lastIndex].kind = .assistantContent(markdown: existingMarkdown + text)
+            case let (.rawText, .assistantRawText(existingRawText)):
+                events[lastIndex].kind = .assistantRawText(rawText: existingRawText + text)
                 return
             case (.reasoning, _),
-                 (.content, _):
+                 (.rawText, _):
                 break
             }
         }
@@ -414,8 +595,8 @@ nonisolated struct ChatTimelineAccumulator: Equatable {
         switch kind {
         case .reasoning:
             eventKind = .assistantReasoning(text: text)
-        case .content:
-            eventKind = .assistantContent(markdown: text)
+        case .rawText:
+            eventKind = .assistantRawText(rawText: text)
         }
         events.append(ChatTimelineEvent(timestamp: timestamp, kind: eventKind))
     }
