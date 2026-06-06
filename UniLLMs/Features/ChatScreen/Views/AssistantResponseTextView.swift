@@ -495,30 +495,10 @@ final class AssistantResponseTextView: UIView {
             guard let constraint = segment.heightConstraint else {
                 continue
             }
-            if let textView = segment.view as? UITextView {
-                updateTextViewHeight(textView, constraint: constraint, width: width)
-            } else {
-                updateContentHeight(segment.view, constraint: constraint, width: width)
-            }
+            updateContentHeight(segment.view, constraint: constraint, width: width)
         }
         lastMeasuredTextWidth = width
         invalidateIntrinsicContentSize()
-    }
-
-    private func updateTextViewHeight(
-        _ textView: UITextView,
-        constraint: NSLayoutConstraint,
-        width: CGFloat
-    ) {
-        guard !textView.isHidden else {
-            constraint.constant = 0.0
-            return
-        }
-
-        let fittingSize = textView.sizeThatFits(
-            CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
-        )
-        constraint.constant = ceil(fittingSize.height)
     }
 
     private func updateContentHeight(

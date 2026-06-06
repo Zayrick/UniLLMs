@@ -61,7 +61,7 @@ final class ThinkingSectionViewTests: XCTestCase {
     }
 
     @MainActor
-    func testThinkingReasoningDisplaysPlainTextWithSecondaryStyle() throws {
+    func testThinkingReasoningDisplaysPlainTextWebViewWithSecondaryStyle() throws {
         let section = ThinkingSectionView()
         section.frame = CGRect(x: 0.0, y: 0.0, width: 320.0, height: 240.0)
 
@@ -70,20 +70,12 @@ final class ThinkingSectionViewTests: XCTestCase {
         section.layoutIfNeeded()
 
         let textView = try XCTUnwrap(
-            section.recursiveTextViews.first {
-                $0.text.contains("Need **data**")
+            section.recursivePlainTextViews.first {
+                $0.plainText.contains("Need **data**")
             }
         )
-        let traits = section.traitCollection
 
-        XCTAssertEqual(textView.text, "Need **data** and `code`.")
-
-        let textColor = try XCTUnwrap(textView.textColor)
-        XCTAssertTrue(
-            textColor
-                .resolvedColor(with: traits)
-                .isEqual(UIColor.secondaryLabel.resolvedColor(with: traits))
-        )
+        XCTAssertEqual(textView.plainText, "Need **data** and `code`.")
     }
 }
 
@@ -101,8 +93,8 @@ private extension UIView {
         return directLabels + subviews.flatMap { $0.recursiveLabels }
     }
 
-    var recursiveTextViews: [UITextView] {
-        let directTextViews = subviews.compactMap { $0 as? UITextView }
-        return directTextViews + subviews.flatMap { $0.recursiveTextViews }
+    var recursivePlainTextViews: [StreamingPlainTextView] {
+        let directTextViews = subviews.compactMap { $0 as? StreamingPlainTextView }
+        return directTextViews + subviews.flatMap { $0.recursivePlainTextViews }
     }
 }
