@@ -1278,6 +1278,7 @@ final class ChatViewController: UIViewController {
         responseView.isHidden = true
         responseView.setContentHuggingPriority(.required, for: .vertical)
         responseView.setContentCompressionResistancePriority(.required, for: .vertical)
+        configureAssistantResponseLayoutUpdates(for: responseView)
 
         messagesStackView.addArrangedSubview(bubbleView)
         bubbleView.widthAnchor.constraint(
@@ -1618,11 +1619,30 @@ final class ChatViewController: UIViewController {
         update: () -> Void
     ) {
         update()
+    }
 
+    private func invalidateMessagesLayout(flushImmediately: Bool) {
         messagesStackView.setNeedsLayout()
         messagesContentView.setNeedsLayout()
         messagesScrollView.setNeedsLayout()
         mainPageView.setNeedsLayout()
+
+        guard flushImmediately else {
+            return
+        }
+
+        mainPageView.layoutIfNeeded()
+        updateMessagesContentOffsetAfterLayoutChange()
+    }
+
+    private func configureAssistantResponseLayoutUpdates(for responseView: AssistantResponseTextView) {
+        responseView.onLayoutInvalidated = { [weak self] in
+            guard let self else {
+                return
+            }
+
+            self.invalidateMessagesLayout(flushImmediately: true)
+        }
     }
 
     private func finishAssistantResponseStream(success: Bool) {
@@ -1914,6 +1934,7 @@ final class ChatViewController: UIViewController {
         responseView.translatesAutoresizingMaskIntoConstraints = false
         responseView.setContentHuggingPriority(.required, for: .vertical)
         responseView.setContentCompressionResistancePriority(.required, for: .vertical)
+        configureAssistantResponseLayoutUpdates(for: responseView)
         messagesStackView.addArrangedSubview(responseView)
         responseView.widthAnchor.constraint(
             equalTo: messagesStackView.widthAnchor

@@ -28,6 +28,7 @@ final class ThinkingSectionView: UIView {
         static let itemIconCenterY: CGFloat = 15.0
         static let chevronRotation: CGFloat = .pi / 2.0
         static let animationDuration: TimeInterval = 0.26
+        static let reasoningVerticalInset: CGFloat = 6.0
     }
 
     private struct TimelineIconStyle {
@@ -156,6 +157,106 @@ final class ThinkingSectionView: UIView {
         }
     }
 
+    private final class CollapsibleStackBodyView: UIView {
+        let contentView = UIView()
+        private var expandedBottomConstraint: NSLayoutConstraint!
+        private var collapsedHeightConstraint: NSLayoutConstraint!
+        private(set) var isCollapsed = false
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            configure()
+        }
+
+        required init?(coder: NSCoder) {
+            super.init(coder: coder)
+            configure()
+        }
+
+        func setCollapsed(
+            _ collapsed: Bool,
+            animated: Bool,
+            duration: TimeInterval,
+            layoutRoot: UIView,
+            alongside: @escaping () -> Void,
+            completion: @escaping () -> Void
+        ) {
+            guard collapsed != isCollapsed else {
+                completion()
+                return
+            }
+
+            let shouldAnimate = animated && window != nil && !UIAccessibility.isReduceMotionEnabled
+            if shouldAnimate {
+                layoutRoot.layoutIfNeeded()
+            }
+
+            isCollapsed = collapsed
+            applyCollapsedConstraints(collapsed)
+            setNeedsLayout()
+            superview?.setNeedsLayout()
+
+            let updates = {
+                self.alpha = collapsed ? 0.0 : 1.0
+                alongside()
+                layoutRoot.layoutIfNeeded()
+            }
+
+            guard shouldAnimate else {
+                UIView.performWithoutAnimation(updates)
+                completion()
+                return
+            }
+
+            let animator = UIViewPropertyAnimator(
+                duration: duration,
+                curve: .easeInOut,
+                animations: updates
+            )
+            animator.addCompletion { _ in
+                self.applyCollapsedConstraints(collapsed)
+                self.alpha = collapsed ? 0.0 : 1.0
+                completion()
+            }
+            animator.startAnimation()
+        }
+
+        private func configure() {
+            translatesAutoresizingMaskIntoConstraints = false
+            clipsToBounds = true
+            backgroundColor = .clear
+            isOpaque = false
+
+            contentView.translatesAutoresizingMaskIntoConstraints = false
+            contentView.backgroundColor = .clear
+            contentView.isOpaque = false
+            addSubview(contentView)
+
+            expandedBottomConstraint = contentView.bottomAnchor.constraint(equalTo: bottomAnchor)
+            collapsedHeightConstraint = heightAnchor.constraint(equalToConstant: 0.0)
+            collapsedHeightConstraint.isActive = false
+
+            NSLayoutConstraint.activate([
+                contentView.topAnchor.constraint(equalTo: topAnchor),
+                contentView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                contentView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                expandedBottomConstraint
+            ])
+        }
+
+        private func applyCollapsedConstraints(_ collapsed: Bool) {
+            if collapsed {
+                expandedBottomConstraint.isActive = false
+                collapsedHeightConstraint.isActive = true
+            } else {
+                collapsedHeightConstraint.isActive = false
+                expandedBottomConstraint.isActive = true
+            }
+            isUserInteractionEnabled = !collapsed
+            accessibilityElementsHidden = collapsed
+        }
+    }
+
     // MARK: - Header
 
     private let containerStack = UIStackView()
@@ -165,7 +266,7 @@ final class ThinkingSectionView: UIView {
 
     // MARK: - Body
 
-    private let bodyContainer = UIView()
+    private let bodyContainer = CollapsibleStackBodyView()
     private let connectorLineView = ChatConnectorLineView()
     private let itemsStack = UIStackView()
     private var itemRows: [ItemRow] = []
@@ -176,6 +277,7 @@ final class ThinkingSectionView: UIView {
     private var isThinking = true
     private var reasoningStepCount = 0
     private var toolCallIDs: Set<String> = []
+    var onLayoutInvalidated: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -200,8 +302,8 @@ final class ThinkingSectionView: UIView {
         }
 
         if let lastRow = itemRows.last,
-           let reasoningContentView = lastRow.hostedView as? ReasoningContentView {
-            reasoningContentView.append(text)
+           let contentView = lastRow.hostedView as? StreamingContentHostView {
+            contentView.appendContent(text)
             updateHeaderAfterTimelineChange()
             setNeedsConnectorLineUpdate()
             return
@@ -212,7 +314,7 @@ final class ThinkingSectionView: UIView {
         addRow(row)
         reasoningStepCount += 1
         updateHeaderAfterTimelineChange()
-        contentView.append(text)
+        contentView.appendContent(text)
     }
 
     /// Append a tool-call row. If a row for the same `callID` already exists, the
@@ -277,58 +379,28 @@ final class ThinkingSectionView: UIView {
         }
         isCollapsed = collapsed
         headerButton.accessibilityValue = collapsed ? String(localized: .generalCollapsed) : String(localized: .generalExpanded)
-        if !collapsed {
-            bodyContainer.isHidden = false
-            bodyContainer.alpha = 0.0
-            containerStack.setCustomSpacing(Metrics.bodyTopPadding, after: headerButton)
-            layoutIfNeeded()
-            superview?.layoutIfNeeded()
-        }
 
-        let updates = {
-            self.applyCollapsedLayout(collapsed)
-        }
-
-        let completion: () -> Void = {
-            self.bodyContainer.isHidden = collapsed
-            self.bodyContainer.alpha = collapsed ? 0.0 : 1.0
-            self.containerStack.setCustomSpacing(
-                collapsed ? 0.0 : Metrics.bodyTopPadding,
-                after: self.headerButton
-            )
-            self.invalidateIntrinsicContentSize()
-            self.superview?.setNeedsLayout()
-        }
-
-        guard animated, window != nil, !UIAccessibility.isReduceMotionEnabled else {
-            updates()
-            completion()
-            return
-        }
-
-        let animator = UIViewPropertyAnimator(
+        let layoutRoot = superview ?? self
+        bodyContainer.setCollapsed(
+            collapsed,
+            animated: animated,
             duration: Metrics.animationDuration,
-            curve: .easeInOut,
-            animations: updates
+            layoutRoot: layoutRoot,
+            alongside: { [weak self] in
+                self?.applyCollapsedChrome(collapsed)
+            },
+            completion: { [weak self] in
+                self?.invalidateSectionLayout()
+            }
         )
-        animator.addCompletion { _ in
-            completion()
-        }
-        animator.startAnimation()
+        invalidateSectionLayout()
     }
 
-    private func applyCollapsedLayout(_ collapsed: Bool) {
-        bodyContainer.alpha = collapsed ? 0.0 : 1.0
-        bodyContainer.isHidden = collapsed
+    private func applyCollapsedChrome(_ collapsed: Bool) {
         containerStack.setCustomSpacing(collapsed ? 0.0 : Metrics.bodyTopPadding, after: headerButton)
         chevronImageView.transform = collapsed
             ? .identity
             : CGAffineTransform(rotationAngle: Metrics.chevronRotation)
-        invalidateIntrinsicContentSize()
-        setNeedsLayout()
-        superview?.setNeedsLayout()
-        layoutIfNeeded()
-        superview?.layoutIfNeeded()
     }
 
     // MARK: - Configuration
@@ -373,19 +445,17 @@ final class ThinkingSectionView: UIView {
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         headerButton.addSubview(titleLabel)
 
-        bodyContainer.translatesAutoresizingMaskIntoConstraints = false
-        bodyContainer.clipsToBounds = true
         containerStack.addArrangedSubview(bodyContainer)
         containerStack.setCustomSpacing(Metrics.bodyTopPadding, after: headerButton)
 
         connectorLineView.translatesAutoresizingMaskIntoConstraints = false
-        bodyContainer.addSubview(connectorLineView)
+        bodyContainer.contentView.addSubview(connectorLineView)
 
         itemsStack.translatesAutoresizingMaskIntoConstraints = false
         itemsStack.axis = .vertical
         itemsStack.alignment = .fill
         itemsStack.spacing = Metrics.itemSpacing
-        bodyContainer.addSubview(itemsStack)
+        bodyContainer.contentView.addSubview(itemsStack)
 
         NSLayoutConstraint.activate([
             containerStack.topAnchor.constraint(equalTo: topAnchor),
@@ -403,15 +473,18 @@ final class ThinkingSectionView: UIView {
             titleLabel.topAnchor.constraint(equalTo: headerButton.topAnchor, constant: Metrics.headerVerticalPadding),
             titleLabel.bottomAnchor.constraint(equalTo: headerButton.bottomAnchor, constant: -Metrics.headerVerticalPadding),
 
-            connectorLineView.topAnchor.constraint(equalTo: bodyContainer.topAnchor),
-            connectorLineView.leadingAnchor.constraint(equalTo: bodyContainer.leadingAnchor),
-            connectorLineView.trailingAnchor.constraint(equalTo: bodyContainer.trailingAnchor),
-            connectorLineView.bottomAnchor.constraint(equalTo: bodyContainer.bottomAnchor),
+            connectorLineView.topAnchor.constraint(equalTo: bodyContainer.contentView.topAnchor),
+            connectorLineView.leadingAnchor.constraint(equalTo: bodyContainer.contentView.leadingAnchor),
+            connectorLineView.trailingAnchor.constraint(equalTo: bodyContainer.contentView.trailingAnchor),
+            connectorLineView.bottomAnchor.constraint(equalTo: bodyContainer.contentView.bottomAnchor),
 
-            itemsStack.topAnchor.constraint(equalTo: bodyContainer.topAnchor),
-            itemsStack.leadingAnchor.constraint(equalTo: bodyContainer.leadingAnchor),
-            itemsStack.trailingAnchor.constraint(equalTo: bodyContainer.trailingAnchor),
-            itemsStack.bottomAnchor.constraint(equalTo: bodyContainer.bottomAnchor, constant: -Metrics.bodyBottomPadding)
+            itemsStack.topAnchor.constraint(equalTo: bodyContainer.contentView.topAnchor),
+            itemsStack.leadingAnchor.constraint(equalTo: bodyContainer.contentView.leadingAnchor),
+            itemsStack.trailingAnchor.constraint(equalTo: bodyContainer.contentView.trailingAnchor),
+            itemsStack.bottomAnchor.constraint(
+                equalTo: bodyContainer.contentView.bottomAnchor,
+                constant: -Metrics.bodyBottomPadding
+            )
         ])
     }
 
@@ -485,9 +558,17 @@ final class ThinkingSectionView: UIView {
         return row
     }
 
-    private func makeReasoningContentView() -> ReasoningContentView {
-        let contentView = ReasoningContentView()
-        contentView.onNeedsHeightUpdate = { [weak self] in
+    private func makeReasoningContentView() -> StreamingContentHostView {
+        let contentView = StreamingContentHostView(
+            style: .thinking,
+            contentInsets: UIEdgeInsets(
+                top: Metrics.reasoningVerticalInset,
+                left: 0.0,
+                bottom: Metrics.reasoningVerticalInset,
+                right: 0.0
+            )
+        )
+        contentView.onLayoutInvalidated = { [weak self] in
             self?.setNeedsConnectorLineUpdate()
         }
         return contentView
@@ -530,27 +611,33 @@ final class ThinkingSectionView: UIView {
 
     private func finishCurrentReasoningContentView() {
         guard let lastRow = itemRows.last,
-              let reasoningContentView = lastRow.hostedView as? ReasoningContentView else {
+              let contentView = lastRow.hostedView as? StreamingContentHostView else {
             return
         }
 
-        reasoningContentView.finishStreaming()
+        contentView.finishStreamingContent()
     }
 
     private func finishReasoningContentViews() {
         for row in itemRows {
-            (row.hostedView as? ReasoningContentView)?.finishStreaming()
+            (row.hostedView as? StreamingContentHostView)?.finishStreamingContent()
         }
     }
 
     private func setNeedsConnectorLineUpdate() {
+        invalidateSectionLayout()
+        scheduleConnectorLineUpdate()
+    }
+
+    private func invalidateSectionLayout() {
         bodyContainer.setNeedsLayout()
+        bodyContainer.contentView.setNeedsLayout()
         itemsStack.setNeedsLayout()
         connectorLineView.setNeedsLayout()
         setNeedsLayout()
         invalidateIntrinsicContentSize()
         superview?.setNeedsLayout()
-        scheduleConnectorLineUpdate()
+        onLayoutInvalidated?()
     }
 
     private func updateConnectorLine() {
@@ -576,126 +663,6 @@ final class ThinkingSectionView: UIView {
         }
     }
 
-    // MARK: - Nested reasoning content view
-
-    private final class ReasoningContentView: UIView {
-        private enum Metrics {
-            static let verticalInset: CGFloat = 6.0
-        }
-
-        private let contentView = StreamingContentView(style: .thinking)
-        private var contentHeightConstraint: NSLayoutConstraint?
-        private var lastMeasuredWidth: CGFloat = 0.0
-        var onNeedsHeightUpdate: (() -> Void)?
-
-        override init(frame: CGRect) {
-            super.init(frame: frame)
-            configure()
-        }
-
-        required init?(coder: NSCoder) {
-            super.init(coder: coder)
-            configure()
-        }
-
-        override var intrinsicContentSize: CGSize {
-            CGSize(
-                width: UIView.noIntrinsicMetric,
-                height: ceil(
-                    (contentHeightConstraint?.constant ?? 0.0)
-                        + Metrics.verticalInset * 2.0
-                )
-            )
-        }
-
-        override func layoutSubviews() {
-            super.layoutSubviews()
-            updateContentHeightIfNeeded()
-        }
-
-        override func sizeThatFits(_ size: CGSize) -> CGSize {
-            let width = max(1.0, size.width)
-            let contentHeight = contentView.sizeThatFits(
-                CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
-            ).height
-            return CGSize(
-                width: width,
-                height: ceil(contentHeight + Metrics.verticalInset * 2.0)
-            )
-        }
-
-        override func systemLayoutSizeFitting(
-            _ targetSize: CGSize,
-            withHorizontalFittingPriority horizontalFittingPriority: UILayoutPriority,
-            verticalFittingPriority: UILayoutPriority
-        ) -> CGSize {
-            sizeThatFits(targetSize)
-        }
-
-        private func configure() {
-            backgroundColor = .clear
-            isOpaque = false
-            isAccessibilityElement = false
-            setContentCompressionResistancePriority(.required, for: .vertical)
-            setContentHuggingPriority(.required, for: .vertical)
-
-            contentView.translatesAutoresizingMaskIntoConstraints = false
-            contentView.onNeedsHeightUpdate = { [weak self] in
-                self?.updateContentHeight()
-            }
-            addSubview(contentView)
-
-            let heightConstraint = contentView.heightAnchor.constraint(equalToConstant: 0.0)
-            contentHeightConstraint = heightConstraint
-            NSLayoutConstraint.activate([
-                contentView.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.verticalInset),
-                contentView.leadingAnchor.constraint(equalTo: leadingAnchor),
-                contentView.trailingAnchor.constraint(equalTo: trailingAnchor),
-                contentView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Metrics.verticalInset),
-                heightConstraint
-            ])
-        }
-
-        func append(_ string: String) {
-            guard !string.isEmpty else {
-                return
-            }
-            contentView.appendContent(string)
-            updateContentHeight()
-        }
-
-        func finishStreaming() {
-            contentView.finishStreamingContent()
-            updateContentHeight()
-        }
-
-        private func updateContentHeightIfNeeded() {
-            let width = contentMeasurementWidth
-            guard abs(width - lastMeasuredWidth) > 0.5 else {
-                return
-            }
-
-            updateContentHeight()
-        }
-
-        private func updateContentHeight() {
-            let width = contentMeasurementWidth
-            guard width > 0.0 else {
-                return
-            }
-
-            let fittingSize = contentView.sizeThatFits(
-                CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
-            )
-            contentHeightConstraint?.constant = ceil(fittingSize.height)
-            lastMeasuredWidth = width
-            invalidateIntrinsicContentSize()
-            setNeedsLayout()
-            onNeedsHeightUpdate?()
-        }
-
-        private var contentMeasurementWidth: CGFloat {
-            max(bounds.width, superview?.bounds.width ?? 0.0, 1.0)
-        }
-    }
+    // Reasoning content uses StreamingContentHostView directly so WebView
+    // measurement stays local to the content owner.
 }

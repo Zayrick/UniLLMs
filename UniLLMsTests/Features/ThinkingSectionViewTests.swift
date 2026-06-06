@@ -77,6 +77,44 @@ final class ThinkingSectionViewTests: XCTestCase {
 
         XCTAssertEqual(contentView.content, "Need **data** and `code`.")
     }
+
+    @MainActor
+    func testAssistantResponseReceivesThinkingCollapseLayoutInvalidations() throws {
+        let responseView = AssistantResponseTextView()
+        responseView.frame = CGRect(x: 0.0, y: 0.0, width: 320.0, height: 480.0)
+        responseView.appendStoredReasoning("Need data.")
+        responseView.finishStreamingContent()
+
+        let section = try XCTUnwrap(responseView.recursiveThinkingSections.first)
+        var layoutInvalidationCount = 0
+        responseView.onLayoutInvalidated = {
+            layoutInvalidationCount += 1
+        }
+
+        section.setCollapsed(false, animated: false)
+        XCTAssertGreaterThan(layoutInvalidationCount, 0)
+
+        let countAfterExpansion = layoutInvalidationCount
+        section.setCollapsed(true, animated: false)
+        XCTAssertGreaterThan(layoutInvalidationCount, countAfterExpansion)
+    }
+
+    @MainActor
+    func testThinkingCollapseKeepsStreamingContentOutOfHiddenHierarchy() throws {
+        let section = ThinkingSectionView()
+        section.frame = CGRect(x: 0.0, y: 0.0, width: 320.0, height: 240.0)
+        section.appendReasoning("Need data.")
+        section.setThinking(false, animated: false)
+
+        let contentView = try XCTUnwrap(section.recursiveContentViews.first)
+        XCTAssertFalse(contentView.hasHiddenAncestor(upTo: section))
+
+        section.setCollapsed(false, animated: false)
+        XCTAssertFalse(contentView.hasHiddenAncestor(upTo: section))
+
+        section.setCollapsed(true, animated: false)
+        XCTAssertFalse(contentView.hasHiddenAncestor(upTo: section))
+    }
 }
 
 private extension UIView {
@@ -96,5 +134,24 @@ private extension UIView {
     var recursiveContentViews: [StreamingContentView] {
         let directContentViews = subviews.compactMap { $0 as? StreamingContentView }
         return directContentViews + subviews.flatMap { $0.recursiveContentViews }
+    }
+
+    var recursiveThinkingSections: [ThinkingSectionView] {
+        let directSections = subviews.compactMap { $0 as? ThinkingSectionView }
+        return directSections + subviews.flatMap { $0.recursiveThinkingSections }
+    }
+
+    func hasHiddenAncestor(upTo ancestor: UIView) -> Bool {
+        var currentView: UIView? = self
+        while let view = currentView {
+            if view.isHidden {
+                return true
+            }
+            if view === ancestor {
+                return false
+            }
+            currentView = view.superview
+        }
+        return false
     }
 }

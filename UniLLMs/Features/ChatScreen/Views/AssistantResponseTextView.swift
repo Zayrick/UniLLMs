@@ -22,22 +22,11 @@ final class AssistantResponseTextView: UIView {
         static let copyAppearAnimationDampingRatio: CGFloat = 0.88
     }
 
-    private enum TimelineSegmentKind {
-        case thinking
-        case rawText
-    }
-
-    private struct TimelineSegment {
-        var kind: TimelineSegmentKind
-        var view: UIView
-        var heightConstraint: NSLayoutConstraint?
-    }
-
     private let stackView = UIStackView()
     private let loadingView = UIStackView()
     private let loadingIndicatorView = UIActivityIndicatorView(style: .medium)
     private let loadingLabel = UILabel()
-    private let timelineStackView = UIStackView()
+    private let timelineView = AssistantResponseTimelineView()
     private let copyButtonContainerView = UIView()
     private let copyRawButton = CopyRawButton(
         symbolConfiguration: UIImage.SymbolConfiguration(
@@ -46,13 +35,9 @@ final class AssistantResponseTextView: UIView {
         )
     )
     private let errorLabel = UILabel()
-    private var timelineSegments: [TimelineSegment] = []
     private var isResponseFinished = false
-    private var rawText = ""
     private var isLoading = false
-    private var lastMeasuredContentWidth: CGFloat = 0.0
-    private weak var activeThinkingSection: ThinkingSectionView?
-    private var toolSectionsByCallID: [String: ThinkingSectionView] = [:]
+    var onLayoutInvalidated: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -62,11 +47,6 @@ final class AssistantResponseTextView: UIView {
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         configure()
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        updateContentViewHeightsIfNeeded()
     }
 
     func appendDisplayPart(_ part: ChatResponseDisplayPart) {
@@ -88,7 +68,7 @@ final class AssistantResponseTextView: UIView {
         errorLabel.text = nil
 
         for part in visibleParts {
-            appendDisplayPartWithoutUpdatingVisibility(part)
+            timelineView.appendDisplayPart(part)
         }
 
         updateVisibility()
@@ -97,14 +77,13 @@ final class AssistantResponseTextView: UIView {
     func setError(_ message: String) {
         isLoading = false
         isResponseFinished = true
-        finishRawTextTimelineSegments()
-        finishAllThinkingSections(animated: true)
+        timelineView.finishStreamingContent(animated: true)
         errorLabel.text = message
         updateVisibility()
     }
 
     func showLoadingIfNeeded() {
-        guard timelineSegments.isEmpty,
+        guard timelineView.isEmpty,
               (errorLabel.text ?? "").isEmpty else {
             return
         }
@@ -124,8 +103,7 @@ final class AssistantResponseTextView: UIView {
 
     func finishStreamingContent() {
         isResponseFinished = true
-        finishRawTextTimelineSegments()
-        finishAllThinkingSections(animated: true)
+        timelineView.finishStreamingContent(animated: true)
         updateVisibility()
     }
 
@@ -141,12 +119,12 @@ final class AssistantResponseTextView: UIView {
         addSubview(stackView)
 
         configureLoadingView()
-        configureTimelineStackView()
+        configureTimelineView()
         configureCopyRawButton()
         configureLabel(errorLabel, textStyle: .callout, color: .systemRed)
 
         stackView.addArrangedSubview(loadingView)
-        stackView.addArrangedSubview(timelineStackView)
+        stackView.addArrangedSubview(timelineView)
         stackView.addArrangedSubview(copyButtonContainerView)
         stackView.addArrangedSubview(errorLabel)
 
@@ -183,153 +161,11 @@ final class AssistantResponseTextView: UIView {
         loadingView.addArrangedSubview(loadingLabel)
     }
 
-    private func configureTimelineStackView() {
-        timelineStackView.axis = .vertical
-        timelineStackView.alignment = .fill
-        timelineStackView.spacing = Metrics.sectionSpacing
-        timelineStackView.setContentCompressionResistancePriority(.required, for: .vertical)
-        timelineStackView.setContentHuggingPriority(.required, for: .vertical)
-        timelineStackView.translatesAutoresizingMaskIntoConstraints = false
-    }
-
-    private func appendDisplayPartWithoutUpdatingVisibility(_ part: ChatResponseDisplayPart) {
-        switch part {
-        case let .reasoning(text):
-            appendReasoningTimelinePart(text)
-        case let .rawText(rawText):
-            appendRawTextTimelinePart(rawText)
-        case let .toolEvent(event):
-            appendToolTimelineEvent(event)
+    private func configureTimelineView() {
+        timelineView.onLayoutInvalidated = { [weak self] in
+            self?.invalidateResponseLayout()
         }
-    }
-
-    private func appendReasoningTimelinePart(_ text: String) {
-        guard !text.isEmpty else {
-            return
-        }
-
-        ensureActiveThinkingSection().appendReasoning(text)
-    }
-
-    private func appendRawTextTimelinePart(_ rawTextDelta: String) {
-        guard !rawTextDelta.isEmpty else {
-            return
-        }
-
-        // Like VS Code's look-ahead completion for thinking parts, visible
-        // assistant raw text is the boundary that ends the current thinking run.
-        finishActiveThinkingSection(animated: true)
-        rawText += rawTextDelta
-        appendRawTextTimelineSegment(rawTextDelta)
-    }
-
-    private func appendToolTimelineEvent(_ event: ChatToolEvent) {
-        switch event {
-        case let .started(toolCall):
-            let section = ensureActiveThinkingSection()
-            toolSectionsByCallID[toolCall.id] = section
-            let invocation = section.appendToolInvocation(
-                callID: toolCall.id,
-                displayName: toolCall.presentationName,
-                state: .running
-            )
-            invocation.setDetail(toolCall.serializedArguments)
-        case let .completed(toolCall, result):
-            let section = toolSectionsByCallID[toolCall.id] ?? ensureActiveThinkingSection()
-            toolSectionsByCallID[toolCall.id] = section
-            let invocation = section.appendToolInvocation(
-                callID: toolCall.id,
-                displayName: toolCall.presentationName,
-                state: .completed
-            )
-            invocation.setDetail(result)
-        case let .failed(toolCall, message):
-            let section = toolSectionsByCallID[toolCall.id] ?? ensureActiveThinkingSection()
-            toolSectionsByCallID[toolCall.id] = section
-            let invocation = section.appendToolInvocation(
-                callID: toolCall.id,
-                displayName: toolCall.presentationName,
-                state: .failed(message: message)
-            )
-            invocation.setDetail(message)
-        }
-    }
-
-    private func ensureActiveThinkingSection() -> ThinkingSectionView {
-        if let activeThinkingSection {
-            return activeThinkingSection
-        }
-
-        let section = ThinkingSectionView()
-        timelineStackView.addArrangedSubview(section)
-        timelineSegments.append(
-            TimelineSegment(
-                kind: .thinking,
-                view: section,
-                heightConstraint: nil
-            )
-        )
-        activeThinkingSection = section
-        return section
-    }
-
-    private func finishActiveThinkingSection(animated: Bool) {
-        activeThinkingSection?.setThinking(false, animated: animated)
-        activeThinkingSection = nil
-    }
-
-    private func finishAllThinkingSections(animated: Bool) {
-        for segment in timelineSegments where segment.kind == .thinking {
-            (segment.view as? ThinkingSectionView)?.setThinking(false, animated: animated)
-        }
-        activeThinkingSection = nil
-    }
-
-    private func appendRawTextTimelineSegment(_ rawTextDelta: String) {
-        guard !rawTextDelta.isEmpty else {
-            return
-        }
-
-        if let lastSegment = timelineSegments.last,
-           lastSegment.kind == .rawText,
-           let contentView = lastSegment.view as? StreamingContentView {
-            contentView.appendContent(rawTextDelta)
-            return
-        }
-
-        let contentView = makeResponseContentView()
-        timelineStackView.addArrangedSubview(contentView)
-
-        let heightConstraint = contentView.heightAnchor.constraint(equalToConstant: 0.0)
-        heightConstraint.isActive = true
-        timelineSegments.append(
-            TimelineSegment(
-                kind: .rawText,
-                view: contentView,
-                heightConstraint: heightConstraint
-            )
-        )
-        contentView.appendContent(rawTextDelta)
-    }
-
-    private func appendFinishedRawTextTimelineSegment(_ rawText: String) {
-        guard !rawText.isEmpty else {
-            return
-        }
-
-        let contentView = makeResponseContentView()
-        timelineStackView.addArrangedSubview(contentView)
-
-        let heightConstraint = contentView.heightAnchor.constraint(equalToConstant: 0.0)
-        heightConstraint.isActive = true
-        timelineSegments.append(
-            TimelineSegment(
-                kind: .rawText,
-                view: contentView,
-                heightConstraint: heightConstraint
-            )
-        )
-        contentView.setFinishedContent(rawText)
+        timelineView.translatesAutoresizingMaskIntoConstraints = false
     }
 
     func appendStoredReasoning(_ text: String) {
@@ -347,25 +183,8 @@ final class AssistantResponseTextView: UIView {
         isLoading = false
         isResponseFinished = false
         errorLabel.text = nil
-        finishActiveThinkingSection(animated: false)
-        self.rawText += rawText
-        appendFinishedRawTextTimelineSegment(rawText)
+        timelineView.appendStoredRawText(rawText)
         updateVisibility()
-    }
-
-    private func finishRawTextTimelineSegments() {
-        for segment in timelineSegments where segment.kind == .rawText {
-            (segment.view as? StreamingContentView)?.finishStreamingContent()
-        }
-    }
-
-    private func makeResponseContentView() -> StreamingContentView {
-        let contentView = StreamingContentView()
-        contentView.onNeedsHeightUpdate = { [weak self] in
-            self?.updateContentViewHeights()
-        }
-        contentView.translatesAutoresizingMaskIntoConstraints = false
-        return contentView
     }
 
     private func configureCopyRawButton() {
@@ -418,13 +237,13 @@ final class AssistantResponseTextView: UIView {
             loadingIndicatorView.stopAnimating()
         }
 
-        timelineStackView.isHidden = timelineSegments.isEmpty
+        timelineView.isHidden = timelineView.isEmpty
         let shouldShowCopyButton = shouldShowCopyRawButton
         let shouldAnimateCopyButtonAppearance = copyButtonContainerView.isHidden && shouldShowCopyButton
         copyButtonContainerView.isHidden = !shouldShowCopyButton
         errorLabel.isHidden = (errorLabel.text ?? "").isEmpty
-        isHidden = !isLoading && timelineSegments.isEmpty && errorLabel.isHidden
-        updateContentViewHeights()
+        isHidden = !isLoading && timelineView.isEmpty && errorLabel.isHidden
+        invalidateResponseLayout()
 
         if shouldAnimateCopyButtonAppearance {
             animateCopyRawButtonAppearance()
@@ -432,15 +251,15 @@ final class AssistantResponseTextView: UIView {
     }
 
     private var shouldShowCopyRawButton: Bool {
-        isResponseFinished && !rawText.isEmpty
+        isResponseFinished && !timelineView.rawText.isEmpty
     }
 
     @objc private func copyRawText() {
-        guard !rawText.isEmpty else {
+        guard !timelineView.rawText.isEmpty else {
             return
         }
 
-        UIPasteboard.general.string = rawText
+        UIPasteboard.general.string = timelineView.rawText
         copyRawButton.showCopiedFeedback()
     }
 
@@ -476,54 +295,10 @@ final class AssistantResponseTextView: UIView {
         animator.startAnimation()
     }
 
-    private func updateContentViewHeightsIfNeeded() {
-        let width = contentMeasurementWidth
-        guard abs(width - lastMeasuredContentWidth) > 0.5 else {
-            return
-        }
-
-        updateContentViewHeights()
-    }
-
-    private func updateContentViewHeights() {
-        let width = contentMeasurementWidth
-        guard width > 0.0 else {
-            return
-        }
-
-        for segment in timelineSegments {
-            guard let constraint = segment.heightConstraint else {
-                continue
-            }
-            updateContentHeight(segment.view, constraint: constraint, width: width)
-        }
-        lastMeasuredContentWidth = width
+    private func invalidateResponseLayout() {
         invalidateIntrinsicContentSize()
-    }
-
-    private func updateContentHeight(
-        _ view: UIView,
-        constraint: NSLayoutConstraint,
-        width: CGFloat
-    ) {
-        guard !view.isHidden else {
-            constraint.constant = 0.0
-            return
-        }
-
-        let fittingSize = view.sizeThatFits(
-            CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
-        )
-        constraint.constant = ceil(fittingSize.height)
-    }
-
-    private var contentMeasurementWidth: CGFloat {
-        max(
-            stackView.bounds.width,
-            bounds.width - Metrics.horizontalInset * 2.0,
-            (superview?.bounds.width ?? 0.0) - Metrics.horizontalInset * 2.0,
-            1.0
-        )
+        setNeedsLayout()
+        onLayoutInvalidated?()
     }
 
     private final class CopyRawButton: UIButton {
@@ -633,5 +408,233 @@ final class AssistantResponseTextView: UIView {
             buttonConfiguration.contentInsets = .zero
             configuration = buttonConfiguration
         }
+    }
+}
+
+private final class AssistantResponseTimelineView: UIView {
+    private enum Metrics {
+        static let sectionSpacing: CGFloat = 8.0
+    }
+
+    private enum SegmentKind {
+        case thinking
+        case rawText
+    }
+
+    private struct Segment {
+        var kind: SegmentKind
+        var view: UIView
+    }
+
+    private let stackView = UIStackView()
+    private var segments: [Segment] = []
+    private weak var activeThinkingSection: ThinkingSectionView?
+    private var toolSectionsByCallID: [String: ThinkingSectionView] = [:]
+
+    var onLayoutInvalidated: (() -> Void)?
+
+    private(set) var rawText = ""
+
+    var isEmpty: Bool {
+        segments.isEmpty
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        configure()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configure()
+    }
+
+    func appendDisplayPart(_ part: ChatResponseDisplayPart) {
+        guard !part.isEmpty else {
+            return
+        }
+
+        switch part {
+        case let .reasoning(text):
+            appendReasoning(text)
+        case let .rawText(rawText):
+            appendRawText(rawText)
+        case let .toolEvent(event):
+            appendToolEvent(event)
+        }
+
+        invalidateTimelineLayout()
+    }
+
+    func appendStoredRawText(_ rawText: String) {
+        guard !rawText.isEmpty else {
+            return
+        }
+
+        finishActiveThinkingSection(animated: false)
+        self.rawText += rawText
+        appendRawTextSegment(rawText, asFinishedContent: true)
+        invalidateTimelineLayout()
+    }
+
+    func finishStreamingContent(animated: Bool) {
+        finishRawTextSegments()
+        finishAllThinkingSections(animated: animated)
+        invalidateTimelineLayout()
+    }
+
+    private func configure() {
+        backgroundColor = .clear
+        isOpaque = false
+        setContentCompressionResistancePriority(.required, for: .vertical)
+        setContentHuggingPriority(.required, for: .vertical)
+
+        stackView.axis = .vertical
+        stackView.alignment = .fill
+        stackView.spacing = Metrics.sectionSpacing
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stackView)
+
+        NSLayoutConstraint.activate([
+            stackView.topAnchor.constraint(equalTo: topAnchor),
+            stackView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stackView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stackView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+    }
+
+    private func appendReasoning(_ text: String) {
+        guard !text.isEmpty else {
+            return
+        }
+
+        ensureActiveThinkingSection().appendReasoning(text)
+    }
+
+    private func appendRawText(_ rawTextDelta: String) {
+        guard !rawTextDelta.isEmpty else {
+            return
+        }
+
+        // Visible assistant text is the boundary that finishes the current thinking run.
+        finishActiveThinkingSection(animated: true)
+        rawText += rawTextDelta
+        appendRawTextSegment(rawTextDelta, asFinishedContent: false)
+    }
+
+    private func appendToolEvent(_ event: ChatToolEvent) {
+        switch event {
+        case let .started(toolCall):
+            let section = ensureActiveThinkingSection()
+            toolSectionsByCallID[toolCall.id] = section
+            let invocation = section.appendToolInvocation(
+                callID: toolCall.id,
+                displayName: toolCall.presentationName,
+                state: .running
+            )
+            invocation.setDetail(toolCall.serializedArguments)
+        case let .completed(toolCall, result):
+            let section = toolSectionsByCallID[toolCall.id] ?? ensureActiveThinkingSection()
+            toolSectionsByCallID[toolCall.id] = section
+            let invocation = section.appendToolInvocation(
+                callID: toolCall.id,
+                displayName: toolCall.presentationName,
+                state: .completed
+            )
+            invocation.setDetail(result)
+        case let .failed(toolCall, message):
+            let section = toolSectionsByCallID[toolCall.id] ?? ensureActiveThinkingSection()
+            toolSectionsByCallID[toolCall.id] = section
+            let invocation = section.appendToolInvocation(
+                callID: toolCall.id,
+                displayName: toolCall.presentationName,
+                state: .failed(message: message)
+            )
+            invocation.setDetail(message)
+        }
+    }
+
+    private func ensureActiveThinkingSection() -> ThinkingSectionView {
+        if let activeThinkingSection {
+            return activeThinkingSection
+        }
+
+        let section = ThinkingSectionView()
+        section.onLayoutInvalidated = { [weak self] in
+            self?.invalidateTimelineLayout()
+        }
+        addSegment(Segment(kind: .thinking, view: section))
+        activeThinkingSection = section
+        return section
+    }
+
+    private func finishActiveThinkingSection(animated: Bool) {
+        activeThinkingSection?.setThinking(false, animated: animated)
+        activeThinkingSection = nil
+    }
+
+    private func finishAllThinkingSections(animated: Bool) {
+        for segment in segments where segment.kind == .thinking {
+            (segment.view as? ThinkingSectionView)?.setThinking(false, animated: animated)
+        }
+        activeThinkingSection = nil
+    }
+
+    private func appendRawTextSegment(
+        _ rawTextDelta: String,
+        asFinishedContent: Bool
+    ) {
+        guard !rawTextDelta.isEmpty else {
+            return
+        }
+
+        if let hostView = lastRawTextHostView {
+            hostView.appendContent(rawTextDelta)
+            return
+        }
+
+        let hostView = makeRawTextHostView()
+        addSegment(Segment(kind: .rawText, view: hostView))
+        if asFinishedContent {
+            hostView.setFinishedContent(rawTextDelta)
+        } else {
+            hostView.appendContent(rawTextDelta)
+        }
+    }
+
+    private var lastRawTextHostView: StreamingContentHostView? {
+        guard let lastSegment = segments.last,
+              lastSegment.kind == .rawText else {
+            return nil
+        }
+
+        return lastSegment.view as? StreamingContentHostView
+    }
+
+    private func finishRawTextSegments() {
+        for segment in segments where segment.kind == .rawText {
+            (segment.view as? StreamingContentHostView)?.finishStreamingContent()
+        }
+    }
+
+    private func makeRawTextHostView() -> StreamingContentHostView {
+        let hostView = StreamingContentHostView()
+        hostView.translatesAutoresizingMaskIntoConstraints = false
+        hostView.onLayoutInvalidated = { [weak self] in
+            self?.invalidateTimelineLayout()
+        }
+        return hostView
+    }
+
+    private func addSegment(_ segment: Segment) {
+        segment.view.translatesAutoresizingMaskIntoConstraints = false
+        stackView.addArrangedSubview(segment.view)
+        segments.append(segment)
+    }
+
+    private func invalidateTimelineLayout() {
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
+        onLayoutInvalidated?()
     }
 }

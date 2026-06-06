@@ -33,7 +33,7 @@ final class StreamingContentView: UIView {
         }
     }
 
-    var onNeedsHeightUpdate: (() -> Void)?
+    fileprivate var onContentHeightChanged: (() -> Void)?
     var content: String {
         bufferedContent
     }
@@ -187,7 +187,7 @@ final class StreamingContentView: UIView {
         contentHeight = newHeight
         invalidateIntrinsicContentSize()
         setNeedsLayout()
-        onNeedsHeightUpdate?()
+        onContentHeightChanged?()
     }
 
     private func loadRenderer() {
@@ -237,6 +237,144 @@ final class StreamingContentView: UIView {
             return "\"\""
         }
         return encoded
+    }
+}
+
+final class StreamingContentHostView: UIView {
+    private let contentView: StreamingContentView
+    private let contentInsets: UIEdgeInsets
+    private var contentHeightConstraint: NSLayoutConstraint!
+    private var lastMeasuredWidth: CGFloat = 0.0
+
+    var onLayoutInvalidated: (() -> Void)?
+
+    var content: String {
+        contentView.content
+    }
+
+    init(
+        style: StreamingContentView.Style = .response,
+        contentInsets: UIEdgeInsets = .zero
+    ) {
+        self.contentInsets = contentInsets
+        contentView = StreamingContentView(style: style)
+        super.init(frame: .zero)
+        configure()
+    }
+
+    required init?(coder: NSCoder) {
+        contentInsets = .zero
+        contentView = StreamingContentView()
+        super.init(coder: coder)
+        configure()
+    }
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(
+            width: UIView.noIntrinsicMetric,
+            height: ceil(contentHeightConstraint.constant + contentInsets.top + contentInsets.bottom)
+        )
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateContentHeightIfNeeded()
+    }
+
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        let fittingSize = contentView.sizeThatFits(
+            CGSize(
+                width: max(1.0, size.width - contentInsets.left - contentInsets.right),
+                height: CGFloat.greatestFiniteMagnitude
+            )
+        )
+        return CGSize(
+            width: size.width,
+            height: ceil(fittingSize.height + contentInsets.top + contentInsets.bottom)
+        )
+    }
+
+    override func systemLayoutSizeFitting(
+        _ targetSize: CGSize,
+        withHorizontalFittingPriority horizontalFittingPriority: UILayoutPriority,
+        verticalFittingPriority: UILayoutPriority
+    ) -> CGSize {
+        sizeThatFits(targetSize)
+    }
+
+    func appendContent(_ contentDelta: String) {
+        contentView.appendContent(contentDelta)
+        updateContentHeight()
+    }
+
+    func setFinishedContent(_ content: String) {
+        contentView.setFinishedContent(content)
+        updateContentHeight()
+    }
+
+    func finishStreamingContent() {
+        contentView.finishStreamingContent()
+        updateContentHeight()
+    }
+
+    private func configure() {
+        backgroundColor = .clear
+        isOpaque = false
+        setContentCompressionResistancePriority(.required, for: .vertical)
+        setContentHuggingPriority(.required, for: .vertical)
+
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.onContentHeightChanged = { [weak self] in
+            self?.updateContentHeight()
+        }
+        addSubview(contentView)
+
+        contentHeightConstraint = contentView.heightAnchor.constraint(equalToConstant: 0.0)
+        NSLayoutConstraint.activate([
+            contentView.topAnchor.constraint(equalTo: topAnchor, constant: contentInsets.top),
+            contentView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: contentInsets.left),
+            contentView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -contentInsets.right),
+            contentView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -contentInsets.bottom),
+            contentHeightConstraint
+        ])
+    }
+
+    private func updateContentHeightIfNeeded() {
+        let width = contentMeasurementWidth
+        guard abs(width - lastMeasuredWidth) > 0.5 else {
+            return
+        }
+
+        updateContentHeight()
+    }
+
+    private func updateContentHeight() {
+        let width = contentMeasurementWidth
+        guard width > 0.0 else {
+            return
+        }
+
+        let height = contentView.sizeThatFits(
+            CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+        ).height
+        let newHeight = ceil(height)
+        let didChangeHeight = abs(newHeight - contentHeightConstraint.constant) > 0.5
+        contentHeightConstraint.constant = newHeight
+        lastMeasuredWidth = width
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
+
+        if didChangeHeight {
+            onLayoutInvalidated?()
+        }
+    }
+
+    private var contentMeasurementWidth: CGFloat {
+        max(
+            bounds.width - contentInsets.left - contentInsets.right,
+            (superview?.bounds.width ?? 0.0) - contentInsets.left - contentInsets.right,
+            1.0
+        )
     }
 }
 
