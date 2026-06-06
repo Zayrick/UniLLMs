@@ -4274,13 +4274,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "These items are added to each request so replies can use them when relevant."
+            "value" : "Added to each request so replies can use them when relevant.\nNote: Dynamic items like time or memory can reduce prompt cache hits and increase API costs."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "发送消息时附上这些信息，让回答可按需参考。"
+            "value" : "这些内容会随每次请求附加，供回答按需参考。\n注意：时间、记忆等动态内容可能降低缓存命中率，增加调用成本。"
           }
         }
       }
@@ -4298,7 +4298,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "让回答知道现在的日期和时间。"
+            "value" : "提供当前日期和时间。"
           }
         }
       }
@@ -4334,7 +4334,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "让回答参考已保存的偏好和信息。"
+            "value" : "提供已保存的偏好和信息。"
           }
         }
       }
@@ -4370,7 +4370,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "自动带入"
+            "value" : "自动附加"
           }
         }
       }
@@ -4406,7 +4406,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "记忆带入设置"
+            "value" : "记忆设置"
           }
         }
       }
@@ -4460,7 +4460,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "创建可复用于对话的提示词。"
+            "value" : "创建后可在对话中复用。"
           }
         }
       }
