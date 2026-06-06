@@ -204,12 +204,10 @@ final class StreamingContentView: UIView {
 
     private var styleConfigurationJavaScriptObject: String {
         let font = UIFont.preferredFont(forTextStyle: style.textStyle)
-        let lineHeight = max(font.lineHeight, font.pointSize * 1.18)
         return """
         {
             color: \(Self.javaScriptStringLiteral(style.textColor.cssString(resolvedWith: traitCollection))),
-            fontSize: \(font.pointSize),
-            lineHeight: \(lineHeight)
+            fontSize: \(font.pointSize)
         }
         """
     }

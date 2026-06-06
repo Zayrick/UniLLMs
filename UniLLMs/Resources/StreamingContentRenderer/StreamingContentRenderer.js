@@ -109,7 +109,6 @@
         configure(configuration) {
             document.body.style.color = configuration.color;
             document.body.style.fontSize = `${configuration.fontSize}px`;
-            document.body.style.lineHeight = `${configuration.lineHeight}px`;
             requestHeightUpdate();
         },
 
