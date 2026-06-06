@@ -70,6 +70,29 @@
         }
     }
 
+    function attachDetailsEventListeners() {
+        const detailsElements = contentElement.querySelectorAll("details");
+        detailsElements.forEach((details) => {
+            if (!details.hasAttribute("data-toggle-listener")) {
+                details.setAttribute("data-toggle-listener", "true");
+                details.addEventListener("toggle", () => {
+                    // Request height update immediately
+                    requestHeightUpdate();
+
+                    // Request again after a frame to ensure DOM has settled
+                    requestAnimationFrame(() => {
+                        requestHeightUpdate();
+
+                        // One more time after a short delay to catch any animations
+                        setTimeout(() => {
+                            requestHeightUpdate();
+                        }, 50);
+                    });
+                });
+            }
+        });
+    }
+
     function renderMarkdown(content) {
         try {
             configureMarkedRenderer();
@@ -92,6 +115,9 @@
                     return !fromElement.isEqualNode(toElement);
                 }
             });
+
+            // Attach event listeners to details elements after rendering
+            attachDetailsEventListeners();
         } catch {
             renderPlainText(content);
         }
