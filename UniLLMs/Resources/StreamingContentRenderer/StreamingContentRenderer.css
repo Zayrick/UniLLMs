@@ -81,9 +81,19 @@ li {
 }
 
 blockquote {
-    padding-left: 0.8em;
-    border-left: 3px solid rgba(120, 120, 128, 0.35);
-    color: rgba(120, 120, 128, 0.95);
+    position: relative;
+    padding-left: calc(0.8em + 3px);
+}
+
+blockquote::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 3px;
+    border-radius: 1.5px;
+    background: rgba(120, 120, 128, 0.35);
 }
 
 code {
