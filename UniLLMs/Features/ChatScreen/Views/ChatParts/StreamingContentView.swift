@@ -207,7 +207,7 @@ final class StreamingContentView: UIView {
         return """
         {
             color: \(Self.javaScriptStringLiteral(style.textColor.cssString(resolvedWith: traitCollection))),
-            fontSize: \(font.pointSize)
+            fontSize: \(font.pointSize * 0.96)
         }
         """
     }
