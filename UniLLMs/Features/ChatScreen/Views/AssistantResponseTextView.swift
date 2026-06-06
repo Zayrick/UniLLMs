@@ -50,7 +50,7 @@ final class AssistantResponseTextView: UIView {
     private var isResponseFinished = false
     private var rawText = ""
     private var isLoading = false
-    private var lastMeasuredTextWidth: CGFloat = 0.0
+    private var lastMeasuredContentWidth: CGFloat = 0.0
     private weak var activeThinkingSection: ThinkingSectionView?
     private var toolSectionsByCallID: [String: ThinkingSectionView] = [:]
 
@@ -66,7 +66,7 @@ final class AssistantResponseTextView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        updateTextViewHeightsIfNeeded()
+        updateContentViewHeightsIfNeeded()
     }
 
     func appendDisplayPart(_ part: ChatResponseDisplayPart) {
@@ -292,24 +292,24 @@ final class AssistantResponseTextView: UIView {
 
         if let lastSegment = timelineSegments.last,
            lastSegment.kind == .rawText,
-           let textView = lastSegment.view as? StreamingPlainTextView {
-            textView.appendText(rawTextDelta)
+           let contentView = lastSegment.view as? StreamingContentView {
+            contentView.appendContent(rawTextDelta)
             return
         }
 
-        let textView = makeRawTextView()
-        timelineStackView.addArrangedSubview(textView)
+        let contentView = makeResponseContentView()
+        timelineStackView.addArrangedSubview(contentView)
 
-        let heightConstraint = textView.heightAnchor.constraint(equalToConstant: 0.0)
+        let heightConstraint = contentView.heightAnchor.constraint(equalToConstant: 0.0)
         heightConstraint.isActive = true
         timelineSegments.append(
             TimelineSegment(
                 kind: .rawText,
-                view: textView,
+                view: contentView,
                 heightConstraint: heightConstraint
             )
         )
-        textView.appendText(rawTextDelta)
+        contentView.appendContent(rawTextDelta)
     }
 
     private func appendFinishedRawTextTimelineSegment(_ rawText: String) {
@@ -317,19 +317,19 @@ final class AssistantResponseTextView: UIView {
             return
         }
 
-        let textView = makeRawTextView()
-        timelineStackView.addArrangedSubview(textView)
+        let contentView = makeResponseContentView()
+        timelineStackView.addArrangedSubview(contentView)
 
-        let heightConstraint = textView.heightAnchor.constraint(equalToConstant: 0.0)
+        let heightConstraint = contentView.heightAnchor.constraint(equalToConstant: 0.0)
         heightConstraint.isActive = true
         timelineSegments.append(
             TimelineSegment(
                 kind: .rawText,
-                view: textView,
+                view: contentView,
                 heightConstraint: heightConstraint
             )
         )
-        textView.setFinishedText(rawText)
+        contentView.setFinishedContent(rawText)
     }
 
     func appendStoredReasoning(_ text: String) {
@@ -355,17 +355,17 @@ final class AssistantResponseTextView: UIView {
 
     private func finishRawTextTimelineSegments() {
         for segment in timelineSegments where segment.kind == .rawText {
-            (segment.view as? StreamingPlainTextView)?.finishStreamingContent()
+            (segment.view as? StreamingContentView)?.finishStreamingContent()
         }
     }
 
-    private func makeRawTextView() -> StreamingPlainTextView {
-        let rawTextView = StreamingPlainTextView()
-        rawTextView.onNeedsHeightUpdate = { [weak self] in
-            self?.updateTextViewHeights()
+    private func makeResponseContentView() -> StreamingContentView {
+        let contentView = StreamingContentView()
+        contentView.onNeedsHeightUpdate = { [weak self] in
+            self?.updateContentViewHeights()
         }
-        rawTextView.translatesAutoresizingMaskIntoConstraints = false
-        return rawTextView
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        return contentView
     }
 
     private func configureCopyRawButton() {
@@ -424,7 +424,7 @@ final class AssistantResponseTextView: UIView {
         copyButtonContainerView.isHidden = !shouldShowCopyButton
         errorLabel.isHidden = (errorLabel.text ?? "").isEmpty
         isHidden = !isLoading && timelineSegments.isEmpty && errorLabel.isHidden
-        updateTextViewHeights()
+        updateContentViewHeights()
 
         if shouldAnimateCopyButtonAppearance {
             animateCopyRawButtonAppearance()
@@ -476,17 +476,17 @@ final class AssistantResponseTextView: UIView {
         animator.startAnimation()
     }
 
-    private func updateTextViewHeightsIfNeeded() {
-        let width = textMeasurementWidth
-        guard abs(width - lastMeasuredTextWidth) > 0.5 else {
+    private func updateContentViewHeightsIfNeeded() {
+        let width = contentMeasurementWidth
+        guard abs(width - lastMeasuredContentWidth) > 0.5 else {
             return
         }
 
-        updateTextViewHeights()
+        updateContentViewHeights()
     }
 
-    private func updateTextViewHeights() {
-        let width = textMeasurementWidth
+    private func updateContentViewHeights() {
+        let width = contentMeasurementWidth
         guard width > 0.0 else {
             return
         }
@@ -497,7 +497,7 @@ final class AssistantResponseTextView: UIView {
             }
             updateContentHeight(segment.view, constraint: constraint, width: width)
         }
-        lastMeasuredTextWidth = width
+        lastMeasuredContentWidth = width
         invalidateIntrinsicContentSize()
     }
 
@@ -517,7 +517,7 @@ final class AssistantResponseTextView: UIView {
         constraint.constant = ceil(fittingSize.height)
     }
 
-    private var textMeasurementWidth: CGFloat {
+    private var contentMeasurementWidth: CGFloat {
         max(
             stackView.bounds.width,
             bounds.width - Metrics.horizontalInset * 2.0,

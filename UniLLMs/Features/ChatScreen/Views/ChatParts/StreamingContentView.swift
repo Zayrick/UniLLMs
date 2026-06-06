@@ -1,22 +1,22 @@
 //
-//  StreamingPlainTextView.swift
+//  StreamingContentView.swift
 //  UniLLMs
 //
-//  Displays streamed assistant text in a WebView without parsing markup.
+//  Displays streamed assistant content in a WebView.
 //  Created by Codex on 2026/6/6.
 //
 
 import UIKit
 import WebKit
 
-final class StreamingPlainTextView: UIView {
+final class StreamingContentView: UIView {
     enum Style {
-        case rawText
+        case response
         case thinking
 
         var textStyle: UIFont.TextStyle {
             switch self {
-            case .rawText:
+            case .response:
                 return .body
             case .thinking:
                 return .callout
@@ -25,7 +25,7 @@ final class StreamingPlainTextView: UIView {
 
         var textColor: UIColor {
             switch self {
-            case .rawText:
+            case .response:
                 return .label
             case .thinking:
                 return .secondaryLabel
@@ -34,19 +34,19 @@ final class StreamingPlainTextView: UIView {
     }
 
     var onNeedsHeightUpdate: (() -> Void)?
-    var plainText: String {
-        bufferedText
+    var content: String {
+        bufferedContent
     }
 
     private let style: Style
     private let webView: WKWebView
-    private var bufferedText = ""
+    private var bufferedContent = ""
     private var isLoaded = false
     private var isRenderScheduled = false
     private var contentHeight: CGFloat = 0.0
     private var lastMeasuredWidth: CGFloat = 0.0
 
-    init(style: Style = .rawText) {
+    init(style: Style = .response) {
         self.style = style
         let userContentController = WKUserContentController()
         let configuration = WKWebViewConfiguration()
@@ -58,7 +58,7 @@ final class StreamingPlainTextView: UIView {
     }
 
     required init?(coder: NSCoder) {
-        style = .rawText
+        style = .response
         let userContentController = WKUserContentController()
         let configuration = WKWebViewConfiguration()
         configuration.userContentController = userContentController
@@ -93,17 +93,17 @@ final class StreamingPlainTextView: UIView {
         CGSize(width: size.width, height: contentHeight)
     }
 
-    func appendText(_ textDelta: String) {
-        guard !textDelta.isEmpty else {
+    func appendContent(_ contentDelta: String) {
+        guard !contentDelta.isEmpty else {
             return
         }
 
-        bufferedText += textDelta
+        bufferedContent += contentDelta
         scheduleRender()
     }
 
-    func setFinishedText(_ text: String) {
-        bufferedText = text
+    func setFinishedContent(_ content: String) {
+        bufferedContent = content
         renderNow()
     }
 
@@ -133,7 +133,7 @@ final class StreamingPlainTextView: UIView {
             webView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
 
-        webView.loadHTMLString(makeHTML(), baseURL: nil)
+        loadRenderer()
     }
 
     private func scheduleRender() {
@@ -154,7 +154,18 @@ final class StreamingPlainTextView: UIView {
 
         isRenderScheduled = false
         webView.evaluateJavaScript(
-            "window.setPlainTextContent(\(Self.javaScriptStringLiteral(bufferedText)));",
+            "window.streamingRenderer.setContent(\(Self.javaScriptStringLiteral(bufferedContent)));",
+            completionHandler: nil
+        )
+    }
+
+    private func applyCurrentStyle() {
+        guard isLoaded else {
+            return
+        }
+
+        webView.evaluateJavaScript(
+            "window.streamingRenderer.configure(\(styleConfigurationJavaScriptObject));",
             completionHandler: nil
         )
     }
@@ -164,7 +175,7 @@ final class StreamingPlainTextView: UIView {
             return
         }
 
-        webView.evaluateJavaScript("window.requestPlainTextHeightUpdate();", completionHandler: nil)
+        webView.evaluateJavaScript("window.streamingRenderer.requestHeightUpdate();", completionHandler: nil)
     }
 
     private func applyHeight(_ height: CGFloat) {
@@ -179,94 +190,45 @@ final class StreamingPlainTextView: UIView {
         onNeedsHeightUpdate?()
     }
 
-    private func makeHTML() -> String {
+    private func loadRenderer() {
+        guard let rendererURL = Self.rendererURL else {
+            assertionFailure("Missing StreamingContentRenderer.html")
+            return
+        }
+
+        webView.loadFileURL(
+            rendererURL,
+            allowingReadAccessTo: rendererURL.deletingLastPathComponent()
+        )
+    }
+
+    private var styleConfigurationJavaScriptObject: String {
         let font = UIFont.preferredFont(forTextStyle: style.textStyle)
         let lineHeight = max(font.lineHeight, font.pointSize * 1.18)
         return """
-        <!doctype html>
-        <html>
-        <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-        <style>
-        html, body {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            overflow: hidden;
-            background: transparent;
-            -webkit-text-size-adjust: 100%;
+        {
+            color: \(Self.javaScriptStringLiteral(style.textColor.cssString(resolvedWith: traitCollection))),
+            fontSize: \(font.pointSize),
+            lineHeight: \(lineHeight)
         }
-        body {
-            color: \(style.textColor.cssString(resolvedWith: traitCollection));
-            font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif;
-            font-size: \(font.pointSize)px;
-            line-height: \(lineHeight)px;
-        }
-        #content {
-            width: 100%;
-            white-space: pre-wrap;
-            overflow-wrap: anywhere;
-            word-break: break-word;
-            -webkit-user-select: text;
-            user-select: text;
-        }
-        </style>
-        </head>
-        <body>
-        <div id="content"></div>
-        <script>
-        (() => {
-            const content = document.getElementById("content");
-            const renderInterval = 1000 / 20;
-            let text = "";
-            let renderScheduled = false;
-            let heightScheduled = false;
-            let lastRenderTime = 0;
-
-            function postHeight() {
-                heightScheduled = false;
-                const height = Math.ceil(content.getBoundingClientRect().height);
-                window.webkit.messageHandlers.\(Self.heightMessageHandlerName).postMessage(height);
-            }
-
-            window.requestPlainTextHeightUpdate = function() {
-                if (heightScheduled) {
-                    return;
-                }
-                heightScheduled = true;
-                requestAnimationFrame(postHeight);
-            };
-
-            function renderText(timestamp) {
-                if (lastRenderTime > 0 && timestamp - lastRenderTime < renderInterval) {
-                    requestAnimationFrame(renderText);
-                    return;
-                }
-
-                renderScheduled = false;
-                lastRenderTime = timestamp;
-                if (content.textContent !== text) {
-                    content.textContent = text;
-                }
-                window.requestPlainTextHeightUpdate();
-            }
-
-            window.setPlainTextContent = function(nextText) {
-                text = nextText || "";
-                if (renderScheduled) {
-                    return;
-                }
-                renderScheduled = true;
-                requestAnimationFrame(renderText);
-            };
-
-            window.addEventListener("resize", window.requestPlainTextHeightUpdate);
-            window.requestPlainTextHeightUpdate();
-        })();
-        </script>
-        </body>
-        </html>
         """
+    }
+
+    private static var rendererURL: URL? {
+        let subdirectories = [
+            "StreamingContentRenderer",
+            "Resources/StreamingContentRenderer"
+        ]
+        for subdirectory in subdirectories {
+            if let url = Bundle.main.url(
+                forResource: "StreamingContentRenderer",
+                withExtension: "html",
+                subdirectory: subdirectory
+            ) {
+                return url
+            }
+        }
+        return Bundle.main.url(forResource: "StreamingContentRenderer", withExtension: "html")
     }
 
     private static let heightMessageHandlerName = "heightUpdate"
@@ -280,15 +242,16 @@ final class StreamingPlainTextView: UIView {
     }
 }
 
-extension StreamingPlainTextView: WKNavigationDelegate {
+extension StreamingContentView: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         isLoaded = true
+        applyCurrentStyle()
         renderNow()
         requestHeightUpdate()
     }
 }
 
-extension StreamingPlainTextView: WKScriptMessageHandler {
+extension StreamingContentView: WKScriptMessageHandler {
     func userContentController(
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage

@@ -200,19 +200,19 @@ final class ThinkingSectionView: UIView {
         }
 
         if let lastRow = itemRows.last,
-           let reasoningTextView = lastRow.hostedView as? ReasoningTextView {
-            reasoningTextView.append(text)
+           let reasoningContentView = lastRow.hostedView as? ReasoningContentView {
+            reasoningContentView.append(text)
             updateHeaderAfterTimelineChange()
             setNeedsConnectorLineUpdate()
             return
         }
 
-        let textView = makeReasoningTextView()
-        let row = makeRow(iconStyle: Self.reasoningIconStyle, hosted: textView)
+        let contentView = makeReasoningContentView()
+        let row = makeRow(iconStyle: Self.reasoningIconStyle, hosted: contentView)
         addRow(row)
         reasoningStepCount += 1
         updateHeaderAfterTimelineChange()
-        textView.append(text)
+        contentView.append(text)
     }
 
     /// Append a tool-call row. If a row for the same `callID` already exists, the
@@ -223,7 +223,7 @@ final class ThinkingSectionView: UIView {
         displayName: String,
         state: ToolInvocationView.State
     ) -> ToolInvocationView {
-        finishCurrentReasoningTextView()
+        finishCurrentReasoningContentView()
         recordToolInvocation(callID: callID)
 
         if let existingRow = toolRowsByCallID[callID],
@@ -259,7 +259,7 @@ final class ThinkingSectionView: UIView {
         }
         isThinking = thinking
         if !thinking {
-            finishReasoningTextViews()
+            finishReasoningContentViews()
         }
         if thinking {
             applyProcessingHeader()
@@ -485,12 +485,12 @@ final class ThinkingSectionView: UIView {
         return row
     }
 
-    private func makeReasoningTextView() -> ReasoningTextView {
-        let textView = ReasoningTextView()
-        textView.onNeedsHeightUpdate = { [weak self] in
+    private func makeReasoningContentView() -> ReasoningContentView {
+        let contentView = ReasoningContentView()
+        contentView.onNeedsHeightUpdate = { [weak self] in
             self?.setNeedsConnectorLineUpdate()
         }
-        return textView
+        return contentView
     }
 
     private static var reasoningIconStyle: TimelineIconStyle {
@@ -528,18 +528,18 @@ final class ThinkingSectionView: UIView {
         setNeedsConnectorLineUpdate()
     }
 
-    private func finishCurrentReasoningTextView() {
+    private func finishCurrentReasoningContentView() {
         guard let lastRow = itemRows.last,
-              let reasoningTextView = lastRow.hostedView as? ReasoningTextView else {
+              let reasoningContentView = lastRow.hostedView as? ReasoningContentView else {
             return
         }
 
-        reasoningTextView.finishStreaming()
+        reasoningContentView.finishStreaming()
     }
 
-    private func finishReasoningTextViews() {
+    private func finishReasoningContentViews() {
         for row in itemRows {
-            (row.hostedView as? ReasoningTextView)?.finishStreaming()
+            (row.hostedView as? ReasoningContentView)?.finishStreaming()
         }
     }
 
@@ -576,15 +576,15 @@ final class ThinkingSectionView: UIView {
         }
     }
 
-    // MARK: - Nested reasoning text view
+    // MARK: - Nested reasoning content view
 
-    private final class ReasoningTextView: UIView {
+    private final class ReasoningContentView: UIView {
         private enum Metrics {
             static let verticalInset: CGFloat = 6.0
         }
 
-        private let textView = StreamingPlainTextView(style: .thinking)
-        private var textHeightConstraint: NSLayoutConstraint?
+        private let contentView = StreamingContentView(style: .thinking)
+        private var contentHeightConstraint: NSLayoutConstraint?
         private var lastMeasuredWidth: CGFloat = 0.0
         var onNeedsHeightUpdate: (() -> Void)?
 
@@ -602,7 +602,7 @@ final class ThinkingSectionView: UIView {
             CGSize(
                 width: UIView.noIntrinsicMetric,
                 height: ceil(
-                    (textHeightConstraint?.constant ?? 0.0)
+                    (contentHeightConstraint?.constant ?? 0.0)
                         + Metrics.verticalInset * 2.0
                 )
             )
@@ -610,17 +610,17 @@ final class ThinkingSectionView: UIView {
 
         override func layoutSubviews() {
             super.layoutSubviews()
-            updateTextHeightIfNeeded()
+            updateContentHeightIfNeeded()
         }
 
         override func sizeThatFits(_ size: CGSize) -> CGSize {
             let width = max(1.0, size.width)
-            let textHeight = textView.sizeThatFits(
+            let contentHeight = contentView.sizeThatFits(
                 CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
             ).height
             return CGSize(
                 width: width,
-                height: ceil(textHeight + Metrics.verticalInset * 2.0)
+                height: ceil(contentHeight + Metrics.verticalInset * 2.0)
             )
         }
 
@@ -639,19 +639,19 @@ final class ThinkingSectionView: UIView {
             setContentCompressionResistancePriority(.required, for: .vertical)
             setContentHuggingPriority(.required, for: .vertical)
 
-            textView.translatesAutoresizingMaskIntoConstraints = false
-            textView.onNeedsHeightUpdate = { [weak self] in
-                self?.updateTextHeight()
+            contentView.translatesAutoresizingMaskIntoConstraints = false
+            contentView.onNeedsHeightUpdate = { [weak self] in
+                self?.updateContentHeight()
             }
-            addSubview(textView)
+            addSubview(contentView)
 
-            let heightConstraint = textView.heightAnchor.constraint(equalToConstant: 0.0)
-            textHeightConstraint = heightConstraint
+            let heightConstraint = contentView.heightAnchor.constraint(equalToConstant: 0.0)
+            contentHeightConstraint = heightConstraint
             NSLayoutConstraint.activate([
-                textView.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.verticalInset),
-                textView.leadingAnchor.constraint(equalTo: leadingAnchor),
-                textView.trailingAnchor.constraint(equalTo: trailingAnchor),
-                textView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Metrics.verticalInset),
+                contentView.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.verticalInset),
+                contentView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                contentView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                contentView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Metrics.verticalInset),
                 heightConstraint
             ])
         }
@@ -660,41 +660,41 @@ final class ThinkingSectionView: UIView {
             guard !string.isEmpty else {
                 return
             }
-            textView.appendText(string)
-            updateTextHeight()
+            contentView.appendContent(string)
+            updateContentHeight()
         }
 
         func finishStreaming() {
-            textView.finishStreamingContent()
-            updateTextHeight()
+            contentView.finishStreamingContent()
+            updateContentHeight()
         }
 
-        private func updateTextHeightIfNeeded() {
-            let width = textMeasurementWidth
+        private func updateContentHeightIfNeeded() {
+            let width = contentMeasurementWidth
             guard abs(width - lastMeasuredWidth) > 0.5 else {
                 return
             }
 
-            updateTextHeight()
+            updateContentHeight()
         }
 
-        private func updateTextHeight() {
-            let width = textMeasurementWidth
+        private func updateContentHeight() {
+            let width = contentMeasurementWidth
             guard width > 0.0 else {
                 return
             }
 
-            let fittingSize = textView.sizeThatFits(
+            let fittingSize = contentView.sizeThatFits(
                 CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
             )
-            textHeightConstraint?.constant = ceil(fittingSize.height)
+            contentHeightConstraint?.constant = ceil(fittingSize.height)
             lastMeasuredWidth = width
             invalidateIntrinsicContentSize()
             setNeedsLayout()
             onNeedsHeightUpdate?()
         }
 
-        private var textMeasurementWidth: CGFloat {
+        private var contentMeasurementWidth: CGFloat {
             max(bounds.width, superview?.bounds.width ?? 0.0, 1.0)
         }
     }
