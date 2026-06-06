@@ -247,6 +247,21 @@ extension StreamingContentView: WKNavigationDelegate {
         renderNow()
         requestHeightUpdate()
     }
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
+    ) {
+        guard navigationAction.navigationType == .linkActivated,
+              let url = navigationAction.request.url else {
+            decisionHandler(.allow)
+            return
+        }
+
+        UIApplication.shared.open(url, options: [:], completionHandler: nil)
+        decisionHandler(.cancel)
+    }
 }
 
 extension StreamingContentView: WKScriptMessageHandler {
