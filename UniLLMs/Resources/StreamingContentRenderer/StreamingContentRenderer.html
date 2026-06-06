@@ -2,33 +2,20 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<style>
-html,
-body {
-    margin: 0;
-    padding: 0;
-    width: 100%;
-    overflow: hidden;
-    background: transparent;
-    -webkit-text-size-adjust: 100%;
-}
-
-body {
-    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif;
-}
-
-#content {
-    width: 100%;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    word-break: break-word;
-    -webkit-user-select: text;
-    user-select: text;
-}
-</style>
+<link rel="stylesheet" href="StreamingContentRenderer.css">
 </head>
 <body>
 <div id="content"></div>
+<script type="module">
+import { marked } from "https://cdn.jsdelivr.net/npm/marked/lib/marked.esm.js";
+import DOMPurify from "https://cdn.jsdelivr.net/npm/dompurify@3.3.3/+esm";
+import morphdom from "https://cdn.jsdelivr.net/npm/morphdom@2.7.8/+esm";
+
+window.streamingRendererMarked = marked;
+window.streamingRendererDOMPurify = DOMPurify;
+window.streamingRendererMorphdom = morphdom;
+window.dispatchEvent(new Event("streamingRendererMarkedReady"));
+</script>
 <script src="StreamingContentRenderer.js"></script>
 </body>
 </html>

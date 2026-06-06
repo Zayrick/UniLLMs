@@ -1,15 +1,27 @@
 (() => {
     const contentElement = document.getElementById("content");
-    const renderInterval = 1000 / 20;
+    const sanitizeOptions = {
+        USE_PROFILES: { html: true },
+        ADD_TAGS: ["details", "summary", "kbd"],
+        FORBID_TAGS: ["style"],
+        FORBID_ATTR: ["style"],
+        ALLOW_DATA_ATTR: false,
+        ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel):)/i,
+        RETURN_DOM_FRAGMENT: true
+    };
+    const renderInterval = 1000 / 8;
     let pendingContent = "";
     let renderScheduled = false;
     let heightScheduled = false;
     let lastRenderTime = 0;
+    let lastRenderedContent = null;
+    let lastRenderUsedMarkdown = false;
 
     function postHeight() {
         heightScheduled = false;
         const height = Math.ceil(contentElement.getBoundingClientRect().height);
-        window.webkit.messageHandlers.heightUpdate.postMessage(height);
+        const heightUpdateHandler = window.webkit?.messageHandlers?.heightUpdate;
+        heightUpdateHandler?.postMessage(height);
     }
 
     function requestHeightUpdate() {
@@ -20,6 +32,55 @@
         requestAnimationFrame(postHeight);
     }
 
+    function hasMarkdownRenderer() {
+        return window.streamingRendererMarked
+            && typeof window.streamingRendererMarked.parse === "function"
+            && window.streamingRendererDOMPurify
+            && typeof window.streamingRendererDOMPurify.sanitize === "function"
+            && typeof window.streamingRendererMorphdom === "function";
+    }
+
+    function renderPlainText(content) {
+        contentElement.classList.add("plain-text");
+        if (contentElement.textContent !== content || contentElement.childNodes.length !== 1) {
+            contentElement.textContent = content;
+        }
+    }
+
+    function renderMarkdown(content) {
+        try {
+            const dirtyHTML = window.streamingRendererMarked.parse(content, { gfm: true });
+            const cleanFragment = window.streamingRendererDOMPurify.sanitize(
+                String(dirtyHTML),
+                sanitizeOptions
+            );
+            const targetElement = document.createElement("div");
+            targetElement.append(cleanFragment);
+
+            contentElement.classList.remove("plain-text");
+            window.streamingRendererMorphdom(contentElement, targetElement, {
+                childrenOnly: true,
+                onBeforeElUpdated(fromElement, toElement) {
+                    if (fromElement.tagName === "DETAILS") {
+                        toElement.open = fromElement.open;
+                    }
+
+                    return !fromElement.isEqualNode(toElement);
+                }
+            });
+        } catch {
+            renderPlainText(content);
+        }
+    }
+
+    function scheduleRender() {
+        if (renderScheduled) {
+            return;
+        }
+        renderScheduled = true;
+        requestAnimationFrame(renderContent);
+    }
+
     function renderContent(timestamp) {
         if (lastRenderTime > 0 && timestamp - lastRenderTime < renderInterval) {
             requestAnimationFrame(renderContent);
@@ -28,8 +89,18 @@
 
         renderScheduled = false;
         lastRenderTime = timestamp;
-        if (contentElement.textContent !== pendingContent) {
-            contentElement.textContent = pendingContent;
+        const shouldUseMarkdown = hasMarkdownRenderer();
+        if (
+            lastRenderedContent !== pendingContent
+            || lastRenderUsedMarkdown !== shouldUseMarkdown
+        ) {
+            if (shouldUseMarkdown) {
+                renderMarkdown(pendingContent);
+            } else {
+                renderPlainText(pendingContent);
+            }
+            lastRenderedContent = pendingContent;
+            lastRenderUsedMarkdown = shouldUseMarkdown;
         }
         requestHeightUpdate();
     }
@@ -44,16 +115,16 @@
 
         setContent(nextContent) {
             pendingContent = nextContent || "";
-            if (renderScheduled) {
-                return;
-            }
-            renderScheduled = true;
-            requestAnimationFrame(renderContent);
+            scheduleRender();
         },
 
         requestHeightUpdate
     };
 
+    window.addEventListener("streamingRendererMarkedReady", () => {
+        lastRenderedContent = null;
+        scheduleRender();
+    });
     window.addEventListener("resize", requestHeightUpdate);
     requestHeightUpdate();
 })();
