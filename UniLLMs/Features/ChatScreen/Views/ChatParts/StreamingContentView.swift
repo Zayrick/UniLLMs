@@ -19,7 +19,7 @@ final class StreamingContentView: UIView {
             case .response:
                 return .body
             case .thinking:
-                return .callout
+                return .footnote
             }
         }
 
