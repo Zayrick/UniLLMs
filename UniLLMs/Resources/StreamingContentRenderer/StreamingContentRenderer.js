@@ -18,7 +18,21 @@
     let lastRenderUsedMarkdown = false;
     let markedRendererConfigured = false;
 
-    const taskListRenderer = {
+    const markdownRenderer = {
+        code(token) {
+            const language = normalizedCodeLanguage(token.lang);
+            const languageClass = language ? ` class="language-${escapeAttribute(language)}"` : "";
+            const languageLabel = language || "text";
+            const code = token.escaped ? token.text : escapeHTML(token.text);
+
+            return `
+<div class="code-block">
+<div class="code-block-header"><span class="code-block-language">${escapeHTML(languageLabel)}</span></div>
+<pre><code${languageClass}>${code}</code></pre>
+</div>
+`;
+        },
+
         listitem(item) {
             const className = item.task ? ' class="task-list-item"' : '';
             return `<li${className}>${this.parser.parse(item.tokens)}</li>\n`;
@@ -29,6 +43,20 @@
             return `<span class="task-list-marker" aria-hidden="true">${marker}</span> `;
         }
     };
+
+    function normalizedCodeLanguage(language) {
+        const languageName = String(language || "").trim().split(/\s+/)[0] || "";
+        return languageName.replace(/^language-/i, "");
+    }
+
+    const htmlEscapeMap = { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" };
+    function escapeHTML(value) {
+        return String(value).replace(/[&<>"']/g, (char) => htmlEscapeMap[char]);
+    }
+
+    function escapeAttribute(value) {
+        return escapeHTML(value).replace(/[^A-Za-z0-9_+.#-]/g, "-");
+    }
 
     function postHeight() {
         heightScheduled = false;
@@ -46,12 +74,10 @@
     }
 
     function hasMarkdownRenderer() {
-        return window.streamingRendererMarked
-            && typeof window.streamingRendererMarked.parse === "function"
-            && typeof window.streamingRendererMarked.use === "function"
-            && window.streamingRendererDOMPurify
-            && typeof window.streamingRendererDOMPurify.sanitize === "function"
-            && typeof window.streamingRendererMorphdom === "function";
+        return window.streamingRendererMarked?.parse
+            && window.streamingRendererMarked?.use
+            && window.streamingRendererDOMPurify?.sanitize
+            && window.streamingRendererMorphdom;
     }
 
     function configureMarkedRenderer() {
@@ -59,7 +85,7 @@
             return;
         }
 
-        window.streamingRendererMarked.use({ renderer: taskListRenderer });
+        window.streamingRendererMarked.use({ renderer: markdownRenderer });
         markedRendererConfigured = true;
     }
 
@@ -71,25 +97,12 @@
     }
 
     function attachDetailsEventListeners() {
-        const detailsElements = contentElement.querySelectorAll("details");
-        detailsElements.forEach((details) => {
-            if (!details.hasAttribute("data-toggle-listener")) {
-                details.setAttribute("data-toggle-listener", "true");
-                details.addEventListener("toggle", () => {
-                    // Request height update immediately
-                    requestHeightUpdate();
-
-                    // Request again after a frame to ensure DOM has settled
-                    requestAnimationFrame(() => {
-                        requestHeightUpdate();
-
-                        // One more time after a short delay to catch any animations
-                        setTimeout(() => {
-                            requestHeightUpdate();
-                        }, 50);
-                    });
-                });
-            }
+        contentElement.querySelectorAll("details:not([data-toggle-listener])").forEach((details) => {
+            details.setAttribute("data-toggle-listener", "true");
+            details.addEventListener("toggle", () => {
+                requestHeightUpdate();
+                requestAnimationFrame(requestHeightUpdate);
+            });
         });
     }
 
@@ -140,15 +153,10 @@
         renderScheduled = false;
         lastRenderTime = timestamp;
         const shouldUseMarkdown = hasMarkdownRenderer();
-        if (
-            lastRenderedContent !== pendingContent
-            || lastRenderUsedMarkdown !== shouldUseMarkdown
-        ) {
-            if (shouldUseMarkdown) {
-                renderMarkdown(pendingContent);
-            } else {
-                renderPlainText(pendingContent);
-            }
+        const contentChanged = lastRenderedContent !== pendingContent || lastRenderUsedMarkdown !== shouldUseMarkdown;
+
+        if (contentChanged) {
+            shouldUseMarkdown ? renderMarkdown(pendingContent) : renderPlainText(pendingContent);
             lastRenderedContent = pendingContent;
             lastRenderUsedMarkdown = shouldUseMarkdown;
         }

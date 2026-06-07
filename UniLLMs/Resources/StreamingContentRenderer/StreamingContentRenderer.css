@@ -47,6 +47,7 @@ ul,
 ol,
 blockquote,
 pre,
+div.code-block,
 table {
     margin: 0 0 0.75em;
 }
@@ -136,6 +137,36 @@ pre {
 
 pre code {
     padding: 0;
+    background: transparent;
+}
+
+.code-block {
+    border-radius: 8px;
+    background: rgba(120, 120, 128, 0.14);
+    overflow: hidden;
+}
+
+.code-block-header {
+    display: flex;
+    align-items: center;
+    min-height: 1.45em;
+    padding: 0.12em 0.8em;
+    border-bottom: 0.8px solid rgba(120, 120, 128, 0.16);
+    background: rgba(120, 120, 128, 0.18);
+}
+
+.code-block-language {
+    color: currentColor;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-size: 0.72em;
+    font-weight: 600;
+    line-height: 1.15;
+    opacity: 0.72;
+}
+
+.code-block pre {
+    margin: 0;
+    border-radius: 0;
     background: transparent;
 }
 
