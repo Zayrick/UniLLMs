@@ -106,6 +106,19 @@
         });
     }
 
+    function highlightCodeBlocks() {
+        if (!window.streamingRendererHLJS?.highlightElement) {
+            return;
+        }
+
+        contentElement.querySelectorAll("pre code").forEach((codeElement) => {
+            try {
+                window.streamingRendererHLJS.highlightElement(codeElement);
+            } catch {
+            }
+        });
+    }
+
     function renderMarkdown(content) {
         try {
             configureMarkedRenderer();
@@ -130,6 +143,7 @@
             });
 
             // Attach event listeners to details elements after rendering
+            highlightCodeBlocks();
             attachDetailsEventListeners();
         } catch {
             renderPlainText(content);

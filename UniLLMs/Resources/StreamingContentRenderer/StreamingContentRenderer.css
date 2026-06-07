@@ -170,6 +170,12 @@ pre code {
     background: transparent;
 }
 
+.code-block .hljs {
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+
 a {
     color: var(--streaming-link-color);
 }
