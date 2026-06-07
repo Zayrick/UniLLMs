@@ -48,6 +48,7 @@ ol,
 blockquote,
 pre,
 div.code-block,
+div.math-block,
 table {
     margin: 0 0 0.75em;
 }
@@ -207,4 +208,15 @@ tbody tr:not(:last-child) td,
 table > tr:not(:last-child) th,
 table > tr:not(:last-child) td {
     border-bottom: 0.8px solid rgba(120, 120, 128, 0.15);
+}
+
+mjx-container {
+    max-width: 100%;
+    color: var(--streaming-text-color);
+}
+
+mjx-container[display="true"] {
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.1em 0;
 }

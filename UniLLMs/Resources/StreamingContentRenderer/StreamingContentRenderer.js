@@ -17,6 +17,7 @@
     let lastRenderedContent = null;
     let lastRenderUsedMarkdown = false;
     let markedRendererConfigured = false;
+    let mathTokenIndex = 0;
 
     const markdownRenderer = {
         code(token) {
@@ -44,6 +45,40 @@
         }
     };
 
+    const displayMathExtension = {
+        name: "displayMath",
+        level: "block",
+        start(src) {
+            return firstIndexOfAny(src, ["$$", "\\["]);
+        },
+        tokenizer(src) {
+            const match = src.match(/^(?: {0,3})\$\$[ \t]*\n([\s\S]+?)\n(?: {0,3})\$\$[ \t]*(?:\n+|$)/)
+                || src.match(/^(?: {0,3})\$\$([^\n]+?)\$\$[ \t]*(?:\n+|$)/)
+                || src.match(/^(?: {0,3})\\\[[ \t]*\n([\s\S]+?)\n(?: {0,3})\\\][ \t]*(?:\n+|$)/)
+                || src.match(/^(?: {0,3})\\\[([^\n]+?)\\\][ \t]*(?:\n+|$)/);
+            return mathToken("displayMath", match);
+        },
+        renderer(token) {
+            return mathElementHTML("div", "math-block", token.text, "\\[", "\\]");
+        }
+    };
+
+    const inlineMathExtension = {
+        name: "inlineMath",
+        level: "inline",
+        start(src) {
+            return firstIndexOfAny(src, ["$", "\\("]);
+        },
+        tokenizer(src) {
+            const match = src.match(/^\$(?!\$)((?:\\.|[^\n\\$])+?)\$(?!\$)/)
+                || src.match(/^\\\(((?:\\.|[\s\S])+?)\\\)/);
+            return mathToken("inlineMath", match);
+        },
+        renderer(token) {
+            return mathElementHTML("span", "math-inline", token.text, "\\(", "\\)");
+        }
+    };
+
     function normalizedCodeLanguage(language) {
         const languageName = String(language || "").trim().split(/\s+/)[0] || "";
         return languageName.replace(/^language-/i, "");
@@ -56,6 +91,41 @@
 
     function escapeAttribute(value) {
         return escapeHTML(value).replace(/[^A-Za-z0-9_+.#-]/g, "-");
+    }
+
+    function firstIndexOfAny(source, values) {
+        const indexes = values
+            .map((value) => source.indexOf(value))
+            .filter((index) => index >= 0);
+        return indexes.length ? Math.min(...indexes) : undefined;
+    }
+
+    function mathToken(type, match) {
+        if (!match) {
+            return undefined;
+        }
+
+        return {
+            type,
+            raw: match[0],
+            text: match[1].trim()
+        };
+    }
+
+    function mathElementHTML(tagName, className, source, openDelimiter, closeDelimiter) {
+        mathTokenIndex += 1;
+        const id = `math-${mathTokenIndex}-${hashString(source)}`;
+        const escapedSource = escapeHTML(source);
+        return `<${tagName} id="${id}" class="${className} math-pending">${openDelimiter}${escapedSource}${closeDelimiter}</${tagName}>`;
+    }
+
+    function hashString(value) {
+        let hash = 5381;
+        const string = String(value);
+        for (let index = 0; index < string.length; index += 1) {
+            hash = ((hash << 5) + hash) ^ string.charCodeAt(index);
+        }
+        return (hash >>> 0).toString(36);
     }
 
     function postHeight() {
@@ -85,13 +155,17 @@
             return;
         }
 
-        window.streamingRendererMarked.use({ renderer: markdownRenderer });
+        window.streamingRendererMarked.use({
+            renderer: markdownRenderer,
+            extensions: [displayMathExtension, inlineMathExtension]
+        });
         markedRendererConfigured = true;
     }
 
     function renderPlainText(content) {
         contentElement.classList.add("plain-text");
         if (contentElement.textContent !== content || contentElement.childNodes.length !== 1) {
+            clearMathTypesetting(contentElement);
             contentElement.textContent = content;
         }
     }
@@ -119,9 +193,42 @@
         });
     }
 
+    function clearMathTypesetting(element) {
+        window.MathJax?.typesetClear?.([element]);
+    }
+
+    function typesetMath() {
+        if (!window.MathJax?.typesetPromise) {
+            return;
+        }
+
+        const mathElements = Array.from(contentElement.querySelectorAll(".math-pending"));
+        if (!mathElements.length) {
+            return;
+        }
+
+        const expectedIDs = new Map(mathElements.map((element) => [element, element.id]));
+        window.MathJax.typesetPromise(mathElements)
+            .then(() => {
+                mathElements.forEach((element) => {
+                    if (!element.isConnected || element.id !== expectedIDs.get(element)) {
+                        return;
+                    }
+
+                    element.classList.remove("math-pending");
+                    element.classList.add("math-rendered");
+                });
+                requestHeightUpdate();
+            })
+            .catch(() => {
+                requestHeightUpdate();
+            });
+    }
+
     function renderMarkdown(content) {
         try {
             configureMarkedRenderer();
+            mathTokenIndex = 0;
             const dirtyHTML = window.streamingRendererMarked.parse(content, { gfm: true });
             const cleanFragment = window.streamingRendererDOMPurify.sanitize(
                 String(dirtyHTML),
@@ -134,20 +241,48 @@
             window.streamingRendererMorphdom(contentElement, targetElement, {
                 childrenOnly: true,
                 onBeforeElUpdated(fromElement, toElement) {
+                    if (isSameMathElement(fromElement, toElement)) {
+                        return false;
+                    }
+
+                    if (isMathElement(fromElement)) {
+                        clearMathTypesetting(fromElement);
+                    }
+
                     if (fromElement.tagName === "DETAILS") {
                         toElement.open = fromElement.open;
                     }
 
                     return !fromElement.isEqualNode(toElement);
+                },
+                onBeforeNodeDiscarded(node) {
+                    if (node.nodeType === Node.ELEMENT_NODE) {
+                        clearMathTypesetting(node);
+                    }
+
+                    return true;
                 }
             });
 
             // Attach event listeners to details elements after rendering
             highlightCodeBlocks();
             attachDetailsEventListeners();
+            typesetMath();
         } catch {
             renderPlainText(content);
         }
+    }
+
+    function isMathElement(element) {
+        return element.classList.contains("math-block")
+            || element.classList.contains("math-inline");
+    }
+
+    function isSameMathElement(fromElement, toElement) {
+        return isMathElement(fromElement)
+            && isMathElement(toElement)
+            && fromElement.id === toElement.id
+            && fromElement.id.length > 0;
     }
 
     function scheduleRender() {
@@ -198,6 +333,9 @@
     window.addEventListener("streamingRendererMarkedReady", () => {
         lastRenderedContent = null;
         scheduleRender();
+    });
+    window.addEventListener("streamingRendererMathJaxReady", () => {
+        typesetMath();
     });
     window.addEventListener("resize", requestHeightUpdate);
     requestHeightUpdate();

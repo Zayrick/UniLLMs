@@ -5,6 +5,26 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/styles/github.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/styles/github-dark.min.css" media="(prefers-color-scheme: dark)">
 <link rel="stylesheet" href="StreamingContentRenderer.css">
+<script>
+window.MathJax = {
+    loader: { load: ["[tex]/mhchem", "ui/safe"] },
+    tex: {
+        packages: { "[+]": ["mhchem"] }
+    },
+    svg: {
+        fontCache: "global"
+    },
+    startup: {
+        typeset: false,
+        pageReady() {
+            return MathJax.startup.defaultPageReady().then(() => {
+                window.dispatchEvent(new Event("streamingRendererMathJaxReady"));
+            });
+        }
+    }
+};
+</script>
+<script defer src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-svg.js"></script>
 </head>
 <body>
 <div id="content"></div>
