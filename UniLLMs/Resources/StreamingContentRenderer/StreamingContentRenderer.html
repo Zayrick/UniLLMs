@@ -2,8 +2,10 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/styles/github.min.css">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/styles/github-dark.min.css" media="(prefers-color-scheme: dark)">
+<!-- Original CDN: https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/styles/github.min.css -->
+<link rel="stylesheet" href="StreamingContentRendererVendor.bundle/highlight.js/styles/github.min.css">
+<!-- Original CDN: https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/styles/github-dark.min.css -->
+<link rel="stylesheet" href="StreamingContentRendererVendor.bundle/highlight.js/styles/github-dark.min.css" media="(prefers-color-scheme: dark)">
 <link rel="stylesheet" href="StreamingContentRenderer.css">
 <script>
 window.MathJax = {
@@ -28,16 +30,19 @@ window.MathJax = {
 </head>
 <body>
 <div id="content"></div>
-<script type="module">
-import { marked } from "https://cdn.jsdelivr.net/npm/marked@18.0.5/+esm";
-import DOMPurify from "https://cdn.jsdelivr.net/npm/dompurify@3.3.3/+esm";
-import morphdom from "https://cdn.jsdelivr.net/npm/morphdom@2.7.8/+esm";
-import hljs from "https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/+esm";
-
-window.streamingRendererMarked = marked;
-window.streamingRendererDOMPurify = DOMPurify;
-window.streamingRendererMorphdom = morphdom;
-window.streamingRendererHLJS = hljs;
+<!-- Original CDN: https://cdn.jsdelivr.net/npm/marked@18.0.5/+esm -->
+<script src="StreamingContentRendererVendor.bundle/marked/marked.umd.js"></script>
+<!-- Original CDN: https://cdn.jsdelivr.net/npm/dompurify@3.3.3/+esm -->
+<script src="StreamingContentRendererVendor.bundle/dompurify/purify.min.js"></script>
+<!-- Original CDN: https://cdn.jsdelivr.net/npm/morphdom@2.7.8/+esm -->
+<script src="StreamingContentRendererVendor.bundle/morphdom/morphdom-umd.min.js"></script>
+<!-- Original CDN: https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/+esm -->
+<script src="StreamingContentRendererVendor.bundle/highlight.js/highlight.min.js"></script>
+<script>
+window.streamingRendererMarked = window.marked;
+window.streamingRendererDOMPurify = window.DOMPurify;
+window.streamingRendererMorphdom = window.morphdom;
+window.streamingRendererHLJS = window.hljs;
 window.dispatchEvent(new Event("streamingRendererMarkedReady"));
 </script>
 <script src="StreamingContentRenderer.js"></script>
