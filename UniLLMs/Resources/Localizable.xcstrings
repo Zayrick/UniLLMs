@@ -3187,6 +3187,42 @@
         }
       }
     },
+    "providers.fake.model.markdown_math_static" : {
+      "comment" : "Fake provider static model name for the bundled MarkdownMath1.md formula fixture.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Markdown Math Static"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Markdown 公式静态回复"
+          }
+        }
+      }
+    },
+    "providers.fake.model.markdown_math_stream" : {
+      "comment" : "Fake provider streaming model name for the bundled MarkdownMath1.md formula fixture.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Markdown Math Stream"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Markdown 公式流式回复"
+          }
+        }
+      }
+    },
     "providers.fake.model.static" : {
       "comment" : "Fake provider static response model name.",
       "extractionState" : "manual",

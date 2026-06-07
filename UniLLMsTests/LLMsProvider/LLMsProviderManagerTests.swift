@@ -88,6 +88,14 @@ final class LLMsProviderManagerTests: LLMsProviderStoreTestCase {
                 LLMProviderModel(
                     id: FakeLLMsProvider.ModelID.markdownStream1,
                     name: "Markdown流式回复1"
+                ),
+                LLMProviderModel(
+                    id: FakeLLMsProvider.ModelID.markdownMathStatic,
+                    name: "Markdown Math Static"
+                ),
+                LLMProviderModel(
+                    id: FakeLLMsProvider.ModelID.markdownMathStream,
+                    name: "Markdown Math Stream"
                 )
             ]
         )

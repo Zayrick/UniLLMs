@@ -554,6 +554,8 @@ The fixture ends with trailing punctuation, a final inline code span `done`, and
         static let markdownStatic = "markdown-static"
         static let markdownStream = "markdown-stream"
         static let markdownStream1 = "markdown-stream-1"
+        static let markdownMathStatic = "markdown-math-static"
+        static let markdownMathStream = "markdown-math-stream"
     }
 
     private let staticResponseDelayNanoseconds: UInt64
@@ -609,6 +611,14 @@ The fixture ends with trailing punctuation, a final inline code span `done`, and
             LLMsProviderModel(
                 id: ModelID.markdownStream1,
                 name: String(localized: .providersFakeModelMarkdownStream1)
+            ),
+            LLMsProviderModel(
+                id: ModelID.markdownMathStatic,
+                name: String(localized: .providersFakeModelMarkdownMathStatic)
+            ),
+            LLMsProviderModel(
+                id: ModelID.markdownMathStream,
+                name: String(localized: .providersFakeModelMarkdownMathStream)
             )
         ]
     }
@@ -641,10 +651,19 @@ The fixture ends with trailing punctuation, a final inline code span `done`, and
                     case ModelID.markdownStream1:
                         try await Task.sleep(nanoseconds: streamInitialDelayNanoseconds)
                         try await streamResponseRandomMarkdownChunks(
-                            try String(
-                                contentsOf: Bundle.main.url(forResource: "MarkdownStream1", withExtension: "md")!,
-                                encoding: .utf8
-                            ),
+                            try bundledMarkdown(named: "MarkdownStream1"),
+                            into: continuation
+                        )
+                    case ModelID.markdownMathStatic:
+                        try await Task.sleep(nanoseconds: staticResponseDelayNanoseconds)
+                        try Task.checkCancellation()
+                        continuation.yield(
+                            ChatResponseDelta(content: try bundledMarkdown(named: "MarkdownMath1"))
+                        )
+                    case ModelID.markdownMathStream:
+                        try await Task.sleep(nanoseconds: streamInitialDelayNanoseconds)
+                        try await streamResponseRandomMarkdownChunks(
+                            try bundledMarkdown(named: "MarkdownMath1"),
                             into: continuation
                         )
                     default:
@@ -663,6 +682,13 @@ The fixture ends with trailing punctuation, a final inline code span `done`, and
                 task.cancel()
             }
         }
+    }
+
+    private func bundledMarkdown(named resourceName: String) throws -> String {
+        try String(
+            contentsOf: Bundle.main.url(forResource: resourceName, withExtension: "md")!,
+            encoding: .utf8
+        )
     }
 
     private func streamResponseCharacters(

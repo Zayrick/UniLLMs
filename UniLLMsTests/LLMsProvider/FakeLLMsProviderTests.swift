@@ -130,4 +130,60 @@ final class FakeLLMsProviderTests: XCTestCase {
         XCTAssertGreaterThan(deltas.count, 3)
         XCTAssertEqual(streamedContent, markdownStream1)
     }
+
+    func testFakeMarkdownMathStaticModelReturnsSingleMarkdownMathFixture() async throws {
+        let markdownMath1 = try String(
+            contentsOf: Bundle.main.url(forResource: "MarkdownMath1", withExtension: "md")!,
+            encoding: .utf8
+        )
+        let provider = FakeLLMsProvider(staticResponseDelayNanoseconds: 0)
+        var deltas: [ChatResponseDelta] = []
+
+        for try await delta in provider.streamChat(
+            request: ChatRequest(
+                modelID: FakeLLMsProvider.ModelID.markdownMathStatic,
+                messages: [],
+                context: ChatContext()
+            ),
+            configuration: LLMsProviderConfiguration()
+        ) {
+            deltas.append(delta)
+        }
+
+        XCTAssertEqual(deltas.count, 1)
+        XCTAssertEqual(deltas[0].content, markdownMath1)
+        XCTAssertTrue(deltas[0].content.contains("# Markdown Math Rendering Torture Fixture"))
+        XCTAssertTrue(deltas[0].content.contains("\\ce{N2(g) + 3 H2(g)"))
+        XCTAssertTrue(deltas[0].content.contains("\\begin{aligned}"))
+    }
+
+    func testFakeMarkdownMathStreamModelYieldsMarkdownMathFixtureInRandomSizedCharacterChunks() async throws {
+        let markdownMath1 = try String(
+            contentsOf: Bundle.main.url(forResource: "MarkdownMath1", withExtension: "md")!,
+            encoding: .utf8
+        )
+        let provider = FakeLLMsProvider(
+            streamInitialDelayNanoseconds: 0,
+            markdownStreamChunkDelayRangeNanoseconds: 0...0
+        )
+        var deltas: [ChatResponseDelta] = []
+        var streamedContent = ""
+
+        for try await delta in provider.streamChat(
+            request: ChatRequest(
+                modelID: FakeLLMsProvider.ModelID.markdownMathStream,
+                messages: [],
+                context: ChatContext()
+            ),
+            configuration: LLMsProviderConfiguration()
+        ) {
+            deltas.append(delta)
+            XCTAssertGreaterThanOrEqual(delta.content.count, 1)
+            XCTAssertLessThanOrEqual(delta.content.count, 6)
+            streamedContent += delta.content
+        }
+
+        XCTAssertGreaterThan(deltas.count, 10)
+        XCTAssertEqual(streamedContent, markdownMath1)
+    }
 }
