@@ -588,7 +588,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         let hasContent = hasText || !pendingAttachments.isEmpty
         let shouldShowStopControl = isStreamingResponse
         let shouldShowSendControl = hasContent && !shouldShowStopControl
-        let shouldShowWaveformControl = !shouldShowSendControl
+        let shouldShowWaveformControl = shouldShowStopControl
         let stateChanged = shouldShowSendControl != isShowingSendControl
             || shouldShowStopControl != isShowingStopControl
         isShowingSendControl = shouldShowSendControl
