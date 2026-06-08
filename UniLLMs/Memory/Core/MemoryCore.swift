@@ -62,7 +62,7 @@ nonisolated struct MemoryCandidate: Codable, Equatable, Identifiable {
     }
 }
 
-nonisolated enum MemoryInjectionFilter: String, Codable, CaseIterable, Equatable {
+nonisolated enum MemoryInjectionFilter: String, Codable, CaseIterable, Equatable, Hashable {
     case smart
     case all
     case last24Hours

@@ -5,381 +5,360 @@
 //  Shows automatic context and saved prompt settings.
 //
 
+import Observation
+import SwiftUI
 import UIKit
 
-final class SystemPromptSettingsViewController: UITableViewController {
-    private enum Section: Equatable {
-        case automaticContext
-        case memoryConfiguration
-        case customPrompts
-
-        static func visible(memoryEnabled: Bool) -> [Section] {
-            memoryEnabled
-                ? [.automaticContext, .memoryConfiguration, .customPrompts]
-                : [.automaticContext, .customPrompts]
-        }
-
-        var headerTitle: String? {
-            switch self {
-            case .automaticContext:
-                return String(localized: "system_prompts.settings.section.automatic_context")
-            case .memoryConfiguration:
-                return String(localized: "system_prompts.settings.section.memory_context")
-            case .customPrompts:
-                return String(localized: "system_prompts.settings.section.custom_prompts")
-            }
-        }
-
-        var footerTitle: String? {
-            switch self {
-            case .automaticContext:
-                return String(localized: "system_prompts.settings.footer.automatic_context")
-            case .memoryConfiguration:
-                return nil
-            case .customPrompts:
-                return nil
-            }
-        }
-    }
-
-    private enum AutomaticContextRow: Int, CaseIterable {
-        case currentDate
-        case memory
-    }
-
-    private enum MemoryConfigurationRow: Int, CaseIterable {
-        case filter
-        case maximumMemories
-    }
-
-    private enum ReuseIdentifier {
-        static let automaticContextCell = "SystemPromptAutomaticContextCell"
-        static let memoryConfigurationCell = "SystemPromptMemoryConfigurationCell"
-        static let customPromptCell = "SystemPromptCustomPromptCell"
-    }
-
-    private let dependencies: AppDependencyContainer
-    private var systemPromptInjectionSettings = SystemPromptInjectionSettings()
-    private var memoryInjectionSettings = MemoryInjectionSettings()
-    private var sections = Section.visible(memoryEnabled: MemoryInjectionSettings().isEnabled)
-    private var promptCount = 0
-    private var storeObservations: [NSObjectProtocol] = []
+final class SystemPromptSettingsViewController: UIHostingController<SystemPromptSettingsForm> {
+    private let model: SystemPromptSettingsModel
+    private let router: SystemPromptSettingsRouter
 
     init(dependencies: AppDependencyContainer = AppEnvironment.shared.dependencies) {
-        self.dependencies = dependencies
-        super.init(style: .insetGrouped)
+        let model = SystemPromptSettingsModel(dependencies: dependencies)
+        let router = SystemPromptSettingsRouter(dependencies: dependencies)
+        self.model = model
+        self.router = router
+        super.init(rootView: SystemPromptSettingsForm(model: model, router: router))
+        router.hostViewController = self
     }
 
+    @MainActor
     required init?(coder: NSCoder) {
-        dependencies = AppEnvironment.shared.dependencies
-        super.init(coder: coder)
-    }
-
-    deinit {
-        storeObservations.forEach {
-            NotificationCenter.default.removeObserver($0)
-        }
-    }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-
-        title = String(localized: .settingsRowSystemPromptsTitle)
-        installStoreObservers()
-        reloadContent()
+        let dependencies = AppEnvironment.shared.dependencies
+        let model = SystemPromptSettingsModel(dependencies: dependencies)
+        let router = SystemPromptSettingsRouter(dependencies: dependencies)
+        self.model = model
+        self.router = router
+        super.init(coder: coder, rootView: SystemPromptSettingsForm(model: model, router: router))
+        router.hostViewController = self
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        model.refreshContent()
+    }
+}
 
-        reloadContent()
+struct SystemPromptSettingsForm: View {
+    private let model: SystemPromptSettingsModel
+    private let router: SystemPromptSettingsRouter
+
+    fileprivate init(
+        model: SystemPromptSettingsModel,
+        router: SystemPromptSettingsRouter
+    ) {
+        self.model = model
+        self.router = router
     }
 
-    private func installStoreObservers() {
-        let systemPromptSettingsObservation = NotificationCenter.default.addObserver(
-            forName: UserDefaultsSystemPromptSettingsStore.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.reloadSystemPromptInjectionSettings()
+    var body: some View {
+        Form {
+            automaticContextSection
+            memoryConfigurationSection
+            customPromptsSection
         }
-        let memorySettingsObservation = NotificationCenter.default.addObserver(
-            forName: UserDefaultsMemorySettingsStore.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.reloadMemoryInjectionSettings()
-        }
-        let systemPromptObservation = NotificationCenter.default.addObserver(
-            forName: UserDefaultsSystemPromptStore.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.reloadPromptCount()
-        }
-        storeObservations = [
-            systemPromptSettingsObservation,
-            memorySettingsObservation,
-            systemPromptObservation
-        ]
+        .navigationTitle(String(localized: .settingsRowSystemPromptsTitle))
+        .animation(.default, value: model.memoryInjectionSettings.isEnabled)
     }
 
-    private func reloadContent() {
-        systemPromptInjectionSettings = dependencies.systemPromptSettingsStore.loadInjectionSettings()
-        memoryInjectionSettings = dependencies.memoryManager.memoryInjectionSettings()
-        sections = Section.visible(memoryEnabled: memoryInjectionSettings.isEnabled)
-        promptCount = dependencies.systemPromptManager.savedPrompts().count
-        tableView.reloadData()
-    }
+    private var automaticContextSection: some View {
+        Section {
+            Toggle(isOn: currentDateBinding) {
+                SystemPromptSettingsRowLabel(
+                    title: String(localized: "system_prompts.settings.row.current_date.title"),
+                    subtitle: String(localized: "system_prompts.settings.row.current_date.detail"),
+                    symbolName: "clock",
+                    tintColor: model.systemPromptInjectionSettings.isCurrentDateEnabled ? .systemOrange : .secondaryLabel
+                )
+            }
 
-    private func reloadSystemPromptInjectionSettings() {
-        let updatedSettings = dependencies.systemPromptSettingsStore.loadInjectionSettings()
-        guard updatedSettings != systemPromptInjectionSettings else {
-            return
-        }
-
-        systemPromptInjectionSettings = updatedSettings
-        updateVisibleAutomaticContextCell(row: .currentDate)
-    }
-
-    private func reloadMemoryInjectionSettings() {
-        let updatedSettings = dependencies.memoryManager.memoryInjectionSettings()
-        guard updatedSettings != memoryInjectionSettings else {
-            return
-        }
-
-        let wasMemoryConfigurationVisible = isMemoryConfigurationVisible
-        memoryInjectionSettings = updatedSettings
-        sections = Section.visible(memoryEnabled: updatedSettings.isEnabled)
-        updateVisibleAutomaticContextCell(row: .memory)
-        updateMemoryConfigurationSection(wasVisible: wasMemoryConfigurationVisible)
-        updateVisibleMemoryConfigurationCells()
-    }
-
-    private func reloadPromptCount() {
-        let updatedCount = dependencies.systemPromptManager.savedPrompts().count
-        guard updatedCount != promptCount else {
-            return
-        }
-
-        promptCount = updatedCount
-        updateVisibleCustomPromptCell()
-    }
-
-    override func numberOfSections(in tableView: UITableView) -> Int {
-        sections.count
-    }
-
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        switch sectionType(at: section) {
-        case .automaticContext:
-            return AutomaticContextRow.allCases.count
-        case .memoryConfiguration:
-            return MemoryConfigurationRow.allCases.count
-        case .customPrompts:
-            return 1
-        case .none:
-            return 0
+            Toggle(isOn: memoryEnabledBinding) {
+                SystemPromptSettingsRowLabel(
+                    title: String(localized: "system_prompts.settings.row.memory.title"),
+                    subtitle: String(localized: "system_prompts.settings.row.memory.detail"),
+                    symbolName: "brain.head.profile",
+                    tintColor: model.memoryInjectionSettings.isEnabled ? .systemTeal : .secondaryLabel
+                )
+            }
+        } header: {
+            Text(String(localized: "system_prompts.settings.section.automatic_context"))
+        } footer: {
+            Text(String(localized: "system_prompts.settings.footer.automatic_context"))
         }
     }
 
-    override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        sectionType(at: section)?.headerTitle
-    }
+    @ViewBuilder
+    private var memoryConfigurationSection: some View {
+        if model.memoryInjectionSettings.isEnabled {
+            Section(String(localized: "system_prompts.settings.section.memory_context")) {
+                Picker(selection: memoryFilterBinding) {
+                    ForEach(MemoryInjectionFilter.allCases, id: \.self) { filter in
+                        Text(filter.title).tag(filter)
+                    }
+                } label: {
+                    SystemPromptSettingsRowLabel(
+                        title: String(localized: .memoriesMemoryFilter),
+                        subtitle: nil,
+                        symbolName: "line.3.horizontal.decrease.circle",
+                        tintColor: .systemTeal
+                    )
+                }
+                .pickerStyle(.menu)
+                .accessibilityLabel(String(localized: .memoriesAccessibilityInjectionFilter))
 
-    override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        sectionType(at: section)?.footerTitle
-    }
-
-    override func tableView(
-        _ tableView: UITableView,
-        cellForRowAt indexPath: IndexPath
-    ) -> UITableViewCell {
-        switch sectionType(at: indexPath.section) {
-        case .automaticContext:
-            return automaticContextCell(for: indexPath)
-        case .memoryConfiguration:
-            return memoryConfigurationCell(for: indexPath)
-        case .customPrompts:
-            return customPromptsCell()
-        case .none:
-            return UITableViewCell()
+                Picker(selection: maximumMemoriesBinding) {
+                    ForEach(model.selectableMaximumMemories, id: \.self) { maximumMemories in
+                        Text(model.menuTitle(forMaximumMemories: maximumMemories))
+                            .tag(maximumMemories)
+                    }
+                } label: {
+                    SystemPromptSettingsRowLabel(
+                        title: String(localized: .memoriesMemoryLimit),
+                        subtitle: nil,
+                        symbolName: "number.circle",
+                        tintColor: .systemTeal
+                    )
+                }
+                .pickerStyle(.menu)
+                .accessibilityLabel(String(localized: .memoriesAccessibilityInjectionLimit))
+            }
+            .transition(.opacity.combined(with: .move(edge: .top)))
         }
     }
 
-    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        tableView.deselectRow(at: indexPath, animated: true)
-        guard sectionType(at: indexPath.section) == .customPrompts else {
-            return
+    private var customPromptsSection: some View {
+        Section(String(localized: "system_prompts.settings.section.custom_prompts")) {
+            Button(action: router.showCustomPrompts) {
+                HStack(spacing: 12) {
+                    SystemPromptSettingsRowLabel(
+                        title: String(localized: "system_prompts.custom.title"),
+                        subtitle: model.promptCountDescription,
+                        symbolName: "text.quote",
+                        tintColor: .systemPurple
+                    )
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Color(uiColor: .tertiaryLabel))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
+    }
 
-        navigationController?.pushViewController(
+    private var currentDateBinding: Binding<Bool> {
+        Binding {
+            model.systemPromptInjectionSettings.isCurrentDateEnabled
+        } set: { isEnabled in
+            model.setCurrentDateEnabled(isEnabled)
+        }
+    }
+
+    private var memoryEnabledBinding: Binding<Bool> {
+        Binding {
+            model.memoryInjectionSettings.isEnabled
+        } set: { isEnabled in
+            withAnimation(.default) {
+                model.setMemoryEnabled(isEnabled)
+            }
+        }
+    }
+
+    private var memoryFilterBinding: Binding<MemoryInjectionFilter> {
+        Binding {
+            model.memoryInjectionSettings.filter
+        } set: { filter in
+            model.setMemoryFilter(filter)
+        }
+    }
+
+    private var maximumMemoriesBinding: Binding<Int?> {
+        Binding {
+            model.memoryInjectionSettings.maximumMemories
+        } set: { maximumMemories in
+            model.setMaximumMemories(maximumMemories)
+        }
+    }
+}
+
+private struct SystemPromptSettingsRowLabel: View {
+    let title: String
+    let subtitle: String?
+    let symbolName: String
+    let tintColor: UIColor
+
+    var body: some View {
+        Label {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                if let subtitle,
+                   !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        } icon: {
+            Image(systemName: symbolName)
+                .foregroundStyle(Color(uiColor: tintColor))
+        }
+    }
+}
+
+@MainActor
+private final class SystemPromptSettingsRouter {
+    weak var hostViewController: UIViewController?
+
+    private let dependencies: AppDependencyContainer
+
+    init(dependencies: AppDependencyContainer) {
+        self.dependencies = dependencies
+    }
+
+    func showCustomPrompts() {
+        hostViewController?.navigationController?.pushViewController(
             SystemPromptsViewController(dependencies: dependencies),
             animated: true
         )
     }
+}
 
-    private func automaticContextCell(for indexPath: IndexPath) -> UITableViewCell {
-        guard let row = AutomaticContextRow(rawValue: indexPath.row) else {
-            return UITableViewCell()
-        }
+@MainActor
+@Observable
+private final class SystemPromptSettingsModel {
+    @ObservationIgnored private let dependencies: AppDependencyContainer
+    @ObservationIgnored private var systemPromptSettingsObservation: NSObjectProtocol?
+    @ObservationIgnored private var memorySettingsObservation: NSObjectProtocol?
+    @ObservationIgnored private var systemPromptObservation: NSObjectProtocol?
 
-        let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.automaticContextCell)
-            ?? UITableViewCell(style: .subtitle, reuseIdentifier: ReuseIdentifier.automaticContextCell)
-        configureAutomaticContextCellContent(cell, row: row)
+    var systemPromptInjectionSettings = SystemPromptInjectionSettings()
+    var memoryInjectionSettings = MemoryInjectionSettings()
+    var promptCount = 0
 
-        let toggle = UISwitch()
-        toggle.isOn = isAutomaticContextRowEnabled(row)
-        let action: Selector = row == .currentDate
-            ? #selector(toggleCurrentDateInjection(_:))
-            : #selector(toggleMemoryInjection(_:))
-        toggle.addTarget(
-            self,
-            action: action,
-            for: .valueChanged
-        )
-        toggle.accessibilityLabel = automaticContextRowTitle(row)
-        cell.accessoryView = toggle
-        cell.accessoryType = .none
-        cell.selectionStyle = .none
-        return cell
+    init(dependencies: AppDependencyContainer) {
+        self.dependencies = dependencies
+        installStoreObservers()
+        refreshContent()
     }
 
-    private func configureAutomaticContextCellContent(
-        _ cell: UITableViewCell,
-        row: AutomaticContextRow
-    ) {
-        let isEnabled = isAutomaticContextRowEnabled(row)
-        var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = automaticContextRowTitle(row)
-        contentConfiguration.secondaryText = automaticContextRowDetail(row)
-        contentConfiguration.secondaryTextProperties.numberOfLines = 0
-        contentConfiguration.image = UIImage(systemName: automaticContextRowSymbolName(row))
-        contentConfiguration.imageProperties.tintColor = isEnabled ? automaticContextRowEnabledTintColor(row) : .secondaryLabel
-        cell.contentConfiguration = contentConfiguration
-    }
-
-    private func memoryConfigurationCell(for indexPath: IndexPath) -> UITableViewCell {
-        guard let row = MemoryConfigurationRow(rawValue: indexPath.row) else {
-            return UITableViewCell()
+    deinit {
+        if let systemPromptSettingsObservation {
+            NotificationCenter.default.removeObserver(systemPromptSettingsObservation)
         }
-
-        switch row {
-        case .filter:
-            return memoryFilterCell()
-        case .maximumMemories:
-            return memoryLimitCell()
+        if let memorySettingsObservation {
+            NotificationCenter.default.removeObserver(memorySettingsObservation)
+        }
+        if let systemPromptObservation {
+            NotificationCenter.default.removeObserver(systemPromptObservation)
         }
     }
 
-    private func memoryFilterCell() -> UITableViewCell {
-        let cell = memoryConfigurationCell()
-        configureMemoryFilterCell(cell)
-        return cell
+    func refreshContent() {
+        refreshSystemPromptInjectionSettings()
+        refreshMemoryInjectionSettings()
+        refreshPromptCount()
     }
 
-    private func memoryLimitCell() -> UITableViewCell {
-        let cell = memoryConfigurationCell()
-        configureMemoryLimitCell(cell)
-        return cell
-    }
-
-    private func memoryConfigurationCell() -> MemoryConfigurationCell {
-        tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.memoryConfigurationCell) as? MemoryConfigurationCell
-            ?? MemoryConfigurationCell(reuseIdentifier: ReuseIdentifier.memoryConfigurationCell)
-    }
-
-    private func configureMemoryFilterCell(_ cell: MemoryConfigurationCell) {
-        cell.configure(
-            title: String(localized: .memoriesMemoryFilter),
-            symbolName: "line.3.horizontal.decrease.circle",
-            tintColor: .systemTeal,
-            menuTitle: memoryInjectionSettings.filter.title,
-            menu: memoryFilterMenu(),
-            accessibilityLabel: String(localized: .memoriesAccessibilityInjectionFilter)
-        )
-    }
-
-    private func configureMemoryLimitCell(_ cell: MemoryConfigurationCell) {
-        cell.configure(
-            title: String(localized: .memoriesMemoryLimit),
-            symbolName: "number.circle",
-            tintColor: .systemTeal,
-            menuTitle: memoryLimitMenuTitle,
-            menu: memoryLimitMenu(),
-            accessibilityLabel: String(localized: .memoriesAccessibilityInjectionLimit)
-        )
-    }
-
-    private func customPromptsCell() -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.customPromptCell)
-            ?? UITableViewCell(style: .subtitle, reuseIdentifier: ReuseIdentifier.customPromptCell)
-        configureCustomPromptCellContent(cell)
-        cell.accessoryView = nil
-        cell.accessoryType = .disclosureIndicator
-        cell.selectionStyle = .default
-        return cell
-    }
-
-    private func configureCustomPromptCellContent(_ cell: UITableViewCell) {
-        var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = String(localized: "system_prompts.custom.title")
-        contentConfiguration.secondaryText = promptCountDescription
-        contentConfiguration.image = UIImage(systemName: "text.quote")
-        contentConfiguration.imageProperties.tintColor = .systemPurple
-        cell.contentConfiguration = contentConfiguration
-    }
-
-    @objc private func toggleCurrentDateInjection(_ sender: UISwitch) {
+    func setCurrentDateEnabled(_ isEnabled: Bool) {
         var updatedSettings = systemPromptInjectionSettings
-        updatedSettings.isCurrentDateEnabled = sender.isOn
+        updatedSettings.isCurrentDateEnabled = isEnabled
         saveSystemPromptInjectionSettings(updatedSettings)
-        updateVisibleAutomaticContextCell(row: .currentDate)
     }
 
-    @objc private func toggleMemoryInjection(_ sender: UISwitch) {
+    func setMemoryEnabled(_ isEnabled: Bool) {
         var updatedSettings = memoryInjectionSettings
-        updatedSettings.isEnabled = sender.isOn
+        updatedSettings.isEnabled = isEnabled
         saveMemoryInjectionSettings(updatedSettings)
     }
 
-    private func memoryFilterMenu() -> UIMenu {
-        let actions = MemoryInjectionFilter.allCases.map { filter in
-            UIAction(
-                title: filter.title,
-                state: filter == memoryInjectionSettings.filter ? .on : .off
-            ) { [weak self] _ in
-                guard let self else {
-                    return
-                }
-
-                var updatedSettings = self.memoryInjectionSettings
-                updatedSettings.filter = filter
-                self.saveMemoryInjectionSettings(updatedSettings)
-            }
-        }
-
-        return UIMenu(options: .singleSelection, children: actions)
+    func setMemoryFilter(_ filter: MemoryInjectionFilter) {
+        var updatedSettings = memoryInjectionSettings
+        updatedSettings.filter = filter
+        saveMemoryInjectionSettings(updatedSettings)
     }
 
-    private func memoryLimitMenu() -> UIMenu {
-        let actions = selectableMaximumMemories.map { maximumMemories -> UIAction in
-            let title = menuTitle(forMaximumMemories: maximumMemories)
-            return UIAction(
-                title: title,
-                state: maximumMemories == memoryInjectionSettings.maximumMemories ? .on : .off
-            ) { [weak self] _ in
-                guard let self else {
-                    return
-                }
+    func setMaximumMemories(_ maximumMemories: Int?) {
+        var updatedSettings = memoryInjectionSettings
+        updatedSettings.maximumMemories = maximumMemories
+        saveMemoryInjectionSettings(updatedSettings)
+    }
 
-                var updatedSettings = self.memoryInjectionSettings
-                updatedSettings.maximumMemories = maximumMemories
-                self.saveMemoryInjectionSettings(updatedSettings)
+    var selectableMaximumMemories: [Int?] {
+        var values = MemoryInjectionSettings.selectableMaximumMemories
+        if let maximumMemories = memoryInjectionSettings.maximumMemories,
+           !values.contains(maximumMemories) {
+            values.append(maximumMemories)
+        }
+
+        return [nil] + values.sorted().map(Optional.some)
+    }
+
+    func menuTitle(forMaximumMemories maximumMemories: Int?) -> String {
+        guard let maximumMemories else {
+            return String(localized: .memoriesNoLimit)
+        }
+
+        return "\(maximumMemories)"
+    }
+
+    var promptCountDescription: String {
+        switch promptCount {
+        case 0:
+            return String(localized: "system_prompts.count.none")
+        case 1:
+            return String(localized: "system_prompts.count.one")
+        default:
+            return String.localizedStringWithFormat(
+                String(localized: "system_prompts.count.format"),
+                promptCount
+            )
+        }
+    }
+
+    private func installStoreObservers() {
+        systemPromptSettingsObservation = NotificationCenter.default.addObserver(
+            forName: UserDefaultsSystemPromptSettingsStore.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshSystemPromptInjectionSettings()
             }
         }
 
-        return UIMenu(options: .singleSelection, children: actions)
+        memorySettingsObservation = NotificationCenter.default.addObserver(
+            forName: UserDefaultsMemorySettingsStore.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshMemoryInjectionSettings()
+            }
+        }
+
+        systemPromptObservation = NotificationCenter.default.addObserver(
+            forName: UserDefaultsSystemPromptStore.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshPromptCount()
+            }
+        }
+    }
+
+    private func refreshSystemPromptInjectionSettings() {
+        systemPromptInjectionSettings = dependencies.systemPromptSettingsStore.loadInjectionSettings()
+    }
+
+    private func refreshMemoryInjectionSettings() {
+        memoryInjectionSettings = dependencies.memoryManager.memoryInjectionSettings()
+    }
+
+    private func refreshPromptCount() {
+        promptCount = dependencies.systemPromptManager.savedPrompts().count
     }
 
     private func saveSystemPromptInjectionSettings(_ settings: SystemPromptInjectionSettings) {
@@ -396,270 +375,7 @@ final class SystemPromptSettingsViewController: UITableViewController {
             return
         }
 
-        let wasMemoryConfigurationVisible = isMemoryConfigurationVisible
         memoryInjectionSettings = settings
-        sections = Section.visible(memoryEnabled: settings.isEnabled)
         dependencies.memoryManager.saveMemoryInjectionSettings(settings)
-        updateVisibleAutomaticContextCell(row: .memory)
-        updateMemoryConfigurationSection(wasVisible: wasMemoryConfigurationVisible)
-        updateVisibleMemoryConfigurationCells()
-    }
-
-    private func updateVisibleAutomaticContextCell(row: AutomaticContextRow) {
-        guard let cell = tableView.cellForRow(at: indexPath(for: row)) else {
-            return
-        }
-
-        configureAutomaticContextCellContent(cell, row: row)
-        guard let toggle = cell.accessoryView as? UISwitch else {
-            return
-        }
-
-        let isEnabled = isAutomaticContextRowEnabled(row)
-        if toggle.isOn != isEnabled {
-            toggle.setOn(isEnabled, animated: false)
-        }
-    }
-
-    private func updateVisibleMemoryConfigurationCells() {
-        updateVisibleMemoryConfigurationCell(row: .filter, configure: configureMemoryFilterCell)
-        updateVisibleMemoryConfigurationCell(row: .maximumMemories, configure: configureMemoryLimitCell)
-    }
-
-    private func updateVisibleMemoryConfigurationCell(
-        row: MemoryConfigurationRow,
-        configure: (MemoryConfigurationCell) -> Void
-    ) {
-        guard let indexPath = indexPath(for: row),
-              let cell = tableView.cellForRow(at: indexPath),
-              let memoryConfigurationCell = cell as? MemoryConfigurationCell else {
-            return
-        }
-
-        configure(memoryConfigurationCell)
-    }
-
-    private func updateVisibleCustomPromptCell() {
-        guard let indexPath = indexPathForCustomPrompts(),
-              let cell = tableView.cellForRow(at: indexPath) else {
-            return
-        }
-
-        configureCustomPromptCellContent(cell)
-    }
-
-    private func updateMemoryConfigurationSection(wasVisible: Bool) {
-        guard wasVisible != isMemoryConfigurationVisible else {
-            return
-        }
-
-        let sectionIndex = 1
-        if isMemoryConfigurationVisible {
-            tableView.insertSections(IndexSet(integer: sectionIndex), with: .automatic)
-        } else {
-            tableView.deleteSections(IndexSet(integer: sectionIndex), with: .automatic)
-        }
-    }
-
-    private func indexPath(for row: AutomaticContextRow) -> IndexPath {
-        IndexPath(row: row.rawValue, section: 0)
-    }
-
-    private func indexPath(for row: MemoryConfigurationRow) -> IndexPath? {
-        guard let section = sections.firstIndex(of: .memoryConfiguration) else {
-            return nil
-        }
-
-        return IndexPath(row: row.rawValue, section: section)
-    }
-
-    private func indexPathForCustomPrompts() -> IndexPath? {
-        guard let section = sections.firstIndex(of: .customPrompts) else {
-            return nil
-        }
-
-        return IndexPath(row: 0, section: section)
-    }
-
-    private func sectionType(at index: Int) -> Section? {
-        guard sections.indices.contains(index) else {
-            return nil
-        }
-
-        return sections[index]
-    }
-
-    private var isMemoryConfigurationVisible: Bool {
-        sections.contains(.memoryConfiguration)
-    }
-
-    private func isAutomaticContextRowEnabled(_ row: AutomaticContextRow) -> Bool {
-        switch row {
-        case .currentDate:
-            return systemPromptInjectionSettings.isCurrentDateEnabled
-        case .memory:
-            return memoryInjectionSettings.isEnabled
-        }
-    }
-
-    private func automaticContextRowTitle(_ row: AutomaticContextRow) -> String {
-        switch row {
-        case .currentDate:
-            return String(localized: "system_prompts.settings.row.current_date.title")
-        case .memory:
-            return String(localized: "system_prompts.settings.row.memory.title")
-        }
-    }
-
-    private func automaticContextRowDetail(_ row: AutomaticContextRow) -> String {
-        switch row {
-        case .currentDate:
-            return String(localized: "system_prompts.settings.row.current_date.detail")
-        case .memory:
-            return String(localized: "system_prompts.settings.row.memory.detail")
-        }
-    }
-
-    private func automaticContextRowSymbolName(_ row: AutomaticContextRow) -> String {
-        switch row {
-        case .currentDate:
-            return "clock"
-        case .memory:
-            return "brain.head.profile"
-        }
-    }
-
-    private func automaticContextRowEnabledTintColor(_ row: AutomaticContextRow) -> UIColor {
-        switch row {
-        case .currentDate:
-            return .systemOrange
-        case .memory:
-            return .systemTeal
-        }
-    }
-
-    private var selectableMaximumMemories: [Int?] {
-        var values = MemoryInjectionSettings.selectableMaximumMemories
-        if let maximumMemories = memoryInjectionSettings.maximumMemories,
-           !values.contains(maximumMemories) {
-            values.append(maximumMemories)
-        }
-
-        return [nil] + values.sorted().map(Optional.some)
-    }
-
-    private var memoryLimitMenuTitle: String {
-        menuTitle(forMaximumMemories: memoryInjectionSettings.maximumMemories)
-    }
-
-    private func menuTitle(forMaximumMemories maximumMemories: Int?) -> String {
-        guard let maximumMemories else {
-            return String(localized: .memoriesNoLimit)
-        }
-
-        return "\(maximumMemories)"
-    }
-
-    private var promptCountDescription: String {
-        switch promptCount {
-        case 0:
-            return String(localized: "system_prompts.count.none")
-        case 1:
-            return String(localized: "system_prompts.count.one")
-        default:
-            return String.localizedStringWithFormat(
-                String(localized: "system_prompts.count.format"),
-                promptCount
-            )
-        }
-    }
-}
-
-private final class MemoryConfigurationCell: UITableViewCell {
-    private enum Metrics {
-        static let symbolSize: CGFloat = 24
-        static let horizontalSpacing: CGFloat = 12
-        static let menuSpacing: CGFloat = 8
-    }
-
-    private let rowStackView = UIStackView()
-    private let symbolImageView = UIImageView()
-    private let titleLabel = UILabel()
-    private let menuButton = UIButton(configuration: .plain())
-
-    init(reuseIdentifier: String?) {
-        super.init(style: .default, reuseIdentifier: reuseIdentifier)
-        configureLayout()
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        configureLayout()
-    }
-
-    func configure(
-        title: String,
-        symbolName: String,
-        tintColor: UIColor,
-        menuTitle: String,
-        menu: UIMenu,
-        accessibilityLabel: String
-    ) {
-        titleLabel.text = title
-        symbolImageView.image = UIImage(systemName: symbolName)
-        symbolImageView.tintColor = tintColor
-
-        var configuration = menuButton.configuration ?? .plain()
-        configuration.title = menuTitle
-        configuration.titleLineBreakMode = .byTruncatingTail
-        menuButton.configuration = configuration
-        menuButton.menu = menu
-        menuButton.accessibilityLabel = accessibilityLabel
-        menuButton.accessibilityValue = menuTitle
-    }
-
-    private func configureLayout() {
-        selectionStyle = .none
-        accessoryType = .none
-
-        rowStackView.axis = .horizontal
-        rowStackView.alignment = .center
-        rowStackView.spacing = Metrics.horizontalSpacing
-        rowStackView.translatesAutoresizingMaskIntoConstraints = false
-
-        symbolImageView.contentMode = .scaleAspectFit
-        symbolImageView.setContentHuggingPriority(.required, for: .horizontal)
-        symbolImageView.setContentCompressionResistancePriority(.required, for: .horizontal)
-
-        titleLabel.font = .preferredFont(forTextStyle: .body)
-        titleLabel.adjustsFontForContentSizeCategory = true
-        titleLabel.textColor = .label
-        titleLabel.numberOfLines = 1
-        titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        menuButton.showsMenuAsPrimaryAction = true
-        menuButton.changesSelectionAsPrimaryAction = true
-        menuButton.contentHorizontalAlignment = .trailing
-        menuButton.titleLabel?.numberOfLines = 1
-        menuButton.setContentHuggingPriority(.required, for: .horizontal)
-        menuButton.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
-
-        rowStackView.addArrangedSubview(symbolImageView)
-        rowStackView.addArrangedSubview(titleLabel)
-        rowStackView.setCustomSpacing(Metrics.menuSpacing, after: titleLabel)
-        rowStackView.addArrangedSubview(menuButton)
-        contentView.addSubview(rowStackView)
-
-        NSLayoutConstraint.activate([
-            rowStackView.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
-            rowStackView.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
-            rowStackView.topAnchor.constraint(equalTo: contentView.layoutMarginsGuide.topAnchor),
-            rowStackView.bottomAnchor.constraint(equalTo: contentView.layoutMarginsGuide.bottomAnchor),
-
-            symbolImageView.widthAnchor.constraint(equalToConstant: Metrics.symbolSize),
-            symbolImageView.heightAnchor.constraint(equalToConstant: Metrics.symbolSize)
-        ])
     }
 }

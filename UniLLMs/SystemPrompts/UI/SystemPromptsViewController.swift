@@ -6,9 +6,11 @@
 //  Created by Zayrick on 2026/5/19.
 //
 
+import Observation
+import SwiftUI
 import UIKit
 
-final class SystemPromptsViewController: UITableViewController {
+final class SystemPromptsViewController: UIHostingController<SystemPromptsListForm> {
     enum Mode {
         case manage
         case select(
@@ -18,112 +20,222 @@ final class SystemPromptsViewController: UITableViewController {
         )
     }
 
-    private let dependencies: AppDependencyContainer
-    private let mode: Mode
-    private var prompts: [SystemPromptRecord] = []
-    private var storeObservation: NSObjectProtocol?
-
-    private enum ReuseIdentifier {
-        static let promptCell = "SystemPromptCell"
-    }
+    private let model: SystemPromptsListModel
+    private let router: SystemPromptsListRouter
 
     init(
         dependencies: AppDependencyContainer = AppEnvironment.shared.dependencies,
         mode: Mode = .manage
     ) {
-        self.dependencies = dependencies
-        self.mode = mode
-        super.init(style: .insetGrouped)
+        let model = SystemPromptsListModel(dependencies: dependencies)
+        let router = SystemPromptsListRouter(dependencies: dependencies, mode: mode)
+        self.model = model
+        self.router = router
+        super.init(rootView: SystemPromptsListForm(model: model, router: router))
+        router.hostViewController = self
     }
 
+    @MainActor
     required init?(coder: NSCoder) {
-        dependencies = AppEnvironment.shared.dependencies
-        mode = .manage
-        super.init(coder: coder)
-    }
-
-    deinit {
-        if let storeObservation {
-            NotificationCenter.default.removeObserver(storeObservation)
-        }
-    }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-
-        title = isSelectingPrompt
-            ? String(localized: .systemPromptsChoosePrompt)
-            : String(localized: "system_prompts.custom.title")
-        configureCancelButtonIfNeeded()
-        configureAddButton()
-        configureClearButtonIfNeeded()
-        installStoreObserver()
-        reloadContent()
+        let dependencies = AppEnvironment.shared.dependencies
+        let model = SystemPromptsListModel(dependencies: dependencies)
+        let router = SystemPromptsListRouter(dependencies: dependencies, mode: .manage)
+        self.model = model
+        self.router = router
+        super.init(coder: coder, rootView: SystemPromptsListForm(model: model, router: router))
+        router.hostViewController = self
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        model.refreshContent()
+    }
+}
 
-        reloadContent()
+struct SystemPromptsListForm: View {
+    private let model: SystemPromptsListModel
+    private let router: SystemPromptsListRouter
+
+    fileprivate init(
+        model: SystemPromptsListModel,
+        router: SystemPromptsListRouter
+    ) {
+        self.model = model
+        self.router = router
     }
 
-    private func configureAddButton() {
-        guard !isSelectingPrompt else {
-            return
+    var body: some View {
+        Group {
+            if model.prompts.isEmpty {
+                SystemPromptsEmptyView(
+                    isSelectingPrompt: router.isSelectingPrompt,
+                    addAction: router.addPrompt
+                )
+            } else {
+                Form {
+                    Section {
+                        if router.isSelectingPrompt {
+                            ForEach(model.prompts) { prompt in
+                                promptRow(for: prompt)
+                            }
+                        } else {
+                            ForEach(model.prompts) { prompt in
+                                promptRow(for: prompt)
+                            }
+                            .onDelete(perform: model.deletePrompts)
+                        }
+                    }
+                }
+            }
         }
+        .navigationTitle(router.navigationTitle)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                if router.isSelectingPrompt {
+                    Button(String(localized: .generalCancel), action: router.cancelSelection)
+                }
+            }
 
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            barButtonSystemItem: .add,
-            target: self,
-            action: #selector(addPrompt)
-        )
-    }
-
-    private func configureClearButtonIfNeeded() {
-        guard isSelectingPrompt,
-              selectedPromptID != nil else {
-            return
-        }
-
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: String(localized: .generalClear),
-            style: .plain,
-            target: self,
-            action: #selector(clearSelection)
-        )
-    }
-
-    private func configureCancelButtonIfNeeded() {
-        guard isSelectingPrompt else {
-            return
-        }
-
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            barButtonSystemItem: .cancel,
-            target: self,
-            action: #selector(cancelSelection)
-        )
-    }
-
-    private func installStoreObserver() {
-        storeObservation = NotificationCenter.default.addObserver(
-            forName: UserDefaultsSystemPromptStore.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.reloadContent()
+            ToolbarItem(placement: .topBarTrailing) {
+                if router.isSelectingPrompt {
+                    if router.selectedPromptID != nil {
+                        Button(String(localized: .generalClear), action: router.clearSelection)
+                    }
+                } else {
+                    Button(action: router.addPrompt) {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel(String(localized: .generalAdd))
+                }
+            }
         }
     }
 
-    private func reloadContent() {
-        prompts = dependencies.systemPromptManager.savedPrompts()
-        tableView.reloadData()
-        setNeedsUpdateContentUnavailableConfiguration()
+    private func promptRow(for prompt: SystemPromptRecord) -> some View {
+        SystemPromptRow(
+            prompt: prompt,
+            isSelectingPrompt: router.isSelectingPrompt,
+            isSelected: prompt.id == router.selectedPromptID
+        ) {
+            router.openPrompt(prompt)
+        }
+    }
+}
+
+private struct SystemPromptRow: View {
+    let prompt: SystemPromptRecord
+    let isSelectingPrompt: Bool
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Label {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(prompt.displayTitle)
+                        if let subtitle {
+                            Text(subtitle)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                } icon: {
+                    Image(systemName: "text.quote")
+                        .foregroundStyle(.tint)
+                }
+
+                Spacer(minLength: 8)
+
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.tint)
+                } else if !isSelectingPrompt {
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Color(uiColor: .tertiaryLabel))
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    @objc private func addPrompt() {
+    private var subtitle: String? {
+        let content = prompt.content
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        return content.isEmpty ? nil : content
+    }
+}
+
+private struct SystemPromptsEmptyView: View {
+    let isSelectingPrompt: Bool
+    let addAction: () -> Void
+
+    var body: some View {
+        ContentUnavailableView {
+            Label(String(localized: .systemPromptsEmptyTitle), systemImage: "text.quote")
+        } description: {
+            Text(
+                isSelectingPrompt
+                    ? String(localized: .systemPromptsEmptySelectDetail)
+                    : String(localized: .systemPromptsEmptyManageDetail)
+            )
+        } actions: {
+            if !isSelectingPrompt {
+                Button(action: addAction) {
+                    Label(String(localized: .systemPromptsAddPrompt), systemImage: "plus")
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+    }
+}
+
+@MainActor
+private final class SystemPromptsListRouter {
+    weak var hostViewController: UIViewController?
+
+    private let dependencies: AppDependencyContainer
+    private let mode: SystemPromptsViewController.Mode
+
+    init(
+        dependencies: AppDependencyContainer,
+        mode: SystemPromptsViewController.Mode
+    ) {
+        self.dependencies = dependencies
+        self.mode = mode
+    }
+
+    var navigationTitle: String {
+        isSelectingPrompt
+            ? String(localized: .systemPromptsChoosePrompt)
+            : String(localized: "system_prompts.custom.title")
+    }
+
+    var isSelectingPrompt: Bool {
+        if case .select = mode {
+            return true
+        }
+        return false
+    }
+
+    var selectedPromptID: UUID? {
+        if case let .select(selectedID, _, _) = mode {
+            return selectedID
+        }
+        return nil
+    }
+
+    func addPrompt() {
         let prompt = dependencies.systemPromptManager.makePromptDraft()
-        navigationController?.pushViewController(
+        hostViewController?.navigationController?.pushViewController(
             SystemPromptEditorViewController(
                 prompt: prompt,
                 dependencies: dependencies,
@@ -133,149 +245,82 @@ final class SystemPromptsViewController: UITableViewController {
         )
     }
 
-    @objc private func cancelSelection() {
-        dismiss(animated: true)
-    }
-
-    @objc private func clearSelection() {
-        if case let .select(_, _, onClear) = mode {
-            onClear()
-        }
-        dismiss(animated: true)
-    }
-
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        prompts.count
-    }
-
-    override func updateContentUnavailableConfiguration(
-        using state: UIContentUnavailableConfigurationState
-    ) {
-        guard prompts.isEmpty else {
-            contentUnavailableConfiguration = nil
-            return
-        }
-
-        var configuration = UIContentUnavailableConfiguration.empty()
-        configuration.image = UIImage(systemName: "text.quote")
-        configuration.text = String(localized: .systemPromptsEmptyTitle)
-        configuration.secondaryText = isSelectingPrompt
-            ? String(localized: .systemPromptsEmptySelectDetail)
-            : String(localized: .systemPromptsEmptyManageDetail)
-        if !isSelectingPrompt {
-            configuration.button = addPromptButtonConfiguration()
-            configuration.buttonProperties.primaryAction = UIAction { [weak self] _ in
-                self?.addPrompt()
-            }
-        }
-        contentUnavailableConfiguration = configuration
-    }
-
-    private func addPromptButtonConfiguration() -> UIButton.Configuration {
-        var configuration = UIButton.Configuration.filled()
-        configuration.title = String(localized: .systemPromptsAddPrompt)
-        configuration.image = UIImage(systemName: "plus")
-        configuration.imagePadding = 6
-        return configuration
-    }
-
-    override func tableView(
-        _ tableView: UITableView,
-        cellForRowAt indexPath: IndexPath
-    ) -> UITableViewCell {
-        return promptCell(for: indexPath)
-    }
-
-    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        tableView.deselectRow(at: indexPath, animated: true)
-
-        guard prompts.indices.contains(indexPath.row) else {
-            return
-        }
-
+    func openPrompt(_ prompt: SystemPromptRecord) {
         if case let .select(_, onSelect, _) = mode {
-            onSelect(prompts[indexPath.row])
-            dismiss(animated: true)
+            onSelect(prompt)
+            hostViewController?.dismiss(animated: true)
             return
         }
 
-        navigationController?.pushViewController(
+        hostViewController?.navigationController?.pushViewController(
             SystemPromptEditorViewController(
-                prompt: prompts[indexPath.row],
+                prompt: prompt,
                 dependencies: dependencies
             ),
             animated: true
         )
     }
 
-    override func tableView(
-        _ tableView: UITableView,
-        trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath
-    ) -> UISwipeActionsConfiguration? {
-        guard !isSelectingPrompt else {
-            return nil
+    func cancelSelection() {
+        hostViewController?.dismiss(animated: true)
+    }
+
+    func clearSelection() {
+        if case let .select(_, _, onClear) = mode {
+            onClear()
+        }
+        hostViewController?.dismiss(animated: true)
+    }
+}
+
+@MainActor
+@Observable
+private final class SystemPromptsListModel {
+    @ObservationIgnored private let dependencies: AppDependencyContainer
+    @ObservationIgnored private var storeObservation: NSObjectProtocol?
+
+    var prompts: [SystemPromptRecord] = []
+
+    init(dependencies: AppDependencyContainer) {
+        self.dependencies = dependencies
+        installStoreObserver()
+        refreshContent()
+    }
+
+    deinit {
+        if let storeObservation {
+            NotificationCenter.default.removeObserver(storeObservation)
+        }
+    }
+
+    func refreshContent() {
+        prompts = dependencies.systemPromptManager.savedPrompts()
+    }
+
+    func deletePrompts(at offsets: IndexSet) {
+        let deletedIDs = offsets.compactMap { index in
+            prompts.indices.contains(index) ? prompts[index].id : nil
+        }
+        guard !deletedIDs.isEmpty else {
+            return
         }
 
-        guard prompts.indices.contains(indexPath.row) else {
-            return nil
+        prompts.removeAll {
+            deletedIDs.contains($0.id)
         }
+        deletedIDs.forEach(dependencies.systemPromptManager.deletePrompt)
+        refreshContent()
+    }
 
-        let deleteAction = UIContextualAction(style: .destructive, title: String(localized: .generalDelete)) { [weak self] _, _, completion in
-            guard let self,
-                  prompts.indices.contains(indexPath.row) else {
-                completion(false)
-                return
+    private func installStoreObserver() {
+        storeObservation = NotificationCenter.default.addObserver(
+            forName: UserDefaultsSystemPromptStore.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshContent()
             }
-
-            dependencies.systemPromptManager.deletePrompt(id: prompts[indexPath.row].id)
-            completion(true)
         }
-        deleteAction.image = UIImage(systemName: "trash")
-
-        let configuration = UISwipeActionsConfiguration(actions: [deleteAction])
-        configuration.performsFirstActionWithFullSwipe = false
-        return configuration
-    }
-
-    private func promptCell(for indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.promptCell)
-            ?? UITableViewCell(style: .subtitle, reuseIdentifier: ReuseIdentifier.promptCell)
-        let prompt = prompts[indexPath.row]
-        var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = prompt.displayTitle
-        contentConfiguration.secondaryText = subtitle(for: prompt)
-        contentConfiguration.secondaryTextProperties.numberOfLines = 1
-        contentConfiguration.image = UIImage(systemName: "text.quote")
-        cell.contentConfiguration = contentConfiguration
-        if prompt.id == selectedPromptID {
-            cell.accessoryType = .checkmark
-            cell.accessibilityTraits.insert(.selected)
-        } else {
-            cell.accessoryType = isSelectingPrompt ? .none : .disclosureIndicator
-            cell.accessibilityTraits.remove(.selected)
-        }
-        return cell
-    }
-
-    private func subtitle(for prompt: SystemPromptRecord) -> String? {
-        let content = prompt.content
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-        return content.isEmpty ? nil : content
-    }
-
-    private var isSelectingPrompt: Bool {
-        if case .select = mode {
-            return true
-        }
-        return false
-    }
-
-    private var selectedPromptID: UUID? {
-        if case let .select(selectedID, _, _) = mode {
-            return selectedID
-        }
-        return nil
     }
 }

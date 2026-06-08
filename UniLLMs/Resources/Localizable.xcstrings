@@ -1297,6 +1297,24 @@
         }
       }
     },
+    "general.save" : {
+      "comment" : "Generic save action.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存"
+          }
+        }
+      }
+    },
     "general.opens_preview" : {
       "comment" : "Accessibility hint for an item that opens a file preview.",
       "extractionState" : "manual",
