@@ -170,16 +170,6 @@
         }
     }
 
-    function attachDetailsEventListeners() {
-        contentElement.querySelectorAll("details:not([data-toggle-listener])").forEach((details) => {
-            details.setAttribute("data-toggle-listener", "true");
-            details.addEventListener("toggle", () => {
-                requestHeightUpdate();
-                requestAnimationFrame(requestHeightUpdate);
-            });
-        });
-    }
-
     function highlightCodeBlocks() {
         if (!window.streamingRendererHLJS?.highlightElement) {
             return;
@@ -264,9 +254,7 @@
                 }
             });
 
-            // Attach event listeners to details elements after rendering
             highlightCodeBlocks();
-            attachDetailsEventListeners();
             typesetMath();
         } catch {
             renderPlainText(content);
