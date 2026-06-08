@@ -6,17 +6,21 @@
 //
 
 import AVFoundation
+import EventKit
 import UIKit
 
 final class PermissionsViewController: UITableViewController {
     private enum Section: Int, CaseIterable {
         case media
+        case calendar
         case shortcuts
 
         var title: String {
             switch self {
             case .media:
                 return String(localized: "permissions.section.media")
+            case .calendar:
+                return String(localized: "permissions.section.calendar")
             case .shortcuts:
                 return String(localized: "permissions.section.shortcuts")
             }
@@ -64,9 +68,30 @@ final class PermissionsViewController: UITableViewController {
         }
     }
 
+    private enum CalendarRow: Int, CaseIterable {
+        case events
+
+        var title: String {
+            String(localized: "permissions.calendar.title")
+        }
+
+        var detail: String {
+            String(localized: "permissions.calendar.detail")
+        }
+
+        var symbolName: String {
+            "calendar"
+        }
+
+        var iconTintColor: UIColor {
+            .systemOrange
+        }
+    }
+
     private enum PermissionAction {
         case none
         case requestCamera
+        case requestCalendarFullAccess
     }
 
     private struct PermissionState {
@@ -123,6 +148,33 @@ final class PermissionsViewController: UITableViewController {
             action: .none,
             dimsIcon: true
         )
+
+        static func calendarFullAccess(action: PermissionAction = .none) -> PermissionState {
+            PermissionState(
+                title: String(localized: "permissions.status.full_access"),
+                tintColor: .systemGreen,
+                action: action,
+                dimsIcon: false
+            )
+        }
+
+        static func calendarWriteOnly(action: PermissionAction = .none) -> PermissionState {
+            PermissionState(
+                title: String(localized: "permissions.status.write_only"),
+                tintColor: .systemOrange,
+                action: action,
+                dimsIcon: false
+            )
+        }
+
+        static func notDeterminedWithAction(_ action: PermissionAction) -> PermissionState {
+            PermissionState(
+                title: String(localized: "permissions.status.not_determined"),
+                tintColor: .secondaryLabel,
+                action: action,
+                dimsIcon: false
+            )
+        }
     }
 
     private enum Metrics {
@@ -130,6 +182,7 @@ final class PermissionsViewController: UITableViewController {
     }
 
     private var didBecomeActiveObservation: NSObjectProtocol?
+    private let calendarEventStore = EKEventStore()
 
     init() {
         super.init(style: .insetGrouped)
@@ -178,6 +231,8 @@ final class PermissionsViewController: UITableViewController {
         switch Section(rawValue: section) {
         case .media:
             return MediaRow.allCases.count
+        case .calendar:
+            return CalendarRow.allCases.count
         case .shortcuts:
             return 1
         case nil:
@@ -192,6 +247,8 @@ final class PermissionsViewController: UITableViewController {
         switch Section(rawValue: indexPath.section) {
         case .media:
             return mediaCell(for: indexPath)
+        case .calendar:
+            return calendarCell(for: indexPath)
         case .shortcuts:
             return appSettingsCell()
         case nil:
@@ -205,6 +262,8 @@ final class PermissionsViewController: UITableViewController {
         switch Section(rawValue: indexPath.section) {
         case .media:
             requestCameraIfNeeded(at: indexPath)
+        case .calendar:
+            requestCalendarFullAccessIfNeeded(at: indexPath)
         case .shortcuts:
             openAppSettings()
         case nil:
@@ -215,6 +274,28 @@ final class PermissionsViewController: UITableViewController {
     private func mediaCell(for indexPath: IndexPath) -> UITableViewCell {
         let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
         guard let row = MediaRow(rawValue: indexPath.row) else {
+            return cell
+        }
+
+        let state = permissionState(for: row)
+        var content = UIListContentConfiguration.subtitleCell()
+        content.text = row.title
+        content.secondaryText = row.detail
+        content.secondaryTextProperties.numberOfLines = 0
+        content.image = UIImage(systemName: row.symbolName)
+        content.imageProperties.maximumSize = Metrics.iconSize
+        content.imageProperties.reservedLayoutSize = Metrics.iconSize
+        content.imageProperties.tintColor = state.dimsIcon ? .tertiaryLabel : row.iconTintColor
+        cell.contentConfiguration = content
+        cell.accessoryView = statusLabel(for: state)
+        cell.selectionStyle = state.action == .none ? .none : .default
+        cell.accessibilityLabel = "\(row.title), \(row.detail), \(state.title)"
+        return cell
+    }
+
+    private func calendarCell(for indexPath: IndexPath) -> UITableViewCell {
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+        guard let row = CalendarRow(rawValue: indexPath.row) else {
             return cell
         }
 
@@ -270,12 +351,32 @@ final class PermissionsViewController: UITableViewController {
         }
     }
 
+    private func requestCalendarFullAccessIfNeeded(at indexPath: IndexPath) {
+        guard CalendarRow(rawValue: indexPath.row) == .events,
+              permissionState(for: .events).action == .requestCalendarFullAccess else {
+            return
+        }
+
+        calendarEventStore.requestFullAccessToEvents { [weak self] _, _ in
+            Task { @MainActor [viewController = self] in
+                viewController?.reloadPermissionRows()
+            }
+        }
+    }
+
     private func permissionState(for row: MediaRow) -> PermissionState {
         switch row {
         case .camera:
             return cameraPermissionState()
         case .photoPicker:
             return .notRequired
+        }
+    }
+
+    private func permissionState(for row: CalendarRow) -> PermissionState {
+        switch row {
+        case .events:
+            return calendarPermissionState()
         }
     }
 
@@ -298,11 +399,34 @@ final class PermissionsViewController: UITableViewController {
         }
     }
 
+    private func calendarPermissionState() -> PermissionState {
+        switch EKEventStore.authorizationStatus(for: .event) {
+        case .fullAccess:
+            return .calendarFullAccess()
+        case .writeOnly:
+            return .calendarWriteOnly(action: .requestCalendarFullAccess)
+        case .notDetermined:
+            return .notDeterminedWithAction(.requestCalendarFullAccess)
+        case .denied:
+            return .denied
+        case .restricted:
+            return .restricted
+        @unknown default:
+            return .unknown
+        }
+    }
+
     private func reloadPermissionRows() {
         guard isViewLoaded else {
             return
         }
-        tableView.reloadSections(IndexSet(integer: Section.media.rawValue), with: .none)
+        tableView.reloadSections(
+            IndexSet([
+                Section.media.rawValue,
+                Section.calendar.rawValue
+            ]),
+            with: .none
+        )
     }
 
     private func openAppSettings() {

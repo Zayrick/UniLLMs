@@ -1,62 +1,170 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "background_runtime.error.registration_failed_format" : {
-      "comment" : "Error shown when the app cannot register a continued processing task. The placeholder is the task identifier.",
+    "about.email.title" : {
+      "comment" : "About screen row title for contacting the project by email.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Unable to register background response task %@. Check BGTaskSchedulerPermittedIdentifiers."
+            "value" : "Email"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "无法注册后台回复任务 %@。请检查 BGTaskSchedulerPermittedIdentifiers。"
+            "value" : "联系邮箱"
           }
         }
       }
     },
-    "background_runtime.error.submission_failed_format" : {
-      "comment" : "Error shown when a continued processing task request cannot be submitted. The placeholder is the underlying error message.",
+    "about.license.detail" : {
+      "comment" : "About screen detail for the open-source license row.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Unable to start background response task: %@"
+            "value" : "GNU Affero General Public License v3.0."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "无法启动后台回复任务：%@"
+            "value" : "GNU Affero 通用公共许可证第 3 版。"
           }
         }
       }
     },
-    "background_runtime.task.subtitle.generating_response" : {
-      "comment" : "Subtitle displayed by the system UI while a chat response continues in the background.",
+    "about.license.title" : {
+      "comment" : "About screen row title for opening the project license.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Generating response"
+            "value" : "Open Source License"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在生成回复"
+            "value" : "开源协议"
           }
         }
       }
     },
-    "background_runtime.task.title" : {
-      "comment" : "Title displayed by the system UI for a continued chat response task.",
+    "about.open_source.title" : {
+      "comment" : "About screen row title for opening the source repository.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Source"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开源地址"
+          }
+        }
+      }
+    },
+    "about.privacy_policy.detail" : {
+      "comment" : "About screen detail for the privacy policy row.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How UniLLMs handles local data, providers, tools, and permissions."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "说明 UniLLMs 如何处理本地数据、服务商、工具与权限。"
+          }
+        }
+      }
+    },
+    "about.privacy_policy.title" : {
+      "comment" : "About screen row title for opening the privacy policy.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Privacy Policy"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隐私政策"
+          }
+        }
+      }
+    },
+    "about.section.contact" : {
+      "comment" : "About screen section title for contact links.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Contact"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "联系"
+          }
+        }
+      }
+    },
+    "about.section.legal" : {
+      "comment" : "About screen section title for legal information.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Legal"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "法律"
+          }
+        }
+      }
+    },
+    "about.summary.detail" : {
+      "comment" : "About screen summary detail for the UniLLMs project.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An AGPLv3 open-source LLM chat client for configuring providers, conversations, memories, prompts, tools, and attachments on device."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一款采用 AGPLv3 开源协议的 LLM 对话客户端，用于在设备上配置模型服务商、对话、记忆、提示词、工具与附件。"
+          }
+        }
+      }
+    },
+    "about.summary.title" : {
+      "comment" : "About screen project summary title.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
@@ -69,6 +177,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "UniLLMs"
+          }
+        }
+      }
+    },
+    "about.title" : {
+      "comment" : "About screen navigation title.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About UniLLMs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关于 UniLLMs"
           }
         }
       }
@@ -231,6 +357,78 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在调用 %@"
+          }
+        }
+      }
+    },
+    "background_runtime.error.registration_failed_format" : {
+      "comment" : "Error shown when the app cannot register a continued processing task. The placeholder is the task identifier.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unable to register background response task %@. Check BGTaskSchedulerPermittedIdentifiers."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法注册后台回复任务 %@。请检查 BGTaskSchedulerPermittedIdentifiers。"
+          }
+        }
+      }
+    },
+    "background_runtime.error.submission_failed_format" : {
+      "comment" : "Error shown when a continued processing task request cannot be submitted. The placeholder is the underlying error message.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unable to start background response task: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法启动后台回复任务：%@"
+          }
+        }
+      }
+    },
+    "background_runtime.task.subtitle.generating_response" : {
+      "comment" : "Subtitle displayed by the system UI while a chat response continues in the background.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Generating response"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在生成回复"
+          }
+        }
+      }
+    },
+    "background_runtime.task.title" : {
+      "comment" : "Title displayed by the system UI for a continued chat response task.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "UniLLMs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "UniLLMs"
           }
         }
       }
@@ -487,78 +685,6 @@
         }
       }
     },
-    "chat.private_chat" : {
-      "comment" : "Accessibility label for the chat header button that starts a private chat.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Private Chat"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "隐私对话"
-          }
-        }
-      }
-    },
-    "chat.private_chat_active" : {
-      "comment" : "Accessibility label for the chat header button while private chat mode is active.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Private Chat On"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "隐私模式已开启"
-          }
-        }
-      }
-    },
-    "chat.private_chat_active_hint" : {
-      "comment" : "Accessibility hint for leaving private chat mode and discarding the private chat.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Leaves private mode and discards this chat."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "退出隐私模式并丢弃本次对话。"
-          }
-        }
-      }
-    },
-    "chat.private_chat_hint" : {
-      "comment" : "Accessibility hint for starting a private chat that is not saved to chat history.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Starts a chat that will not be saved."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "开始一段不会保存的对话。"
-          }
-        }
-      }
-    },
     "chat.menu" : {
       "comment" : "Accessibility label for the chat side menu button.",
       "extractionState" : "manual",
@@ -627,6 +753,78 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "暂无对话"
+          }
+        }
+      }
+    },
+    "chat.private_chat" : {
+      "comment" : "Accessibility label for the chat header button that starts a private chat.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Private Chat"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隐私对话"
+          }
+        }
+      }
+    },
+    "chat.private_chat_active" : {
+      "comment" : "Accessibility label for the chat header button while private chat mode is active.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Private Chat On"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隐私模式已开启"
+          }
+        }
+      }
+    },
+    "chat.private_chat_active_hint" : {
+      "comment" : "Accessibility hint for leaving private chat mode and discarding the private chat.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Leaves private mode and discards this chat."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "退出隐私模式并丢弃本次对话。"
+          }
+        }
+      }
+    },
+    "chat.private_chat_hint" : {
+      "comment" : "Accessibility hint for starting a private chat that is not saved to chat history.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Starts a chat that will not be saved."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开始一段不会保存的对话。"
           }
         }
       }
@@ -1063,24 +1261,6 @@
         }
       }
     },
-    "general.ok" : {
-      "comment" : "Standard alert confirmation button.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OK"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "好"
-          }
-        }
-      }
-    },
     "general.more" : {
       "comment" : "Accessibility label for a more actions button.",
       "extractionState" : "manual",
@@ -1095,6 +1275,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "更多"
+          }
+        }
+      }
+    },
+    "general.ok" : {
+      "comment" : "Standard alert confirmation button.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OK"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "好"
           }
         }
       }
@@ -1242,6 +1440,10 @@
           }
         }
       }
+    },
+    "MCP" : {
+      "comment" : "A section header for MCP servers.",
+      "isCommentAutoGenerated" : true
     },
     "mcp.connection" : {
       "comment" : "MCP server connection section header.",
@@ -2413,6 +2615,420 @@
         }
       }
     },
+    "permissions.calendar.detail" : {
+      "comment" : "Permission detail explaining calendar access for built-in tools.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Used by calendar tools to read, create, update, and delete events only when invoked."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅在调用日历工具时用于读取、创建、更新和删除事件。"
+          }
+        }
+      }
+    },
+    "permissions.calendar.title" : {
+      "comment" : "Permission row title for calendar event access.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calendar Events"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日历事件"
+          }
+        }
+      }
+    },
+    "permissions.camera.detail" : {
+      "comment" : "Permission detail explaining camera access.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Take a photo for chat."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拍照添加到当前对话。"
+          }
+        }
+      }
+    },
+    "permissions.camera.title" : {
+      "comment" : "Permission row title for camera access.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Camera"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "相机"
+          }
+        }
+      }
+    },
+    "permissions.open_settings.detail" : {
+      "comment" : "Permission shortcut detail for opening system settings.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manage this app's system permissions."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "管理此 App 的系统权限。"
+          }
+        }
+      }
+    },
+    "permissions.open_settings.title" : {
+      "comment" : "Permission shortcut title for opening system settings.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App Settings"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App 设置"
+          }
+        }
+      }
+    },
+    "permissions.photos_picker.detail" : {
+      "comment" : "Permission detail explaining system photo picker access.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Attach selected photos to chat."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "把你选中的照片添加到对话。"
+          }
+        }
+      }
+    },
+    "permissions.photos_picker.title" : {
+      "comment" : "Permission row title for the system photo picker.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Photo Picker"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "照片选择器"
+          }
+        }
+      }
+    },
+    "permissions.section.calendar" : {
+      "comment" : "Permissions section title for calendar permissions.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calendar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日历"
+          }
+        }
+      }
+    },
+    "permissions.section.media" : {
+      "comment" : "Permissions section title for media permissions.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Media"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "媒体"
+          }
+        }
+      }
+    },
+    "permissions.section.shortcuts" : {
+      "comment" : "Permissions section title for system setting shortcuts.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "System"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "系统"
+          }
+        }
+      }
+    },
+    "permissions.status.authorized" : {
+      "comment" : "Permission status for authorized access.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allowed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已允许"
+          }
+        }
+      }
+    },
+    "permissions.status.denied" : {
+      "comment" : "Permission status for access disabled by the user.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disabled"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已禁用"
+          }
+        }
+      }
+    },
+    "permissions.status.full_access" : {
+      "comment" : "Calendar permission status for full event access.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Full Access"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完整访问"
+          }
+        }
+      }
+    },
+    "permissions.status.not_determined" : {
+      "comment" : "Permission status before the user has made a choice.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not Requested"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未请求"
+          }
+        }
+      }
+    },
+    "permissions.status.not_required" : {
+      "comment" : "Permission status for features that do not require app authorization.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not Required"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无需授权"
+          }
+        }
+      }
+    },
+    "permissions.status.restricted" : {
+      "comment" : "Permission status for system-restricted access.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restricted"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "受限制"
+          }
+        }
+      }
+    },
+    "permissions.status.unavailable" : {
+      "comment" : "Permission availability status when the feature is unavailable on this device.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unavailable"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不可用"
+          }
+        }
+      }
+    },
+    "permissions.status.unknown" : {
+      "comment" : "Permission status for unknown future access values.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unknown"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未知"
+          }
+        }
+      }
+    },
+    "permissions.status.write_only" : {
+      "comment" : "Calendar permission status for write-only event access.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Write Only"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅写入"
+          }
+        }
+      }
+    },
+    "permissions.title" : {
+      "comment" : "Title for the permissions status screen.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Permissions"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "权限"
+          }
+        }
+      }
+    },
+    "privacy.body" : {
+      "comment" : "Full privacy policy text shown in the About screen.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Privacy Policy\n\nLast updated: June 8, 2026\n\n1. Scope\nThis policy applies to UniLLMs for iOS. UniLLMs is an AGPLv3 open-source LLM chat client that lets you configure model providers, conversations, memories, prompts, tools, MCP servers, and attachments on your device.\n\n2. Data We Do Not Collect\nThe UniLLMs project and its maintainers do not operate an analytics service for this app and do not collect personal information, usage telemetry, advertising identifiers, crash reports, or diagnostic logs from your device. The app does not use tracking for advertising or profiling.\n\n3. Data Stored Locally\nYour conversations, provider configurations, API keys, model metadata, memories, system prompts, tool settings, MCP server settings, and app preferences are stored on your device using Apple platform storage. This information remains under your control unless you choose to send it to a configured service or include it in an Apple backup, device transfer, or other system-level service you enable.\n\n4. Cloud Model Providers and Tools\nWhen you send a message through a cloud or OpenAI-compatible provider, UniLLMs sends the selected conversation content and the required context to the provider you configured. This may include messages, attachments, system prompts, memory context, tool definitions, tool results, and model settings needed to complete the request. The provider processes that data under its own terms and privacy policy. Built-in providers may include OpenRouter, OpenAI, Anthropic, Gemini, Pollinations, or other OpenAI-compatible services you add.\n\n5. User-Configured Integrations\nIf you configure MCP servers, custom API bases, or third-party tools, UniLLMs may send requests and receive responses from those endpoints as part of the features you enable. You are responsible for reviewing the trustworthiness, access controls, logging behavior, retention terms, and privacy policies of services you configure.\n\n6. Media, Calendar, and Permissions\nUniLLMs accesses camera or photo picker content only when you choose to attach media in a conversation and grant the relevant system permission. Selected media may be stored locally with the conversation and may be sent to the selected model provider when included in a request. Calendar tools may request permission to read, create, update, or delete events only when enabled and invoked. Calendar events read or changed by a tool, and confirmations for calendar changes, may be sent to the selected model provider as tool results when needed to complete a request.\n\n7. Security\nUniLLMs avoids logging secrets or full authorization headers in application code. You should still protect your device, backups, API keys, and configured endpoints. Do not enter secrets into providers or tools you do not trust.\n\n8. Open Source, License, and Contact\nThe UniLLMs application source code is available at https://github.com/Zayrick/UniLLMs under the GNU Affero General Public License v3.0 (AGPL-3.0). The license governs the software code; any personal provider configurations, API keys, prompts, memories, conversations, or attachments you create remain your own content unless you choose to share them. For privacy questions, contact tvefxt@gmail.com.\n\n9. Policy Updates\nWe may update this policy as the app changes. Updated text will be provided in the app or project repository."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隐私政策\n\n最后更新：2026年6月8日\n\n一、适用范围\n本政策适用于 UniLLMs iOS App。UniLLMs 是一款采用 AGPLv3 开源协议的 LLM 对话客户端，用于在你的设备上配置模型服务商、对话、记忆、提示词、工具、MCP 服务和附件。\n\n二、我们不收集的数据\nUniLLMs 项目及维护者不为本 App 运营分析服务，也不会从你的设备收集个人信息、使用遥测、广告标识符、崩溃报告或诊断日志。本 App 不用于广告追踪或画像。\n\n三、本地存储的数据\n你的对话、服务商配置、API 密钥、模型元数据、记忆、系统提示词、工具设置、MCP 服务设置和 App 偏好会使用 Apple 平台存储保存在你的设备上。除非你主动发送给已配置服务，或通过你启用的 Apple 备份、设备迁移等系统级服务处理，否则这些信息由你控制。\n\n四、云端模型服务与工具\n当你通过云端或 OpenAI 兼容服务商发送消息时，UniLLMs 会将选定对话内容及完成请求所需的上下文发送给你配置的服务商。这可能包括消息、附件、系统提示词、记忆上下文、工具定义、工具结果和模型设置。服务商将根据其自身条款和隐私政策处理这些数据。内置或可配置的服务可能包括 OpenRouter、OpenAI、Anthropic、Gemini、Pollinations 或你添加的其他 OpenAI 兼容服务。\n\n五、用户配置的集成\n如果你配置 MCP 服务、自定义 API 地址或第三方工具，UniLLMs 会在你启用相关功能时与这些端点收发请求。你需要自行审查所配置服务的可信度、访问控制、日志行为、保留期限及隐私政策。\n\n六、媒体、日历与权限\nUniLLMs 仅在你主动为对话添加媒体并授权相关系统权限时访问相机或照片选择器内容。你选择的媒体可能随对话保存在本地，也可能在被纳入请求时发送给所选模型服务商。日历工具仅在你启用并调用时申请读取、创建、更新或删除事件的权限。工具读取或更改的日历事件，以及日历变更的确认结果，可能作为工具结果发送给所选模型服务商，用于完成你的请求。\n\n七、安全\nUniLLMs 的应用代码会避免记录密钥或完整授权头。你仍应妥善保护设备、备份、API 密钥和已配置端点。请不要把密钥输入给你不信任的服务商或工具。\n\n八、开源、协议与联系\nUniLLMs 应用源码以 GNU Affero 通用公共许可证第 3 版（AGPL-3.0）开源，地址为 https://github.com/Zayrick/UniLLMs。该协议约束软件代码；你创建的个人服务商配置、API 密钥、提示词、记忆、对话或附件仍属于你自己的内容，除非你选择分享。隐私相关问题可通过 tvefxt@gmail.com 联系。\n\n九、政策更新\n我们可能会随 App 变化更新本政策。更新后的文本会在 App 或项目仓库中提供。"
+          }
+        }
+      }
+    },
+    "privacy.title" : {
+      "comment" : "Privacy policy screen navigation title.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Privacy Policy"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隐私政策"
+          }
+        }
+      }
+    },
     "provider_configuration.add_model" : {
       "comment" : "Action for adding a manual model ID.",
       "extractionState" : "manual",
@@ -3133,6 +3749,42 @@
         }
       }
     },
+    "providers.fake.model.markdown_math_static" : {
+      "comment" : "Fake provider static model name for the bundled MarkdownMath1.md formula fixture.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Markdown Math Static"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Markdown 公式静态回复"
+          }
+        }
+      }
+    },
+    "providers.fake.model.markdown_math_stream" : {
+      "comment" : "Fake provider streaming model name for the bundled MarkdownMath1.md formula fixture.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Markdown Math Stream"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Markdown 公式流式回复"
+          }
+        }
+      }
+    },
     "providers.fake.model.markdown_static" : {
       "comment" : "Fake provider static markdown fixture model name.",
       "extractionState" : "manual",
@@ -3183,42 +3835,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Markdown流式回复1"
-          }
-        }
-      }
-    },
-    "providers.fake.model.markdown_math_static" : {
-      "comment" : "Fake provider static model name for the bundled MarkdownMath1.md formula fixture.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Markdown Math Static"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Markdown 公式静态回复"
-          }
-        }
-      }
-    },
-    "providers.fake.model.markdown_math_stream" : {
-      "comment" : "Fake provider streaming model name for the bundled MarkdownMath1.md formula fixture.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Markdown Math Stream"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Markdown 公式流式回复"
           }
         }
       }
@@ -3493,240 +4109,6 @@
         }
       }
     },
-    "about.email.title" : {
-      "comment" : "About screen row title for contacting the project by email.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Email"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "联系邮箱"
-          }
-        }
-      }
-    },
-    "about.license.detail" : {
-      "comment" : "About screen detail for the open-source license row.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "GNU Affero General Public License v3.0."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "GNU Affero 通用公共许可证第 3 版。"
-          }
-        }
-      }
-    },
-    "about.license.title" : {
-      "comment" : "About screen row title for opening the project license.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Open Source License"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "开源协议"
-          }
-        }
-      }
-    },
-    "about.open_source.title" : {
-      "comment" : "About screen row title for opening the source repository.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Open Source"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "开源地址"
-          }
-        }
-      }
-    },
-    "about.privacy_policy.detail" : {
-      "comment" : "About screen detail for the privacy policy row.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "How UniLLMs handles local data, providers, tools, and permissions."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "说明 UniLLMs 如何处理本地数据、服务商、工具与权限。"
-          }
-        }
-      }
-    },
-    "about.privacy_policy.title" : {
-      "comment" : "About screen row title for opening the privacy policy.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Privacy Policy"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "隐私政策"
-          }
-        }
-      }
-    },
-    "about.section.contact" : {
-      "comment" : "About screen section title for contact links.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Contact"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "联系"
-          }
-        }
-      }
-    },
-    "about.section.legal" : {
-      "comment" : "About screen section title for legal information.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Legal"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "法律"
-          }
-        }
-      }
-    },
-    "about.summary.detail" : {
-      "comment" : "About screen summary detail for the UniLLMs project.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "An AGPLv3 open-source LLM chat client for configuring providers, conversations, memories, prompts, tools, and attachments on device."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "一款采用 AGPLv3 开源协议的 LLM 对话客户端，用于在设备上配置模型服务商、对话、记忆、提示词、工具与附件。"
-          }
-        }
-      }
-    },
-    "about.summary.title" : {
-      "comment" : "About screen project summary title.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "UniLLMs"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "UniLLMs"
-          }
-        }
-      }
-    },
-    "about.title" : {
-      "comment" : "About screen navigation title.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "About UniLLMs"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "关于 UniLLMs"
-          }
-        }
-      }
-    },
-    "privacy.body" : {
-      "comment" : "Full privacy policy text shown in the About screen.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Privacy Policy\n\nLast updated: June 4, 2026\n\n1. Scope\nThis policy applies to UniLLMs for iOS. UniLLMs is an AGPLv3 open-source LLM chat client that lets you configure model providers, conversations, memories, prompts, tools, MCP servers, and attachments on your device.\n\n2. Data We Do Not Collect\nThe UniLLMs project and its maintainers do not operate an analytics service for this app and do not collect personal information, usage telemetry, advertising identifiers, crash reports, or diagnostic logs from your device. The app does not use tracking for advertising or profiling.\n\n3. Data Stored Locally\nYour conversations, provider configurations, API keys, model metadata, memories, system prompts, tool settings, MCP server settings, and app preferences are stored on your device using Apple platform storage. This information remains under your control unless you choose to send it to a configured service or include it in an Apple backup, device transfer, or other system-level service you enable.\n\n4. Cloud Model Providers and Tools\nWhen you send a message through a cloud or OpenAI-compatible provider, UniLLMs sends the selected conversation content and the required context to the provider you configured. This may include messages, attachments, system prompts, memory context, tool definitions, tool results, and model settings needed to complete the request. The provider processes that data under its own terms and privacy policy. Built-in providers may include OpenRouter, OpenAI, Anthropic, Gemini, Pollinations, or other OpenAI-compatible services you add.\n\n5. User-Configured Integrations\nIf you configure MCP servers, custom API bases, or third-party tools, UniLLMs may send requests and receive responses from those endpoints as part of the features you enable. You are responsible for reviewing the trustworthiness, access controls, logging behavior, retention terms, and privacy policies of services you configure.\n\n6. Media and Permissions\nUniLLMs accesses camera or photo picker content only when you choose to attach media in a conversation and grant the relevant system permission. Selected media may be stored locally with the conversation and may be sent to the selected model provider when included in a request.\n\n7. Security\nUniLLMs avoids logging secrets or full authorization headers in application code. You should still protect your device, backups, API keys, and configured endpoints. Do not enter secrets into providers or tools you do not trust.\n\n8. Open Source, License, and Contact\nThe UniLLMs application source code is available at https://github.com/Zayrick/UniLLMs under the GNU Affero General Public License v3.0 (AGPL-3.0). The license governs the software code; any personal provider configurations, API keys, prompts, memories, conversations, or attachments you create remain your own content unless you choose to share them. For privacy questions, contact tvefxt@gmail.com.\n\n9. Policy Updates\nWe may update this policy as the app changes. Updated text will be provided in the app or project repository."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "隐私政策\n\n最后更新：2026年6月4日\n\n一、适用范围\n本政策适用于 UniLLMs iOS App。UniLLMs 是一款采用 AGPLv3 开源协议的 LLM 对话客户端，用于在你的设备上配置模型服务商、对话、记忆、提示词、工具、MCP 服务和附件。\n\n二、我们不收集的数据\nUniLLMs 项目及维护者不为本 App 运营分析服务，也不会从你的设备收集个人信息、使用遥测、广告标识符、崩溃报告或诊断日志。本 App 不用于广告追踪或画像。\n\n三、本地存储的数据\n你的对话、服务商配置、API 密钥、模型元数据、记忆、系统提示词、工具设置、MCP 服务设置和 App 偏好会使用 Apple 平台存储保存在你的设备上。除非你主动发送给已配置服务，或通过你启用的 Apple 备份、设备迁移等系统级服务处理，否则这些信息由你控制。\n\n四、云端模型服务与工具\n当你通过云端或 OpenAI 兼容服务商发送消息时，UniLLMs 会将选定对话内容及完成请求所需的上下文发送给你配置的服务商。这可能包括消息、附件、系统提示词、记忆上下文、工具定义、工具结果和模型设置。服务商将根据其自身条款和隐私政策处理这些数据。内置或可配置的服务可能包括 OpenRouter、OpenAI、Anthropic、Gemini、Pollinations 或你添加的其他 OpenAI 兼容服务。\n\n五、用户配置的集成\n如果你配置 MCP 服务、自定义 API 地址或第三方工具，UniLLMs 会在你启用相关功能时与这些端点收发请求。你需要自行审查所配置服务的可信度、访问控制、日志行为、保留期限及隐私政策。\n\n六、媒体与权限\nUniLLMs 仅在你主动为对话添加媒体并授权相关系统权限时访问相机或照片选择器内容。你选择的媒体可能随对话保存在本地，也可能在被纳入请求时发送给所选模型服务商。\n\n七、安全\nUniLLMs 的应用代码会避免记录密钥或完整授权头。你仍应妥善保护设备、备份、API 密钥和已配置端点。请不要把密钥输入给你不信任的服务商或工具。\n\n八、开源、协议与联系\nUniLLMs 应用源码以 GNU Affero 通用公共许可证第 3 版（AGPL-3.0）开源，地址为 https://github.com/Zayrick/UniLLMs。该协议约束软件代码；你创建的个人服务商配置、API 密钥、提示词、记忆、对话或附件仍属于你自己的内容，除非你选择分享。隐私相关问题可通过 tvefxt@gmail.com 联系。\n\n九、政策更新\n我们可能会随 App 变化更新本政策。更新后的文本会在 App 或项目仓库中提供。"
-          }
-        }
-      }
-    },
-    "privacy.title" : {
-      "comment" : "Privacy policy screen navigation title.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Privacy Policy"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "隐私政策"
-          }
-        }
-      }
-    },
     "settings.background_runtime.title" : {
       "comment" : "Settings switch title for showing response progress in a system Live Activity.",
       "extractionState" : "manual",
@@ -3741,6 +4123,114 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "实时活动（beta）"
+          }
+        }
+      }
+    },
+    "settings.row.about.title" : {
+      "comment" : "Settings row that opens app and project information.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About Us"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关于我们"
+          }
+        }
+      }
+    },
+    "settings.row.memories.title" : {
+      "comment" : "Settings row that opens memory settings.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memories"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "记忆"
+          }
+        }
+      }
+    },
+    "settings.row.permissions.title" : {
+      "comment" : "Settings row that opens app permission status.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Permissions"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "权限"
+          }
+        }
+      }
+    },
+    "settings.row.providers.title" : {
+      "comment" : "Settings row that opens provider configuration.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "LLM Providers"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模型服务商"
+          }
+        }
+      }
+    },
+    "settings.row.system_prompts.title" : {
+      "comment" : "Settings row that opens system prompt settings.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "System Prompts"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "系统提示词"
+          }
+        }
+      }
+    },
+    "settings.row.tools.title" : {
+      "comment" : "Settings row that opens tool settings.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tools"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "工具"
           }
         }
       }
@@ -3835,398 +4325,38 @@
         }
       }
     },
-    "settings.row.memories.title" : {
-      "comment" : "Settings row that opens memory settings.",
+    "system_prompts.add_prompt" : {
+      "comment" : "Action for adding a system prompt.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Memories"
+            "value" : "Add Prompt"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "记忆"
+            "value" : "添加提示词"
           }
         }
       }
     },
-    "settings.row.providers.title" : {
-      "comment" : "Settings row that opens provider configuration.",
+    "system_prompts.choose_prompt" : {
+      "comment" : "Title when selecting a system prompt for chat.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "LLM Providers"
+            "value" : "Choose Prompt"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "模型服务商"
-          }
-        }
-      }
-    },
-    "settings.row.system_prompts.title" : {
-      "comment" : "Settings row that opens system prompt settings.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "System Prompts"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "系统提示词"
-          }
-        }
-      }
-    },
-    "settings.row.tools.title" : {
-      "comment" : "Settings row that opens tool settings.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tools"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "工具"
-          }
-        }
-      }
-    },
-    "settings.row.permissions.title" : {
-      "comment" : "Settings row that opens app permission status.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Permissions"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "权限"
-          }
-        }
-      }
-    },
-    "settings.row.about.title" : {
-      "comment" : "Settings row that opens app and project information.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "About Us"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "关于我们"
-          }
-        }
-      }
-    },
-    "permissions.camera.detail" : {
-      "comment" : "Permission detail explaining camera access.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Take a photo for chat."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "拍照添加到当前对话。"
-          }
-        }
-      }
-    },
-    "permissions.camera.title" : {
-      "comment" : "Permission row title for camera access.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Camera"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "相机"
-          }
-        }
-      }
-    },
-    "permissions.photos_picker.detail" : {
-      "comment" : "Permission detail explaining system photo picker access.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Attach selected photos to chat."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "把你选中的照片添加到对话。"
-          }
-        }
-      }
-    },
-    "permissions.photos_picker.title" : {
-      "comment" : "Permission row title for the system photo picker.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Photo Picker"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "照片选择器"
-          }
-        }
-      }
-    },
-    "permissions.open_settings.detail" : {
-      "comment" : "Permission shortcut detail for opening system settings.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Manage this app's system permissions."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "管理此 App 的系统权限。"
-          }
-        }
-      }
-    },
-    "permissions.open_settings.title" : {
-      "comment" : "Permission shortcut title for opening system settings.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "App Settings"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "App 设置"
-          }
-        }
-      }
-    },
-    "permissions.section.media" : {
-      "comment" : "Permissions section title for media permissions.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Media"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "媒体"
-          }
-        }
-      }
-    },
-    "permissions.section.shortcuts" : {
-      "comment" : "Permissions section title for system setting shortcuts.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "System"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "系统"
-          }
-        }
-      }
-    },
-    "permissions.status.authorized" : {
-      "comment" : "Permission status for authorized access.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Allowed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已允许"
-          }
-        }
-      }
-    },
-    "permissions.status.denied" : {
-      "comment" : "Permission status for access disabled by the user.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Disabled"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已禁用"
-          }
-        }
-      }
-    },
-    "permissions.status.not_determined" : {
-      "comment" : "Permission status before the user has made a choice.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Not Requested"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "未请求"
-          }
-        }
-      }
-    },
-    "permissions.status.not_required" : {
-      "comment" : "Permission status for features that do not require app authorization.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Not Required"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "无需授权"
-          }
-        }
-      }
-    },
-    "permissions.status.restricted" : {
-      "comment" : "Permission status for system-restricted access.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Restricted"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "受限制"
-          }
-        }
-      }
-    },
-    "permissions.status.unavailable" : {
-      "comment" : "Permission availability status when the feature is unavailable on this device.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Unavailable"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "不可用"
-          }
-        }
-      }
-    },
-    "permissions.status.unknown" : {
-      "comment" : "Permission status for unknown future access values.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Unknown"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "未知"
-          }
-        }
-      }
-    },
-    "permissions.title" : {
-      "comment" : "Title for the permissions status screen.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Permissions"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "权限"
+            "value" : "选择提示词"
           }
         }
       }
@@ -4299,186 +4429,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自定义提示词"
-          }
-        }
-      }
-    },
-    "system_prompts.settings.footer.automatic_context" : {
-      "comment" : "Footer explaining automatic system prompt context settings.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Added to each request so replies can use them when relevant.\nNote: Dynamic items like time or memory can reduce prompt cache hits and increase API costs."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "这些内容会随每次请求附加，供回答按需参考。\n注意：时间、记忆等动态内容可能降低缓存命中率，增加调用成本。"
-          }
-        }
-      }
-    },
-    "system_prompts.settings.row.current_date.detail" : {
-      "comment" : "Detail text for the current date automatic context switch.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Let replies know the current date and time."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "提供当前日期和时间。"
-          }
-        }
-      }
-    },
-    "system_prompts.settings.row.current_date.title" : {
-      "comment" : "Title for the current date automatic context switch.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Current Time"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "当前时间"
-          }
-        }
-      }
-    },
-    "system_prompts.settings.row.memory.detail" : {
-      "comment" : "Detail text for the memory automatic context switch.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Let replies reference saved preferences and details."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "提供已保存的偏好和信息。"
-          }
-        }
-      }
-    },
-    "system_prompts.settings.row.memory.title" : {
-      "comment" : "Title for the memory automatic context switch.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Memory"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "记忆"
-          }
-        }
-      }
-    },
-    "system_prompts.settings.section.automatic_context" : {
-      "comment" : "Section title for context automatically included in prompts.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Auto Include"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "自动附加"
-          }
-        }
-      }
-    },
-    "system_prompts.settings.section.custom_prompts" : {
-      "comment" : "Section title for user-created reusable system prompts.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Custom Prompts"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "自定义提示词"
-          }
-        }
-      }
-    },
-    "system_prompts.settings.section.memory_context" : {
-      "comment" : "Section title for memory automatic context controls.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Memory Include Settings"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "记忆设置"
-          }
-        }
-      }
-    },
-    "system_prompts.add_prompt" : {
-      "comment" : "Action for adding a system prompt.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Add Prompt"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "添加提示词"
-          }
-        }
-      }
-    },
-    "system_prompts.choose_prompt" : {
-      "comment" : "Title when selecting a system prompt for chat.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose Prompt"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "选择提示词"
           }
         }
       }
@@ -4627,6 +4577,150 @@
         }
       }
     },
+    "system_prompts.settings.footer.automatic_context" : {
+      "comment" : "Footer explaining automatic system prompt context settings.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added to each request so replies can use them when relevant.\nNote: Dynamic items like time or memory can reduce prompt cache hits and increase API costs."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这些内容会随每次请求附加，供回答按需参考。\n注意：时间、记忆等动态内容可能降低缓存命中率，增加调用成本。"
+          }
+        }
+      }
+    },
+    "system_prompts.settings.row.current_date.detail" : {
+      "comment" : "Detail text for the current date automatic context switch.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Let replies know the current date and time."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "提供当前日期和时间。"
+          }
+        }
+      }
+    },
+    "system_prompts.settings.row.current_date.title" : {
+      "comment" : "Title for the current date automatic context switch.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Current Time"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前时间"
+          }
+        }
+      }
+    },
+    "system_prompts.settings.row.memory.detail" : {
+      "comment" : "Detail text for the memory automatic context switch.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Let replies reference saved preferences and details."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "提供已保存的偏好和信息。"
+          }
+        }
+      }
+    },
+    "system_prompts.settings.row.memory.title" : {
+      "comment" : "Title for the memory automatic context switch.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memory"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "记忆"
+          }
+        }
+      }
+    },
+    "system_prompts.settings.section.automatic_context" : {
+      "comment" : "Section title for context automatically included in prompts.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto Include"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动附加"
+          }
+        }
+      }
+    },
+    "system_prompts.settings.section.custom_prompts" : {
+      "comment" : "Section title for user-created reusable system prompts.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom Prompts"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自定义提示词"
+          }
+        }
+      }
+    },
+    "system_prompts.settings.section.memory_context" : {
+      "comment" : "Section title for memory automatic context controls.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memory Include Settings"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "记忆设置"
+          }
+        }
+      }
+    },
     "system_prompts.untitled_prompt" : {
       "comment" : "Fallback title for a blank system prompt.",
       "extractionState" : "manual",
@@ -4641,6 +4735,420 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "未命名提示词"
+          }
+        }
+      }
+    },
+    "tools.calendar_tools" : {
+      "comment" : "Grouped calendar tools title.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calendar Tools"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日历工具"
+          }
+        }
+      }
+    },
+    "tools.calendar_tools.detail" : {
+      "comment" : "Detail text for entering calendar tool action settings.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose which calendar actions are available."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择可用的日历操作。"
+          }
+        }
+      }
+    },
+    "tools.calendar_tools.list" : {
+      "comment" : "Calendar tools list entry and title.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calendar Tools List"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日历工具列表"
+          }
+        }
+      }
+    },
+    "tools.calendar.create.name" : {
+      "comment" : "Built-in calendar create tool display name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create Calendar Event"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "创建日历事件"
+          }
+        }
+      }
+    },
+    "tools.calendar.create.summary" : {
+      "comment" : "Built-in calendar create tool summary.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create a calendar event when the user asks."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按用户要求创建日历事件。"
+          }
+        }
+      }
+    },
+    "tools.calendar.delete.name" : {
+      "comment" : "Built-in calendar delete tool display name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Calendar Event"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除日历事件"
+          }
+        }
+      }
+    },
+    "tools.calendar.delete.summary" : {
+      "comment" : "Built-in calendar delete tool summary.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete a calendar event when the user asks."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按用户要求删除日历事件。"
+          }
+        }
+      }
+    },
+    "tools.calendar.error.access_restricted" : {
+      "comment" : "Calendar tool error when system policy restricts calendar access.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calendar access is restricted on this device."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此设备上的日历访问受限。"
+          }
+        }
+      }
+    },
+    "tools.calendar.error.empty_argument_format" : {
+      "comment" : "Calendar tool error when a required text argument is blank. The placeholder is the argument name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ cannot be empty."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 不能为空。"
+          }
+        }
+      }
+    },
+    "tools.calendar.error.full_access_denied" : {
+      "comment" : "Calendar tool error when full calendar access is needed but unavailable.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calendar full access is required to read, update, or delete events. Enable it in Settings."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "读取、更新或删除事件需要完整日历访问权限。请在设置中启用。"
+          }
+        }
+      }
+    },
+    "tools.calendar.error.invalid_bool_format" : {
+      "comment" : "Calendar tool error when a boolean argument is invalid. The placeholder is the argument name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ must be true or false."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 必须为 true 或 false。"
+          }
+        }
+      }
+    },
+    "tools.calendar.error.invalid_date_format" : {
+      "comment" : "Calendar tool error when a date argument is invalid. The placeholder is the argument name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ must be an ISO 8601 date or date-time."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 必须是 ISO 8601 日期或日期时间。"
+          }
+        }
+      }
+    },
+    "tools.calendar.error.invalid_date_range" : {
+      "comment" : "Calendar tool error when the end date is not after the start date.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "end_date must be after start_date."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "end_date 必须晚于 start_date。"
+          }
+        }
+      }
+    },
+    "tools.calendar.error.invalid_integer_format" : {
+      "comment" : "Calendar tool error when an integer argument is invalid. The first placeholder is the argument name; the second is the maximum allowed value.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ must be an integer from 1 to %ld."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 必须是 1 到 %ld 的整数。"
+          }
+        }
+      }
+    },
+    "tools.calendar.error.invalid_url_format" : {
+      "comment" : "Calendar tool error when a URL argument is invalid. The placeholder is the argument name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ must be a valid URL."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 必须是有效 URL。"
+          }
+        }
+      }
+    },
+    "tools.calendar.error.missing_argument_format" : {
+      "comment" : "Calendar tool error when a required argument is missing. The placeholder is the argument name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ is required."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "缺少 %@。"
+          }
+        }
+      }
+    },
+    "tools.calendar.error.missing_event_format" : {
+      "comment" : "Calendar tool error when the requested event ID cannot be found. The placeholder is the event ID.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calendar event is not available: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日历事件不可用：%@"
+          }
+        }
+      }
+    },
+    "tools.calendar.error.no_update_fields" : {
+      "comment" : "Calendar tool error when update is called without any fields to change.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Provide at least one field to update."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请至少提供一个要更新的字段。"
+          }
+        }
+      }
+    },
+    "tools.calendar.error.write_access_denied" : {
+      "comment" : "Calendar tool error when write calendar access is needed but unavailable.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calendar write access is required to create events. Enable it in Settings."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "创建事件需要日历写入权限。请在设置中启用。"
+          }
+        }
+      }
+    },
+    "tools.calendar.read.name" : {
+      "comment" : "Built-in calendar read tool display name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read Calendar Events"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "读取日历事件"
+          }
+        }
+      }
+    },
+    "tools.calendar.read.summary" : {
+      "comment" : "Built-in calendar read tool summary.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read calendar events in a date range when the user asks."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按用户要求读取指定日期范围内的日历事件。"
+          }
+        }
+      }
+    },
+    "tools.calendar.update.name" : {
+      "comment" : "Built-in calendar update tool display name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Update Calendar Event"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更新日历事件"
+          }
+        }
+      }
+    },
+    "tools.calendar.update.summary" : {
+      "comment" : "Built-in calendar update tool summary.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Update a calendar event when the user asks."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按用户要求更新日历事件。"
           }
         }
       }
@@ -4785,6 +5293,42 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "记忆工具"
+          }
+        }
+      }
+    },
+    "tools.memory_tools.detail" : {
+      "comment" : "Detail text for entering memory tool action settings.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose which memory actions are available."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择可用的记忆操作。"
+          }
+        }
+      }
+    },
+    "tools.memory_tools.list" : {
+      "comment" : "Memory tools list entry and title.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memory Tools List"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "记忆工具列表"
           }
         }
       }
@@ -5073,6 +5617,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "内置"
+          }
+        }
+      }
+    },
+    "tools.section.calendar" : {
+      "comment" : "Calendar tools section header.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calendar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日历"
           }
         }
       }

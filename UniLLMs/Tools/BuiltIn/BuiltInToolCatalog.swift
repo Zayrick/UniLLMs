@@ -13,6 +13,10 @@ enum BuiltInToolCatalog {
         ToolRegistry(
             tools: [
                 DateTimeTool(),
+                CalendarCreateTool(),
+                CalendarReadTool(),
+                CalendarUpdateTool(),
+                CalendarDeleteTool(),
                 MemoryAddTool(memoryManager: memoryManager),
                 MemoryDeleteTool(memoryManager: memoryManager),
                 MemoryListTool(memoryManager: memoryManager),

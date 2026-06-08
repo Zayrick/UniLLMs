@@ -6,111 +6,321 @@
 //  Created by Zayrick on 2026/5/15.
 //
 
+import Observation
+import SwiftUI
 import UIKit
 
-final class ToolsViewController: UITableViewController {
-    private enum Section: Int, CaseIterable {
-        case masterSwitch
-        case systemTools
-        case memoryTools
-        case mcpServers
-    }
-
-    private enum ReuseIdentifier {
-        static let builtInToolCell = "BuiltInToolCell"
-        static let serverCell = "MCPServerCell"
-    }
-
-    private let dependencies: AppDependencyContainer
-    private var systemTools: [ToolDefinition] = []
-    private var memoryToolItems: [MemoryToolUserFacingItem] = []
-    private var servers: [MCPServerRecord] = []
-    private var storeObservations: [NSObjectProtocol] = []
+final class ToolsViewController: UIHostingController<ToolsSettingsForm> {
+    private let model: ToolsSettingsModel
+    private let router: ToolsSettingsRouter
 
     init(dependencies: AppDependencyContainer = AppEnvironment.shared.dependencies) {
-        self.dependencies = dependencies
-        super.init(style: .insetGrouped)
+        let model = ToolsSettingsModel(dependencies: dependencies)
+        let router = ToolsSettingsRouter(dependencies: dependencies)
+        self.model = model
+        self.router = router
+        super.init(rootView: ToolsSettingsForm(model: model, router: router))
+        router.hostViewController = self
     }
 
+    @MainActor
     required init?(coder: NSCoder) {
-        dependencies = AppEnvironment.shared.dependencies
-        super.init(coder: coder)
-    }
-
-    deinit {
-        storeObservations.forEach {
-            NotificationCenter.default.removeObserver($0)
-        }
-    }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-
-        title = String(localized: .settingsRowToolsTitle)
-        configureAddButton()
-        configureServerReordering()
-        installStoreObservers()
-        reloadContent()
+        let dependencies = AppEnvironment.shared.dependencies
+        let model = ToolsSettingsModel(dependencies: dependencies)
+        let router = ToolsSettingsRouter(dependencies: dependencies)
+        self.model = model
+        self.router = router
+        super.init(coder: coder, rootView: ToolsSettingsForm(model: model, router: router))
+        router.hostViewController = self
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        model.refreshContent()
+    }
+}
 
-        reloadContent()
+struct ToolsSettingsForm: View {
+    private let model: ToolsSettingsModel
+    private let router: ToolsSettingsRouter
+
+    fileprivate init(
+        model: ToolsSettingsModel,
+        router: ToolsSettingsRouter
+    ) {
+        self.model = model
+        self.router = router
     }
 
-    private func configureAddButton() {
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            barButtonSystemItem: .add,
-            target: self,
-            action: #selector(addMCPServer)
+    var body: some View {
+        Form {
+            masterSwitchSection
+            systemToolsSection
+            groupedToolsSection(.calendar)
+            groupedToolsSection(.memory)
+            mcpServersSection
+        }
+        .navigationTitle(String(localized: .settingsRowToolsTitle))
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if model.servers.count > 1 {
+                    EditButton()
+                }
+
+                Button(action: router.addMCPServer) {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel(String(localized: .generalAdd))
+            }
+        }
+    }
+
+    private var masterSwitchSection: some View {
+        Section {
+            Toggle(isOn: toolsEnabledBinding) {
+                ToolRowLabel(
+                    title: String(localized: .toolsEnableTools),
+                    subtitle: nil,
+                    symbolName: "hammer",
+                    isEnabled: model.isToolsEnabled
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var systemToolsSection: some View {
+        if !model.systemTools.isEmpty {
+            Section(String(localized: .toolsSectionSystem)) {
+                ForEach(model.systemTools) { tool in
+                    ToolToggleRow(
+                        title: tool.presentationName,
+                        subtitle: nil,
+                        symbolName: tool.symbolName ?? "wrench.and.screwdriver",
+                        isEnabled: model.isBuiltInToolEnabled(id: tool.id)
+                    ) { isEnabled in
+                        model.setBuiltInTool(id: tool.id, isEnabled: isEnabled)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func groupedToolsSection(_ group: ToolsSettingsGroup) -> some View {
+        if model.isToolGroupAvailable(group) {
+            Section(group.sectionTitle) {
+                Toggle(isOn: groupBinding(for: group)) {
+                    ToolRowLabel(
+                        title: group.title,
+                        subtitle: model.isToolGroupEnabled(group) ? model.enabledCountSummary(for: group) : nil,
+                        symbolName: group.symbolName,
+                        isEnabled: model.isToolGroupEnabled(group)
+                    )
+                }
+
+                if model.isToolGroupEnabled(group) {
+                    ToolNavigationRow(
+                        title: group.listTitle,
+                        subtitle: group.detailText,
+                        symbolName: group.listSymbolName,
+                        isEnabled: true
+                    ) {
+                        router.showToolGroup(group, model: model)
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
+            .animation(.default, value: model.isToolGroupEnabled(group))
+        }
+    }
+
+    private var mcpServersSection: some View {
+        Section {
+            ForEach(model.servers) { server in
+                MCPServerRow(server: server) {
+                    router.editMCPServer(server)
+                }
+            }
+            .onDelete(perform: model.deleteServers)
+            .onMove(perform: model.moveServers)
+        } header: {
+            Text("MCP")
+        } footer: {
+            if model.servers.isEmpty {
+                Text(String(localized: .toolsFooterNoMcpServers))
+            }
+        }
+    }
+
+    private var toolsEnabledBinding: Binding<Bool> {
+        Binding {
+            model.isToolsEnabled
+        } set: { isEnabled in
+            model.setToolsEnabled(isEnabled)
+        }
+    }
+
+    private func groupBinding(for group: ToolsSettingsGroup) -> Binding<Bool> {
+        Binding {
+            model.isToolGroupEnabled(group)
+        } set: { isEnabled in
+            withAnimation(.default) {
+                model.setToolGroup(group, isEnabled: isEnabled)
+            }
+        }
+    }
+}
+
+private struct ToolGroupSettingsForm: View {
+    let group: ToolsSettingsGroup
+    let model: ToolsSettingsModel
+
+    var body: some View {
+        Form {
+            Section {
+                switch group {
+                case .calendar:
+                    ForEach(model.calendarTools) { tool in
+                        ToolToggleRow(
+                            title: tool.presentationName,
+                            subtitle: tool.summary,
+                            symbolName: tool.symbolName ?? group.symbolName,
+                            isEnabled: model.isBuiltInToolEnabled(id: tool.id)
+                        ) { isEnabled in
+                            model.setBuiltInTool(id: tool.id, isEnabled: isEnabled)
+                        }
+                    }
+                case .memory:
+                    ForEach(model.memoryToolItems, id: \.id) { item in
+                        ToolToggleRow(
+                            title: item.title,
+                            subtitle: model.summaryForBuiltInTool(id: item.id),
+                            symbolName: item.symbolName,
+                            isEnabled: model.isBuiltInToolEnabled(id: item.id)
+                        ) { isEnabled in
+                            model.setBuiltInTool(id: item.id, isEnabled: isEnabled)
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle(group.listTitle)
+    }
+}
+
+private struct ToolToggleRow: View {
+    let title: String
+    let subtitle: String?
+    let symbolName: String
+    let isEnabled: Bool
+    let onToggle: (Bool) -> Void
+
+    var body: some View {
+        Toggle(isOn: binding) {
+            ToolRowLabel(
+                title: title,
+                subtitle: subtitle,
+                symbolName: symbolName,
+                isEnabled: isEnabled
+            )
+        }
+    }
+
+    private var binding: Binding<Bool> {
+        Binding {
+            isEnabled
+        } set: { newValue in
+            onToggle(newValue)
+        }
+    }
+}
+
+private struct ToolNavigationRow: View {
+    let title: String
+    let subtitle: String?
+    let symbolName: String
+    let isEnabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                ToolRowLabel(
+                    title: title,
+                    subtitle: subtitle,
+                    symbolName: symbolName,
+                    isEnabled: isEnabled
+                )
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Color(uiColor: .tertiaryLabel))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct MCPServerRow: View {
+    let server: MCPServerRecord
+    let action: () -> Void
+
+    var body: some View {
+        ToolNavigationRow(
+            title: server.displayName,
+            subtitle: serverSubtitle,
+            symbolName: "server.rack",
+            isEnabled: server.configuration.isEnabled,
+            action: action
         )
     }
 
-    private func configureServerReordering() {
-        tableView.dragInteractionEnabled = true
-        tableView.dragDelegate = self
-        tableView.dropDelegate = self
+    private var serverSubtitle: String? {
+        let endpoint = server.configuration.endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+        return endpoint.isEmpty ? nil : endpoint
+    }
+}
+
+private struct ToolRowLabel: View {
+    let title: String
+    let subtitle: String?
+    let symbolName: String
+    let isEnabled: Bool
+
+    var body: some View {
+        Label {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                if let subtitle,
+                   !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+        } icon: {
+            Image(systemName: symbolName)
+                .foregroundStyle(Color(uiColor: isEnabled ? .systemGreen : .secondaryLabel))
+        }
+    }
+}
+
+@MainActor
+private final class ToolsSettingsRouter {
+    weak var hostViewController: UIViewController?
+
+    private let dependencies: AppDependencyContainer
+
+    init(dependencies: AppDependencyContainer) {
+        self.dependencies = dependencies
     }
 
-    private func installStoreObservers() {
-        let toolSettingsObservation = NotificationCenter.default.addObserver(
-            forName: UserDefaultsToolSettingsStore.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.handleToolSettingsStoreChange()
-        }
-        let mcpServerObservation = NotificationCenter.default.addObserver(
-            forName: UserDefaultsMCPServerStore.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.reloadContent()
-        }
-        storeObservations = [toolSettingsObservation, mcpServerObservation]
-    }
-
-    private func reloadContent() {
-        let builtInTools = dependencies.toolSettingsManager.registeredBuiltInTools()
-        systemTools = builtInTools.filter {
-            !MemoryToolCatalog.containsTool(id: $0.id)
-        }
-        let registeredToolIDs = Set(builtInTools.map(\.id))
-        memoryToolItems = MemoryToolCatalog.userFacingItems.filter {
-            registeredToolIDs.contains($0.id)
-        }
-        servers = dependencies.mcpServerManager.configuredServers()
-        tableView.reloadData()
-    }
-
-    private func handleToolSettingsStoreChange() {
-        updateVisibleToolSettingsCells()
-    }
-
-    @objc private func addMCPServer() {
+    func addMCPServer() {
         let server = dependencies.mcpServerManager.makeServerDraft()
-        navigationController?.pushViewController(
+        hostViewController?.navigationController?.pushViewController(
             MCPServerConfigurationViewController(
                 server: server,
                 dependencies: dependencies,
@@ -120,457 +330,288 @@ final class ToolsViewController: UITableViewController {
         )
     }
 
-    override func numberOfSections(in tableView: UITableView) -> Int {
-        Section.allCases.count
-    }
-
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        guard let section = Section(rawValue: section) else {
-            return 0
-        }
-
-        switch section {
-        case .masterSwitch:
-            return 1
-        case .systemTools:
-            return systemTools.count
-        case .memoryTools:
-            return memoryToolItems.count
-        case .mcpServers:
-            return servers.count
-        }
-    }
-
-    override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        guard let section = Section(rawValue: section) else {
-            return nil
-        }
-
-        switch section {
-        case .masterSwitch:
-            return nil
-        case .systemTools:
-            return String(localized: .toolsSectionSystem)
-        case .memoryTools:
-            return String(localized: .toolsSectionMemory)
-        case .mcpServers:
-            return "MCP"
-        }
-    }
-
-    override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        guard let section = Section(rawValue: section) else {
-            return nil
-        }
-
-        switch section {
-        case .masterSwitch:
-            return nil
-        case .systemTools:
-            return nil
-        case .memoryTools:
-            return nil
-        case .mcpServers:
-            return servers.isEmpty ? String(localized: .toolsFooterNoMcpServers) : nil
-        }
-    }
-
-    override func tableView(
-        _ tableView: UITableView,
-        cellForRowAt indexPath: IndexPath
-    ) -> UITableViewCell {
-        guard let section = Section(rawValue: indexPath.section) else {
-            return UITableViewCell()
-        }
-
-        switch section {
-        case .masterSwitch:
-            return masterSwitchCell()
-        case .systemTools:
-            return systemToolCell(for: indexPath)
-        case .memoryTools:
-            return memoryToolCell(for: indexPath)
-        case .mcpServers:
-            return serverCell(for: indexPath)
-        }
-    }
-
-    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        tableView.deselectRow(at: indexPath, animated: true)
-
-        guard let section = Section(rawValue: indexPath.section),
-              section == .mcpServers,
-              servers.indices.contains(indexPath.row) else {
-            return
-        }
-
-        navigationController?.pushViewController(
+    func editMCPServer(_ server: MCPServerRecord) {
+        hostViewController?.navigationController?.pushViewController(
             MCPServerConfigurationViewController(
-                server: servers[indexPath.row],
+                server: server,
                 dependencies: dependencies
             ),
             animated: true
         )
     }
 
-    override func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
-        indexPath.section == Section.mcpServers.rawValue && servers.count > 1
+    func showToolGroup(_ group: ToolsSettingsGroup, model: ToolsSettingsModel) {
+        let controller = UIHostingController(
+            rootView: ToolGroupSettingsForm(group: group, model: model)
+        )
+        controller.title = group.listTitle
+        hostViewController?.navigationController?.pushViewController(controller, animated: true)
+    }
+}
+
+@MainActor
+@Observable
+private final class ToolsSettingsModel {
+    @ObservationIgnored private let dependencies: AppDependencyContainer
+    @ObservationIgnored private var toolSettingsObservation: NSObjectProtocol?
+    @ObservationIgnored private var mcpServerObservation: NSObjectProtocol?
+
+    var isToolsEnabled = false
+    var systemTools: [ToolDefinition] = []
+    var calendarTools: [ToolDefinition] = []
+    var memoryToolItems: [MemoryToolUserFacingItem] = []
+    var servers: [MCPServerRecord] = []
+    var enabledBuiltInToolIDs: Set<String> = []
+
+    init(dependencies: AppDependencyContainer) {
+        self.dependencies = dependencies
+        installStoreObservers()
+        refreshContent()
     }
 
-    override func tableView(
-        _ tableView: UITableView,
-        moveRowAt sourceIndexPath: IndexPath,
-        to destinationIndexPath: IndexPath
-    ) {
-        moveServer(from: sourceIndexPath, to: destinationIndexPath)
+    deinit {
+        if let toolSettingsObservation {
+            NotificationCenter.default.removeObserver(toolSettingsObservation)
+        }
+        if let mcpServerObservation {
+            NotificationCenter.default.removeObserver(mcpServerObservation)
+        }
     }
 
-    override func tableView(
-        _ tableView: UITableView,
-        targetIndexPathForMoveFromRowAt sourceIndexPath: IndexPath,
-        toProposedIndexPath proposedDestinationIndexPath: IndexPath
-    ) -> IndexPath {
-        guard !servers.isEmpty else {
-            return proposedDestinationIndexPath
+    func refreshContent() {
+        let builtInTools = dependencies.toolSettingsManager.registeredBuiltInTools()
+        let builtInToolsByID = Dictionary(uniqueKeysWithValues: builtInTools.map { ($0.id, $0) })
+        systemTools = builtInTools.filter {
+            !CalendarToolCatalog.containsTool(id: $0.id)
+                && !MemoryToolCatalog.containsTool(id: $0.id)
+        }
+        calendarTools = CalendarToolCatalog.toolIDs.compactMap {
+            builtInToolsByID[$0]
         }
 
-        let row = min(max(proposedDestinationIndexPath.row, 0), servers.count - 1)
-        return IndexPath(row: row, section: Section.mcpServers.rawValue)
-    }
-
-    override func tableView(
-        _ tableView: UITableView,
-        trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath
-    ) -> UISwipeActionsConfiguration? {
-        guard indexPath.section == Section.mcpServers.rawValue,
-              servers.indices.contains(indexPath.row) else {
-            return nil
+        let registeredToolIDs = Set(builtInTools.map(\.id))
+        memoryToolItems = MemoryToolCatalog.userFacingItems.filter {
+            registeredToolIDs.contains($0.id)
         }
 
-        let deleteAction = UIContextualAction(style: .destructive, title: String(localized: .generalDelete)) { [weak self] _, _, completion in
-            guard let self,
-                  servers.indices.contains(indexPath.row) else {
-                completion(false)
-                return
+        refreshToolSettings()
+        refreshServers()
+    }
+
+    func setToolsEnabled(_ isEnabled: Bool) {
+        dependencies.toolSettingsManager.isToolsEnabled = isEnabled
+        refreshToolSettings()
+    }
+
+    func isBuiltInToolEnabled(id: String) -> Bool {
+        enabledBuiltInToolIDs.contains(id)
+    }
+
+    func setBuiltInTool(id: String, isEnabled: Bool) {
+        dependencies.toolSettingsManager.setBuiltInTool(id: id, isEnabled: isEnabled)
+        refreshToolSettings()
+    }
+
+    func isToolGroupAvailable(_ group: ToolsSettingsGroup) -> Bool {
+        !toolIDs(for: group).isEmpty
+    }
+
+    func isToolGroupEnabled(_ group: ToolsSettingsGroup) -> Bool {
+        enabledToolCount(for: group) > 0
+    }
+
+    func enabledCountSummary(for group: ToolsSettingsGroup) -> String {
+        let ids = toolIDs(for: group)
+        return enabledCountSummary(
+            enabledCount: enabledToolCount(for: group),
+            totalCount: ids.count
+        )
+    }
+
+    func setToolGroup(_ group: ToolsSettingsGroup, isEnabled: Bool) {
+        dependencies.toolSettingsManager.setBuiltInTools(
+            ids: toolIDs(for: group),
+            isEnabled: isEnabled
+        )
+        refreshToolSettings()
+    }
+
+    func summaryForBuiltInTool(id: String) -> String? {
+        allBuiltInTools.first { $0.id == id }?.summary
+    }
+
+    func deleteServers(at offsets: IndexSet) {
+        let deletedIDs = Set(
+            offsets.compactMap { index in
+                servers.indices.contains(index) ? servers[index].id : nil
             }
-
-            let server = servers[indexPath.row]
-            dependencies.mcpServerManager.deleteServer(id: server.id)
-            completion(true)
-        }
-        deleteAction.image = UIImage(systemName: "trash")
-
-        let configuration = UISwipeActionsConfiguration(actions: [deleteAction])
-        configuration.performsFirstActionWithFullSwipe = false
-        return configuration
-    }
-
-    private func masterSwitchCell() -> UITableViewCell {
-        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
-        var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = String(localized: .toolsEnableTools)
-        contentConfiguration.image = UIImage(systemName: "hammer")
-        cell.contentConfiguration = contentConfiguration
-
-        let toggle = UISwitch()
-        toggle.isOn = dependencies.toolSettingsManager.isToolsEnabled
-        toggle.addTarget(self, action: #selector(toggleTools(_:)), for: .valueChanged)
-        cell.accessoryView = toggle
-        cell.selectionStyle = .none
-        return cell
-    }
-
-    private func systemToolCell(for indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.builtInToolCell)
-            ?? UITableViewCell(style: .subtitle, reuseIdentifier: ReuseIdentifier.builtInToolCell)
-        let tool = systemTools[indexPath.row]
-        let isEnabled = dependencies.toolSettingsManager.isBuiltInToolEnabled(id: tool.id)
-        configureSystemToolCellContent(
-            cell,
-            tool: tool,
-            isEnabled: isEnabled
         )
+        guard !deletedIDs.isEmpty else {
+            return
+        }
 
-        let toggle = UISwitch()
-        toggle.isOn = isEnabled
-        toggle.tag = indexPath.row
-        toggle.addTarget(self, action: #selector(toggleSystemTool(_:)), for: .valueChanged)
-        cell.accessoryView = toggle
-        cell.accessoryType = .none
-        cell.selectionStyle = .none
-        return cell
+        servers.removeAll {
+            deletedIDs.contains($0.id)
+        }
+        deletedIDs.forEach(dependencies.mcpServerManager.deleteServer)
+        refreshServers()
     }
 
-    private func configureSystemToolCellContent(
-        _ cell: UITableViewCell,
-        tool: ToolDefinition,
-        isEnabled: Bool
+    func moveServers(from source: IndexSet, to destination: Int) {
+        guard !source.isEmpty else {
+            return
+        }
+
+        let previousServers = servers
+        servers.move(fromOffsets: source, toOffset: destination)
+        persistServerOrder(from: previousServers, to: servers)
+        refreshServers()
+    }
+
+    private func installStoreObservers() {
+        toolSettingsObservation = NotificationCenter.default.addObserver(
+            forName: UserDefaultsToolSettingsStore.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshToolSettings()
+            }
+        }
+
+        mcpServerObservation = NotificationCenter.default.addObserver(
+            forName: UserDefaultsMCPServerStore.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshServers()
+            }
+        }
+    }
+
+    private func refreshToolSettings() {
+        isToolsEnabled = dependencies.toolSettingsManager.isToolsEnabled
+        enabledBuiltInToolIDs = Set(
+            allBuiltInTools
+                .filter { dependencies.toolSettingsManager.isBuiltInToolEnabled(id: $0.id) }
+                .map(\.id)
+        )
+    }
+
+    private func refreshServers() {
+        servers = dependencies.mcpServerManager.configuredServers()
+    }
+
+    private var allBuiltInTools: [ToolDefinition] {
+        systemTools + calendarTools
+            + memoryToolItems.compactMap { item in
+                dependencies.toolSettingsManager.registeredBuiltInTools().first {
+                    $0.id == item.id
+                }
+            }
+    }
+
+    private func toolIDs(for group: ToolsSettingsGroup) -> [String] {
+        switch group {
+        case .calendar:
+            calendarTools.map(\.id)
+        case .memory:
+            memoryToolItems.map(\.id)
+        }
+    }
+
+    private func enabledToolCount(for group: ToolsSettingsGroup) -> Int {
+        toolIDs(for: group).filter {
+            enabledBuiltInToolIDs.contains($0)
+        }.count
+    }
+
+    private func enabledCountSummary(enabledCount: Int, totalCount: Int) -> String {
+        String(
+            format: NSLocalizedString("tools.enabled_count_format", comment: ""),
+            locale: Locale.current,
+            arguments: [enabledCount, totalCount]
+        )
+    }
+
+    private func persistServerOrder(
+        from previousServers: [MCPServerRecord],
+        to reorderedServers: [MCPServerRecord]
     ) {
-        var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = tool.presentationName
-        contentConfiguration.image = UIImage(systemName: tool.symbolName ?? "wrench.and.screwdriver")
-        contentConfiguration.imageProperties.tintColor = isEnabled ? .systemGreen : .secondaryLabel
-        cell.contentConfiguration = contentConfiguration
-    }
-
-    private func memoryToolCell(for indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.builtInToolCell)
-            ?? UITableViewCell(style: .default, reuseIdentifier: ReuseIdentifier.builtInToolCell)
-        let item = memoryToolItems[indexPath.row]
-        let isEnabled = dependencies.toolSettingsManager.isBuiltInToolEnabled(id: item.id)
-        configureMemoryToolCellContent(
-            cell,
-            item: item,
-            isEnabled: isEnabled
-        )
-
-        let toggle = UISwitch()
-        toggle.isOn = isEnabled
-        toggle.tag = indexPath.row
-        toggle.addTarget(self, action: #selector(toggleMemoryTool(_:)), for: .valueChanged)
-        cell.accessoryView = toggle
-        cell.accessoryType = .none
-        cell.selectionStyle = .none
-        return cell
-    }
-
-    private func configureMemoryToolCellContent(
-        _ cell: UITableViewCell,
-        item: MemoryToolUserFacingItem,
-        isEnabled: Bool
-    ) {
-        var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = item.title
-        contentConfiguration.image = UIImage(systemName: item.symbolName)
-        contentConfiguration.imageProperties.tintColor = isEnabled ? .systemGreen : .secondaryLabel
-        cell.contentConfiguration = contentConfiguration
-    }
-
-    private func serverCell(for indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.serverCell)
-            ?? UITableViewCell(style: .subtitle, reuseIdentifier: ReuseIdentifier.serverCell)
-        let server = servers[indexPath.row]
-        var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = server.displayName
-        contentConfiguration.secondaryText = serverSubtitle(for: server)
-        contentConfiguration.image = UIImage(systemName: "server.rack")
-        contentConfiguration.imageProperties.tintColor = server.configuration.isEnabled ? .systemGreen : .secondaryLabel
-        cell.contentConfiguration = contentConfiguration
-        cell.accessoryType = .disclosureIndicator
-        cell.showsReorderControl = servers.count > 1
-        return cell
-    }
-
-    @objc private func toggleTools(_ sender: UISwitch) {
-        dependencies.toolSettingsManager.isToolsEnabled = sender.isOn
-    }
-
-    @objc private func toggleSystemTool(_ sender: UISwitch) {
-        guard systemTools.indices.contains(sender.tag) else {
-            return
-        }
-
-        let tool = systemTools[sender.tag]
-        dependencies.toolSettingsManager.setBuiltInTool(
-            id: tool.id,
-            isEnabled: sender.isOn
-        )
-        if let cell = tableView.cellForRow(
-            at: IndexPath(row: sender.tag, section: Section.systemTools.rawValue)
-        ) {
-            configureSystemToolCellContent(
-                cell,
-                tool: tool,
-                isEnabled: sender.isOn
-            )
-        }
-    }
-
-    @objc private func toggleMemoryTool(_ sender: UISwitch) {
-        guard memoryToolItems.indices.contains(sender.tag) else {
-            return
-        }
-
-        let item = memoryToolItems[sender.tag]
-        dependencies.toolSettingsManager.setBuiltInTool(id: item.id, isEnabled: sender.isOn)
-        if let cell = tableView.cellForRow(
-            at: IndexPath(row: sender.tag, section: Section.memoryTools.rawValue)
-        ) {
-            configureMemoryToolCellContent(
-                cell,
-                item: item,
-                isEnabled: sender.isOn
-            )
-        }
-    }
-
-    private func serverSubtitle(for server: MCPServerRecord) -> String? {
-        let endpoint = server.configuration.endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !endpoint.isEmpty else {
-            return nil
-        }
-
-        return endpoint
-    }
-
-    @discardableResult
-    private func moveServer(from sourceIndexPath: IndexPath, to destinationIndexPath: IndexPath) -> Bool {
-        guard sourceIndexPath.section == Section.mcpServers.rawValue,
-              destinationIndexPath.section == Section.mcpServers.rawValue,
-              servers.indices.contains(sourceIndexPath.row),
-              servers.indices.contains(destinationIndexPath.row),
-              sourceIndexPath != destinationIndexPath else {
-            return false
-        }
-
-        let server = servers.remove(at: sourceIndexPath.row)
-        servers.insert(server, at: destinationIndexPath.row)
-        dependencies.mcpServerManager.moveServer(
-            from: sourceIndexPath.row,
-            to: destinationIndexPath.row
-        )
-        return true
-    }
-
-    private func dragItem(for server: MCPServerRecord) -> UIDragItem {
-        let itemProvider = NSItemProvider(object: server.id.uuidString as NSString)
-        let dragItem = UIDragItem(itemProvider: itemProvider)
-        dragItem.localObject = server.id
-        return dragItem
-    }
-
-    private func serverMoveDestinationIndexPath(from proposedIndexPath: IndexPath?) -> IndexPath? {
-        guard !servers.isEmpty else {
-            return nil
-        }
-
-        let proposedRow = proposedIndexPath?.row ?? servers.count - 1
-        let row = min(max(proposedRow, 0), servers.count - 1)
-        return IndexPath(row: row, section: Section.mcpServers.rawValue)
-    }
-
-    private func containsServerDragItem(_ session: UIDropSession) -> Bool {
-        session.localDragSession?.items.contains { item in
-            item.localObject is UUID
-        } == true
-    }
-
-    private func updateVisibleToolSettingsCells() {
-        updateVisibleMasterSwitchCell()
-        updateVisibleSystemToolCells()
-        updateVisibleMemoryToolCells()
-    }
-
-    private func updateVisibleMasterSwitchCell() {
-        let indexPath = IndexPath(row: 0, section: Section.masterSwitch.rawValue)
-        guard let cell = tableView.cellForRow(at: indexPath),
-              let toggle = cell.accessoryView as? UISwitch,
-              toggle.isOn != dependencies.toolSettingsManager.isToolsEnabled else {
-            return
-        }
-
-        toggle.setOn(dependencies.toolSettingsManager.isToolsEnabled, animated: false)
-    }
-
-    private func updateVisibleSystemToolCells() {
-        for (row, tool) in systemTools.enumerated() {
-            let indexPath = IndexPath(row: row, section: Section.systemTools.rawValue)
-            guard let cell = tableView.cellForRow(at: indexPath) else {
+        var workingServers = previousServers
+        for targetIndex in reorderedServers.indices {
+            let desiredID = reorderedServers[targetIndex].id
+            guard let currentIndex = workingServers.firstIndex(where: { $0.id == desiredID }),
+                  currentIndex != targetIndex else {
                 continue
             }
 
-            let isEnabled = dependencies.toolSettingsManager.isBuiltInToolEnabled(id: tool.id)
-            configureSystemToolCellContent(cell, tool: tool, isEnabled: isEnabled)
-            if let toggle = cell.accessoryView as? UISwitch,
-               toggle.isOn != isEnabled {
-                toggle.setOn(isEnabled, animated: false)
-            }
-        }
-    }
-
-    private func updateVisibleMemoryToolCells() {
-        for (row, item) in memoryToolItems.enumerated() {
-            let indexPath = IndexPath(row: row, section: Section.memoryTools.rawValue)
-            guard let cell = tableView.cellForRow(at: indexPath) else {
-                continue
-            }
-
-            let isEnabled = dependencies.toolSettingsManager.isBuiltInToolEnabled(id: item.id)
-            configureMemoryToolCellContent(cell, item: item, isEnabled: isEnabled)
-            if let toggle = cell.accessoryView as? UISwitch,
-               toggle.isOn != isEnabled {
-                toggle.setOn(isEnabled, animated: false)
-            }
+            dependencies.mcpServerManager.moveServer(
+                from: currentIndex,
+                to: targetIndex
+            )
+            let movedServer = workingServers.remove(at: currentIndex)
+            workingServers.insert(movedServer, at: targetIndex)
         }
     }
 }
 
-extension ToolsViewController: UITableViewDragDelegate {
-    func tableView(
-        _ tableView: UITableView,
-        itemsForBeginning session: UIDragSession,
-        at indexPath: IndexPath
-    ) -> [UIDragItem] {
-        guard indexPath.section == Section.mcpServers.rawValue,
-              servers.count > 1,
-              servers.indices.contains(indexPath.row) else {
-            return []
-        }
+private enum ToolsSettingsGroup {
+    case calendar
+    case memory
 
-        return [dragItem(for: servers[indexPath.row])]
+    var title: String {
+        switch self {
+        case .calendar:
+            return String(localized: "tools.calendar_tools")
+        case .memory:
+            return String(localized: "tools.memory_tools")
+        }
     }
 
-    func tableView(
-        _ tableView: UITableView,
-        dragSessionIsRestrictedToDraggingApplication session: UIDragSession
-    ) -> Bool {
-        true
+    var sectionTitle: String {
+        switch self {
+        case .calendar:
+            return String(localized: "tools.section.calendar")
+        case .memory:
+            return String(localized: .toolsSectionMemory)
+        }
     }
 
-    func tableView(
-        _ tableView: UITableView,
-        dragSessionAllowsMoveOperation session: UIDragSession
-    ) -> Bool {
-        true
-    }
-}
-
-extension ToolsViewController: UITableViewDropDelegate {
-    func tableView(
-        _ tableView: UITableView,
-        dropSessionDidUpdate session: UIDropSession,
-        withDestinationIndexPath destinationIndexPath: IndexPath?
-    ) -> UITableViewDropProposal {
-        guard servers.count > 1,
-              containsServerDragItem(session) else {
-            return UITableViewDropProposal(operation: .forbidden)
+    var listTitle: String {
+        switch self {
+        case .calendar:
+            return String(localized: "tools.calendar_tools.list")
+        case .memory:
+            return String(localized: "tools.memory_tools.list")
         }
-
-        return UITableViewDropProposal(operation: .move, intent: .insertAtDestinationIndexPath)
     }
 
-    func tableView(_ tableView: UITableView, performDropWith coordinator: UITableViewDropCoordinator) {
-        guard let item = coordinator.items.first(where: { $0.dragItem.localObject is UUID }),
-              let sourceIndexPath = item.sourceIndexPath,
-              let serverID = item.dragItem.localObject as? UUID,
-              sourceIndexPath.section == Section.mcpServers.rawValue,
-              servers.indices.contains(sourceIndexPath.row),
-              servers[sourceIndexPath.row].id == serverID,
-              let destinationIndexPath = serverMoveDestinationIndexPath(
-                from: coordinator.destinationIndexPath
-              ) else {
-            return
+    var detailText: String {
+        switch self {
+        case .calendar:
+            return String(localized: "tools.calendar_tools.detail")
+        case .memory:
+            return String(localized: "tools.memory_tools.detail")
         }
+    }
 
-        guard sourceIndexPath != destinationIndexPath else {
-            coordinator.drop(item.dragItem, toRowAt: destinationIndexPath)
-            return
+    var symbolName: String {
+        switch self {
+        case .calendar:
+            return "calendar"
+        case .memory:
+            return "brain.head.profile"
         }
+    }
 
-        moveServer(from: sourceIndexPath, to: destinationIndexPath)
-        tableView.performBatchUpdates {
-            tableView.moveRow(at: sourceIndexPath, to: destinationIndexPath)
+    var listSymbolName: String {
+        switch self {
+        case .calendar:
+            return "calendar.badge.clock"
+        case .memory:
+            return "brain.head.profile"
         }
-        coordinator.drop(item.dragItem, toRowAt: destinationIndexPath)
     }
 }

@@ -15,6 +15,10 @@ final class ToolCatalogTests: XCTestCase {
         )
 
         XCTAssertNotNil(registry.tool(id: "current_datetime"))
+        XCTAssertNotNil(registry.tool(id: "calendar_create"))
+        XCTAssertNotNil(registry.tool(id: "calendar_read"))
+        XCTAssertNotNil(registry.tool(id: "calendar_update"))
+        XCTAssertNotNil(registry.tool(id: "calendar_delete"))
         XCTAssertNotNil(registry.tool(id: "memory_add"))
         XCTAssertNotNil(registry.tool(id: "memory_delete"))
         XCTAssertNotNil(registry.tool(id: "memory_list"))
