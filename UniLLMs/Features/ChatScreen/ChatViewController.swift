@@ -128,6 +128,8 @@ final class ChatViewController: UIViewController {
     private var activeResponseTask: Task<Void, Never>?
     private var activeContinuationTask: ChatContinuationTask?
     private weak var activeResponseView: AssistantResponseTextView?
+    private var isFlushingMessagesLayoutAfterContentChange = false
+    private var isDeferredMessagesLayoutFlushScheduled = false
     private var pendingAttachments: [ChatAttachment] = []
     private var privateModeAttachmentReferences: [ChatAttachment] = []
     private let attachmentStore = ChatAttachmentStore.shared
@@ -1632,8 +1634,44 @@ final class ChatViewController: UIViewController {
             return
         }
 
+        flushMessagesLayoutAfterContentChange()
+        scheduleDeferredMessagesLayoutFlush()
+    }
+
+    private func flushMessagesLayoutAfterContentChange() {
+        guard !isFlushingMessagesLayoutAfterContentChange else {
+            return
+        }
+
+        isFlushingMessagesLayoutAfterContentChange = true
+        defer {
+            isFlushingMessagesLayoutAfterContentChange = false
+        }
+
         mainPageView.layoutIfNeeded()
+        updateMessagesContentInsets()
+        mainPageView.layoutIfNeeded()
+        messagesScrollView.layoutIfNeeded()
+        messagesContentView.layoutIfNeeded()
+        messagesStackView.layoutIfNeeded()
+        messagesStackView.refreshStreamingContentAfterAncestorLayoutChange()
         updateMessagesContentOffsetAfterLayoutChange()
+    }
+
+    private func scheduleDeferredMessagesLayoutFlush() {
+        guard !isDeferredMessagesLayoutFlushScheduled else {
+            return
+        }
+
+        isDeferredMessagesLayoutFlushScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else {
+                return
+            }
+
+            self.isDeferredMessagesLayoutFlushScheduled = false
+            self.flushMessagesLayoutAfterContentChange()
+        }
     }
 
     private func configureAssistantResponseLayoutUpdates(for responseView: AssistantResponseTextView) {
@@ -2313,6 +2351,24 @@ final class ChatViewController: UIViewController {
         }
     }
 
+}
+
+private extension UIView {
+    func refreshStreamingContentAfterAncestorLayoutChange() {
+        if let hostView = self as? StreamingContentHostView {
+            hostView.refreshAfterAncestorLayoutChange()
+            return
+        }
+
+        if let contentView = self as? StreamingContentView {
+            contentView.refreshAfterAncestorLayoutChange()
+            return
+        }
+
+        subviews.forEach {
+            $0.refreshStreamingContentAfterAncestorLayoutChange()
+        }
+    }
 }
 
 extension ChatViewController: QLPreviewControllerDataSource, QLPreviewControllerDelegate {

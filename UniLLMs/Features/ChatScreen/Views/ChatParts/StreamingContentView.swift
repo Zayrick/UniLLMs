@@ -119,6 +119,17 @@ final class StreamingContentView: UIView {
         requestHeightUpdate()
     }
 
+    func refreshAfterAncestorLayoutChange() {
+        setNeedsLayout()
+        webView.setNeedsLayout()
+        webView.scrollView.setNeedsLayout()
+
+        layoutIfNeeded()
+        webView.layoutIfNeeded()
+        webView.scrollView.layoutIfNeeded()
+        requestHeightUpdate()
+    }
+
     private func configure() {
         backgroundColor = .clear
         isOpaque = false
@@ -335,6 +346,13 @@ final class StreamingContentHostView: UIView {
 
     func finishStreamingContent() {
         contentView.finishStreamingContent()
+        updateContentHeight()
+    }
+
+    func refreshAfterAncestorLayoutChange() {
+        setNeedsLayout()
+        layoutIfNeeded()
+        contentView.refreshAfterAncestorLayoutChange()
         updateContentHeight()
     }
 
