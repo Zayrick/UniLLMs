@@ -107,6 +107,10 @@ final class AssistantResponseTextView: UIView {
         updateVisibility()
     }
 
+    func prepareForStreamingResponse() {
+        timelineView.prepareRawTextRendering()
+    }
+
     private func configure() {
         backgroundColor = .clear
         isOpaque = false
@@ -429,6 +433,7 @@ private final class AssistantResponseTimelineView: UIView {
     private let stackView = UIStackView()
     private var segments: [Segment] = []
     private weak var activeThinkingSection: ThinkingSectionView?
+    private var preparedRawTextHostView: StreamingContentHostView?
     private var toolSectionsByCallID: [String: ThinkingSectionView] = [:]
 
     var onLayoutInvalidated: (() -> Void)?
@@ -464,6 +469,15 @@ private final class AssistantResponseTimelineView: UIView {
         }
 
         invalidateTimelineLayout()
+    }
+
+    func prepareRawTextRendering() {
+        guard preparedRawTextHostView == nil,
+              lastRawTextHostView == nil else {
+            return
+        }
+
+        preparedRawTextHostView = makeRawTextHostView()
     }
 
     func appendStoredRawText(_ rawText: String) {
@@ -593,7 +607,8 @@ private final class AssistantResponseTimelineView: UIView {
             return
         }
 
-        let hostView = makeRawTextHostView()
+        let hostView = preparedRawTextHostView ?? makeRawTextHostView()
+        preparedRawTextHostView = nil
         addSegment(Segment(kind: .rawText, view: hostView))
         if asFinishedContent {
             hostView.setFinishedContent(rawTextDelta)

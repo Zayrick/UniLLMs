@@ -90,6 +90,12 @@ final class StreamingContentView: UIView {
         requestHeightUpdate()
     }
 
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        applyCurrentStyle()
+        requestHeightUpdate()
+    }
+
     override func sizeThatFits(_ size: CGSize) -> CGSize {
         CGSize(width: size.width, height: contentHeight)
     }

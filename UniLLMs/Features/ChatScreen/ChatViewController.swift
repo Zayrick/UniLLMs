@@ -1502,6 +1502,7 @@ final class ChatViewController: UIViewController {
     ) {
         activeResponseView = responseView
         activeContinuationTask = continuationTask
+        responseView.prepareForStreamingResponse()
         activeContinuationTask?.onExpiration = { [weak self] in
             self?.cancelAssistantResponseStream()
         }
