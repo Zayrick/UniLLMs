@@ -2,345 +2,276 @@
 //  LLMsProviderListViewController.swift
 //  UniLLMs
 //
-//  Displays, adds, and deletes LLM provider configurations with new providers added through the registry.
+//  Hosts provider configuration management.
 //  Created by Zayrick on 2026/5/11.
 //
 
+import Observation
+import SwiftUI
 import UIKit
 
-final class LLMsProviderViewController: UITableViewController {
-    private enum ReuseIdentifier {
-        static let providerCell = "LLMsProviderCell"
-    }
-
-    private let dependencies: AppDependencyContainer
-    private var providers: [LLMsProviderRecord] = []
+final class LLMsProviderViewController: UIHostingController<LLMsProviderListView> {
+    private let model: LLMsProviderListModel
+    private let router: LLMsProviderListRouter
 
     init(dependencies: AppDependencyContainer = AppEnvironment.shared.dependencies) {
-        self.dependencies = dependencies
-        super.init(style: .insetGrouped)
+        let model = LLMsProviderListModel(dependencies: dependencies)
+        let router = LLMsProviderListRouter(dependencies: dependencies)
+        self.model = model
+        self.router = router
+        super.init(rootView: LLMsProviderListView(model: model, router: router))
+        router.hostViewController = self
     }
 
+    @MainActor
     required init?(coder: NSCoder) {
-        dependencies = AppEnvironment.shared.dependencies
-        super.init(coder: coder)
-    }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-
-        title = String(localized: .settingsRowProvidersTitle)
-
-        configureAddButton()
-        configureProviderReordering()
-        reloadProviders()
+        let dependencies = AppEnvironment.shared.dependencies
+        let model = LLMsProviderListModel(dependencies: dependencies)
+        let router = LLMsProviderListRouter(dependencies: dependencies)
+        self.model = model
+        self.router = router
+        super.init(coder: coder, rootView: LLMsProviderListView(model: model, router: router))
+        router.hostViewController = self
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-
-        reloadProviders()
+        model.refreshProviders()
     }
+}
 
-    private func configureAddButton() {
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            systemItem: .add,
-            menu: providerMenu()
-        )
-    }
+struct LLMsProviderListView: View {
+    private let model: LLMsProviderListModel
+    private let router: LLMsProviderListRouter
 
-    private func configureProviderReordering() {
-        tableView.dragInteractionEnabled = true
-        tableView.dragDelegate = self
-        tableView.dropDelegate = self
-    }
-
-    private func reloadProviders() {
-        providers = dependencies.providerStore.fetchProviders()
-        tableView.reloadData()
-        setNeedsUpdateContentUnavailableConfiguration()
-    }
-
-    private func providerMenu() -> UIMenu {
-        let actions = dependencies.providerRegistry.adapters.map { adapter in
-            UIAction(title: adapter.displayName) { [weak self] _ in
-                self?.presentNewProvider(kind: adapter.kind)
-            }
-        }
-
-        return UIMenu(title: String(localized: .providersAddProvider), children: actions)
-    }
-
-    private func presentNewProvider(kind: LLMsProviderKind) {
-        do {
-            let provider = try dependencies.providerManager.makeProviderDraft(kind: kind)
-            guard !dependencies.providerManager.configurationFields(for: kind).isEmpty else {
-                dependencies.providerStore.saveProvider(provider)
-                reloadProviders()
-                return
-            }
-
-            navigationController?.pushViewController(
-                ProviderConfigurationViewController(
-                    provider: provider,
-                    dependencies: dependencies,
-                    isNewProvider: true
-                ),
-                animated: true
-            )
-        } catch {
-            presentProviderError(error)
-        }
-    }
-
-    override func updateContentUnavailableConfiguration(
-        using state: UIContentUnavailableConfigurationState
+    fileprivate init(
+        model: LLMsProviderListModel,
+        router: LLMsProviderListRouter
     ) {
-        guard providers.isEmpty else {
-            contentUnavailableConfiguration = nil
+        self.model = model
+        self.router = router
+    }
+
+    var body: some View {
+        Group {
+            if model.providers.isEmpty {
+                emptyContent
+            } else {
+                providersList
+            }
+        }
+        .navigationTitle(String(localized: .settingsRowProvidersTitle))
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if model.providers.count > 1 {
+                    EditButton()
+                }
+
+                addProviderMenu(iconOnly: true)
+            }
+        }
+        .settingsAlert(alertBinding)
+    }
+
+    private var providersList: some View {
+        List {
+            Section(String(localized: .providersSectionProviders)) {
+                ForEach(model.providers) { provider in
+                    Button {
+                        router.editProvider(provider)
+                    } label: {
+                        HStack(spacing: 12.0) {
+                            SettingsRowLabel(
+                                title: model.displayName(for: provider),
+                                symbolName: "globe",
+                                tintColor: .systemBlue
+                            )
+                            Spacer(minLength: 8.0)
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(Color(uiColor: .tertiaryLabel))
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .onDelete(perform: model.deleteProviders)
+                .onMove(perform: model.moveProviders)
+            }
+        }
+    }
+
+    private var emptyContent: some View {
+        ContentUnavailableView {
+            Label(String(localized: .providersNoProviders), systemImage: "globe")
+        } description: {
+            Text(String(localized: .providersNoProvidersDetail))
+        } actions: {
+            addProviderMenu(iconOnly: false)
+                .buttonStyle(.borderedProminent)
+        }
+    }
+
+    private func addProviderMenu(iconOnly: Bool) -> some View {
+        Menu {
+            ForEach(model.providerMenuItems) { item in
+                Button(item.displayName) {
+                    router.addProvider(kind: item.kind, model: model)
+                }
+            }
+        } label: {
+            if iconOnly {
+                Image(systemName: "plus")
+            } else {
+                Label(String(localized: .providersAddProvider), systemImage: "plus")
+            }
+        }
+        .accessibilityLabel(String(localized: .providersAddProvider))
+    }
+
+    private var alertBinding: Binding<SettingsAlert?> {
+        Binding {
+            model.alert
+        } set: { alert in
+            model.alert = alert
+        }
+    }
+}
+
+@MainActor
+private final class LLMsProviderListRouter {
+    weak var hostViewController: UIViewController?
+
+    private let dependencies: AppDependencyContainer
+
+    init(dependencies: AppDependencyContainer) {
+        self.dependencies = dependencies
+    }
+
+    func addProvider(kind: LLMsProviderKind, model: LLMsProviderListModel) {
+        guard let provider = model.makeProvider(kind: kind) else {
             return
         }
 
-        var configuration = UIContentUnavailableConfiguration.empty()
-        configuration.image = UIImage(systemName: "globe")
-        configuration.text = String(localized: .providersNoProviders)
-        configuration.secondaryText = String(localized: .providersNoProvidersDetail)
-        configuration.button = addProviderButtonConfiguration()
-        configuration.buttonProperties.menu = providerMenu()
-        contentUnavailableConfiguration = configuration
-    }
-
-    private func addProviderButtonConfiguration() -> UIButton.Configuration {
-        var configuration = UIButton.Configuration.filled()
-        configuration.title = String(localized: .providersAddProvider)
-        configuration.image = UIImage(systemName: "plus")
-        configuration.imagePadding = 6
-        return configuration
-    }
-
-    override func numberOfSections(in tableView: UITableView) -> Int {
-        providers.isEmpty ? 0 : 1
-    }
-
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        providers.count
-    }
-
-    override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        String(localized: .providersSectionProviders)
-    }
-
-    override func tableView(
-        _ tableView: UITableView,
-        cellForRowAt indexPath: IndexPath
-    ) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.providerCell)
-            ?? UITableViewCell(style: .default, reuseIdentifier: ReuseIdentifier.providerCell)
-        let provider = providers[indexPath.row]
-
-        var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = dependencies.providerManager.displayName(for: provider)
-        contentConfiguration.image = UIImage(systemName: "globe")
-
-        cell.contentConfiguration = contentConfiguration
-        cell.accessoryType = .disclosureIndicator
-        cell.showsReorderControl = providers.count > 1
-        return cell
-    }
-
-    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        tableView.deselectRow(at: indexPath, animated: true)
-
-        let provider = providers[indexPath.row]
-        navigationController?.pushViewController(
-            ProviderConfigurationViewController(provider: provider, dependencies: dependencies),
+        hostViewController?.navigationController?.pushViewController(
+            ProviderConfigurationViewController(
+                provider: provider,
+                dependencies: dependencies,
+                isNewProvider: true
+            ),
             animated: true
         )
     }
 
-    override func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
-        indexPath.section == 0 && providers.count > 1
+    func editProvider(_ provider: LLMsProviderRecord) {
+        hostViewController?.navigationController?.pushViewController(
+            ProviderConfigurationViewController(provider: provider, dependencies: dependencies),
+            animated: true
+        )
+    }
+}
+
+@MainActor
+@Observable
+private final class LLMsProviderListModel {
+    @ObservationIgnored private let dependencies: AppDependencyContainer
+
+    var providers: [LLMsProviderRecord] = []
+    var alert: SettingsAlert?
+
+    init(dependencies: AppDependencyContainer) {
+        self.dependencies = dependencies
+        refreshProviders()
     }
 
-    override func tableView(
-        _ tableView: UITableView,
-        moveRowAt sourceIndexPath: IndexPath,
-        to destinationIndexPath: IndexPath
-    ) {
-        moveProvider(from: sourceIndexPath, to: destinationIndexPath)
-    }
-
-    override func tableView(
-        _ tableView: UITableView,
-        targetIndexPathForMoveFromRowAt sourceIndexPath: IndexPath,
-        toProposedIndexPath proposedDestinationIndexPath: IndexPath
-    ) -> IndexPath {
-        guard !providers.isEmpty else {
-            return proposedDestinationIndexPath
+    var providerMenuItems: [LLMsProviderMenuItem] {
+        dependencies.providerRegistry.adapters.map {
+            LLMsProviderMenuItem(kind: $0.kind, displayName: $0.displayName)
         }
-
-        let row = min(max(proposedDestinationIndexPath.row, 0), providers.count - 1)
-        return IndexPath(row: row, section: 0)
     }
 
-    override func tableView(
-        _ tableView: UITableView,
-        trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath
-    ) -> UISwipeActionsConfiguration? {
-        let deleteAction = UIContextualAction(style: .destructive, title: String(localized: .generalDelete)) { [weak self] _, _, completion in
-            guard let self,
-                  indexPath.row < providers.count else {
-                completion(false)
-                return
+    func refreshProviders() {
+        providers = dependencies.providerStore.fetchProviders()
+    }
+
+    func displayName(for provider: LLMsProviderRecord) -> String {
+        dependencies.providerManager.displayName(for: provider)
+    }
+
+    func makeProvider(kind: LLMsProviderKind) -> LLMsProviderRecord? {
+        do {
+            let provider = try dependencies.providerManager.makeProviderDraft(kind: kind)
+            guard !dependencies.providerManager.configurationFields(for: kind).isEmpty else {
+                dependencies.providerStore.saveProvider(provider)
+                refreshProviders()
+                return nil
             }
 
-            deleteProvider(at: indexPath, completion: completion)
-        }
-        deleteAction.image = UIImage(systemName: "trash")
-
-        let configuration = UISwipeActionsConfiguration(actions: [deleteAction])
-        configuration.performsFirstActionWithFullSwipe = false
-        return configuration
-    }
-
-    @discardableResult
-    private func moveProvider(from sourceIndexPath: IndexPath, to destinationIndexPath: IndexPath) -> Bool {
-        guard sourceIndexPath.section == 0,
-              destinationIndexPath.section == 0,
-              providers.indices.contains(sourceIndexPath.row),
-              providers.indices.contains(destinationIndexPath.row),
-              sourceIndexPath != destinationIndexPath else {
-            return false
-        }
-
-        let provider = providers.remove(at: sourceIndexPath.row)
-        providers.insert(provider, at: destinationIndexPath.row)
-        dependencies.providerStore.moveProvider(
-            from: sourceIndexPath.row,
-            to: destinationIndexPath.row
-        )
-        return true
-    }
-
-    private func deleteProvider(at indexPath: IndexPath, completion: @escaping (Bool) -> Void) {
-        let provider = providers.remove(at: indexPath.row)
-        dependencies.providerStore.deleteProvider(id: provider.id)
-
-        guard !providers.isEmpty else {
-            tableView.reloadData()
-            setNeedsUpdateContentUnavailableConfiguration()
-            completion(true)
-            return
-        }
-
-        tableView.performBatchUpdates {
-            tableView.deleteRows(at: [indexPath], with: .fade)
-        } completion: { [weak self] _ in
-            self?.setNeedsUpdateContentUnavailableConfiguration()
-            completion(true)
-        }
-    }
-
-    private func dragItem(for provider: LLMsProviderRecord) -> UIDragItem {
-        let itemProvider = NSItemProvider(object: provider.id.uuidString as NSString)
-        let dragItem = UIDragItem(itemProvider: itemProvider)
-        dragItem.localObject = provider.id
-        return dragItem
-    }
-
-    private func providerMoveDestinationIndexPath(from proposedIndexPath: IndexPath?) -> IndexPath? {
-        guard !providers.isEmpty else {
+            return provider
+        } catch {
+            alert = SettingsAlert(
+                title: String(localized: .providersErrorUnableToAdd),
+                message: error.localizedDescription
+            )
             return nil
         }
-
-        let proposedRow = proposedIndexPath?.row ?? providers.count - 1
-        let row = min(max(proposedRow, 0), providers.count - 1)
-        return IndexPath(row: row, section: 0)
     }
 
-    private func containsProviderDragItem(_ session: UIDropSession) -> Bool {
-        session.localDragSession?.items.contains { item in
-            item.localObject is UUID
-        } == true
-    }
-
-    private func presentProviderError(_ error: Error) {
-        let alertController = UIAlertController(
-            title: String(localized: .providersErrorUnableToAdd),
-            message: error.localizedDescription,
-            preferredStyle: .alert
-        )
-        alertController.addAction(UIAlertAction(title: String(localized: .generalOk), style: .default))
-        present(alertController, animated: true)
-    }
-}
-
-extension LLMsProviderViewController: UITableViewDragDelegate {
-    func tableView(
-        _ tableView: UITableView,
-        itemsForBeginning session: UIDragSession,
-        at indexPath: IndexPath
-    ) -> [UIDragItem] {
-        guard indexPath.section == 0,
-              providers.count > 1,
-              providers.indices.contains(indexPath.row) else {
-            return []
+    func deleteProviders(at offsets: IndexSet) {
+        let deletedIDs = offsets.compactMap { index in
+            providers.indices.contains(index) ? providers[index].id : nil
         }
-
-        return [dragItem(for: providers[indexPath.row])]
-    }
-
-    func tableView(
-        _ tableView: UITableView,
-        dragSessionIsRestrictedToDraggingApplication session: UIDragSession
-    ) -> Bool {
-        true
-    }
-
-    func tableView(
-        _ tableView: UITableView,
-        dragSessionAllowsMoveOperation session: UIDragSession
-    ) -> Bool {
-        true
-    }
-}
-
-extension LLMsProviderViewController: UITableViewDropDelegate {
-    func tableView(
-        _ tableView: UITableView,
-        dropSessionDidUpdate session: UIDropSession,
-        withDestinationIndexPath destinationIndexPath: IndexPath?
-    ) -> UITableViewDropProposal {
-        guard providers.count > 1,
-              containsProviderDragItem(session) else {
-            return UITableViewDropProposal(operation: .forbidden)
-        }
-
-        return UITableViewDropProposal(operation: .move, intent: .insertAtDestinationIndexPath)
-    }
-
-    func tableView(_ tableView: UITableView, performDropWith coordinator: UITableViewDropCoordinator) {
-        guard let item = coordinator.items.first(where: { $0.dragItem.localObject is UUID }),
-              let sourceIndexPath = item.sourceIndexPath,
-              let providerID = item.dragItem.localObject as? UUID,
-              sourceIndexPath.section == 0,
-              providers.indices.contains(sourceIndexPath.row),
-              providers[sourceIndexPath.row].id == providerID,
-              let destinationIndexPath = providerMoveDestinationIndexPath(
-                from: coordinator.destinationIndexPath
-              ) else {
+        guard !deletedIDs.isEmpty else {
             return
         }
 
-        guard sourceIndexPath != destinationIndexPath else {
-            coordinator.drop(item.dragItem, toRowAt: destinationIndexPath)
+        withAnimation {
+            providers.removeAll {
+                deletedIDs.contains($0.id)
+            }
+        }
+        deletedIDs.forEach(dependencies.providerStore.deleteProvider)
+        refreshProviders()
+    }
+
+    func moveProviders(from source: IndexSet, to destination: Int) {
+        guard !source.isEmpty else {
             return
         }
 
-        moveProvider(from: sourceIndexPath, to: destinationIndexPath)
-        tableView.performBatchUpdates {
-            tableView.moveRow(at: sourceIndexPath, to: destinationIndexPath)
-        }
-        coordinator.drop(item.dragItem, toRowAt: destinationIndexPath)
+        let previousProviders = providers
+        providers.move(fromOffsets: source, toOffset: destination)
+        persistProviderOrder(from: previousProviders, to: providers)
+        refreshProviders()
     }
+
+    private func persistProviderOrder(
+        from previousProviders: [LLMsProviderRecord],
+        to reorderedProviders: [LLMsProviderRecord]
+    ) {
+        var workingProviders = previousProviders
+        for targetIndex in reorderedProviders.indices {
+            let desiredID = reorderedProviders[targetIndex].id
+            guard let currentIndex = workingProviders.firstIndex(where: { $0.id == desiredID }),
+                  currentIndex != targetIndex else {
+                continue
+            }
+
+            dependencies.providerStore.moveProvider(
+                from: currentIndex,
+                to: targetIndex
+            )
+            let movedProvider = workingProviders.remove(at: currentIndex)
+            workingProviders.insert(movedProvider, at: targetIndex)
+        }
+    }
+}
+
+private struct LLMsProviderMenuItem: Identifiable {
+    var id: LLMsProviderKind {
+        kind
+    }
+
+    let kind: LLMsProviderKind
+    let displayName: String
 }

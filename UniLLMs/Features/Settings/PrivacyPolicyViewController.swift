@@ -2,47 +2,37 @@
 //  PrivacyPolicyViewController.swift
 //  UniLLMs
 //
-//  Displays the app privacy policy.
+//  Hosts the app privacy policy.
 //
 
+import SwiftUI
 import UIKit
 
-final class PrivacyPolicyViewController: UIViewController {
-    private let textView = UITextView()
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-
-        title = String(localized: "privacy.title")
-        configureView()
-        configureTextView()
+final class PrivacyPolicyViewController: UIHostingController<PrivacyPolicyView> {
+    init() {
+        super.init(rootView: PrivacyPolicyView())
     }
 
-    private func configureView() {
-        view.backgroundColor = .systemBackground
+    @MainActor
+    required init?(coder: NSCoder) {
+        super.init(coder: coder, rootView: PrivacyPolicyView())
     }
+}
 
-    private func configureTextView() {
-        textView.translatesAutoresizingMaskIntoConstraints = false
-        textView.backgroundColor = .systemBackground
-        textView.textColor = .label
-        textView.font = .preferredFont(forTextStyle: .body)
-        textView.adjustsFontForContentSizeCategory = true
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.alwaysBounceVertical = true
-        textView.dataDetectorTypes = [.link]
-        textView.textContainerInset = UIEdgeInsets(top: 20.0, left: 16.0, bottom: 32.0, right: 16.0)
-        textView.text = String(localized: "privacy.body")
-        textView.accessibilityLabel = String(localized: "privacy.title")
-
-        view.addSubview(textView)
-
-        NSLayoutConstraint.activate([
-            textView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            textView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            textView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            textView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
+struct PrivacyPolicyView: View {
+    var body: some View {
+        ScrollView {
+            Text(String(localized: "privacy.body"))
+                .font(.body)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16.0)
+                .padding(.top, 20.0)
+                .padding(.bottom, 32.0)
+                .textSelection(.enabled)
+        }
+        .background(Color(uiColor: .systemBackground))
+        .navigationTitle(String(localized: "privacy.title"))
+        .navigationBarTitleDisplayMode(.inline)
+        .accessibilityLabel(String(localized: "privacy.title"))
     }
 }

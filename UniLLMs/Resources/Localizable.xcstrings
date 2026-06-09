@@ -1,6 +1,32 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "{\"Authorization\":\"Bearer token\"}" : {
+
+    },
+    "%@, %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, %2$@"
+          }
+        }
+      }
+    },
+    "%@, %@, %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, %2$@, %3$@"
+          }
+        }
+      }
+    },
+    "60" : {
+
+    },
     "about.email.title" : {
       "comment" : "About screen row title for contacting the project by email.",
       "extractionState" : "manual",
@@ -1171,6 +1197,24 @@
         }
       }
     },
+    "general.close" : {
+      "comment" : "Generic close action.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭"
+          }
+        }
+      }
+    },
     "general.collapsed" : {
       "comment" : "Accessibility value for collapsed disclosure content.",
       "extractionState" : "manual",
@@ -1297,24 +1341,6 @@
         }
       }
     },
-    "general.save" : {
-      "comment" : "Generic save action.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Save"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保存"
-          }
-        }
-      }
-    },
     "general.opens_preview" : {
       "comment" : "Accessibility hint for an item that opens a file preview.",
       "extractionState" : "manual",
@@ -1329,6 +1355,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "打开预览"
+          }
+        }
+      }
+    },
+    "general.save" : {
+      "comment" : "Generic save action.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存"
           }
         }
       }
@@ -1404,6 +1448,9 @@
           }
         }
       }
+    },
+    "https://example.com/mcp" : {
+
     },
     "json.error.unsupported_content_part_type_format" : {
       "comment" : "Error when decoding an unsupported provider content part type.",

@@ -2,32 +2,241 @@
 //  MemoryListViewController.swift
 //  UniLLMs
 //
-//  Displays saved memories for review and editing.
+//  Hosts saved memory review and editing.
 //
 
+import Observation
+import SwiftUI
 import UIKit
 
-final class MemoryListViewController: UITableViewController {
-    private enum ReuseIdentifier {
-        static let memoryCell = "MemoryCell"
-    }
-
-    private let dependencies: AppDependencyContainer
-    private let searchController = UISearchController(searchResultsController: nil)
-    private var memories: [MemoryRecord] = []
-    private var visibleMemories: [MemoryRecord] = []
-    private var storeObservation: NSObjectProtocol?
-    private var reloadTask: Task<Void, Never>?
-    private var clearTask: Task<Void, Never>?
+final class MemoryListViewController: UIHostingController<MemoryListView> {
+    private let model: MemoryListModel
+    private let router: MemoryListRouter
 
     init(dependencies: AppDependencyContainer = AppEnvironment.shared.dependencies) {
-        self.dependencies = dependencies
-        super.init(style: .insetGrouped)
+        let model = MemoryListModel(dependencies: dependencies)
+        let router = MemoryListRouter(dependencies: dependencies)
+        self.model = model
+        self.router = router
+        super.init(rootView: MemoryListView(model: model, router: router))
+        router.hostViewController = self
     }
 
+    @MainActor
     required init?(coder: NSCoder) {
-        dependencies = AppEnvironment.shared.dependencies
-        super.init(coder: coder)
+        let dependencies = AppEnvironment.shared.dependencies
+        let model = MemoryListModel(dependencies: dependencies)
+        let router = MemoryListRouter(dependencies: dependencies)
+        self.model = model
+        self.router = router
+        super.init(coder: coder, rootView: MemoryListView(model: model, router: router))
+        router.hostViewController = self
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        model.reloadContent()
+    }
+}
+
+struct MemoryListView: View {
+    private let model: MemoryListModel
+    private let router: MemoryListRouter
+
+    fileprivate init(
+        model: MemoryListModel,
+        router: MemoryListRouter
+    ) {
+        self.model = model
+        self.router = router
+    }
+
+    var body: some View {
+        Group {
+            if model.visibleMemories.isEmpty {
+                emptyContent
+            } else {
+                memoriesList
+            }
+        }
+        .navigationTitle(String(localized: .memoriesMemory))
+        .searchable(
+            text: searchTextBinding,
+            prompt: String(localized: .memoriesSearchSavedMemories)
+        )
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                actionsMenu
+            }
+        }
+        .confirmationDialog(
+            String(localized: .memoriesClearAllConfirmationTitle),
+            isPresented: clearAllConfirmationBinding,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: .memoriesClearMemories), role: .destructive) {
+                model.clearAllMemories()
+            }
+            Button(String(localized: .generalCancel), role: .cancel) {}
+        } message: {
+            Text(model.clearAllConfirmationMessage)
+        }
+        .settingsAlert(alertBinding)
+        .task {
+            model.reloadContent()
+        }
+    }
+
+    private var memoriesList: some View {
+        List {
+            ForEach(model.visibleMemories) { memory in
+                Button {
+                    router.editMemory(memory)
+                } label: {
+                    HStack(spacing: 12.0) {
+                        SettingsRowLabel(
+                            title: model.displayText(for: memory),
+                            subtitle: String(localized: .generalUpdatedFormat(memory.updatedAt.formatted(date: .abbreviated, time: .shortened))),
+                            symbolName: "brain.head.profile",
+                            tintColor: .systemTeal,
+                            subtitleLineLimit: 1
+                        )
+                        Spacer(minLength: 8.0)
+                        Image(systemName: "chevron.right")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(Color(uiColor: .tertiaryLabel))
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            .onDelete(perform: model.deleteVisibleMemories)
+        }
+    }
+
+    private var emptyContent: some View {
+        ContentUnavailableView {
+            Label(emptyTitle, systemImage: "brain.head.profile")
+        } description: {
+            Text(emptyDetail)
+        } actions: {
+            if model.memories.isEmpty {
+                Button {
+                    router.addMemory()
+                } label: {
+                    Label(String(localized: .memoriesAddMemory), systemImage: "plus")
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+    }
+
+    private var actionsMenu: some View {
+        Menu {
+            Button {
+                router.addMemory()
+            } label: {
+                Label(String(localized: .memoriesAddMemory), systemImage: "plus")
+            }
+
+            Button(role: .destructive) {
+                model.showClearAllConfirmation()
+            } label: {
+                Label(String(localized: .memoriesClearAll), systemImage: "trash")
+            }
+            .disabled(model.memories.isEmpty)
+        } label: {
+            Image(systemName: "ellipsis")
+        }
+        .accessibilityLabel(String(localized: .generalMore))
+    }
+
+    private var emptyTitle: String {
+        model.memories.isEmpty
+            ? String(localized: .memoriesEmptyNoSavedTitle)
+            : String(localized: .memoriesEmptyNoMatchingTitle)
+    }
+
+    private var emptyDetail: String {
+        model.memories.isEmpty
+            ? String(localized: .memoriesEmptyNoSavedDetail)
+            : String(localized: .memoriesEmptyNoMatchingDetail)
+    }
+
+    private var searchTextBinding: Binding<String> {
+        Binding {
+            model.searchText
+        } set: { text in
+            model.searchText = text
+        }
+    }
+
+    private var clearAllConfirmationBinding: Binding<Bool> {
+        Binding {
+            model.isShowingClearAllConfirmation
+        } set: { isShowing in
+            model.isShowingClearAllConfirmation = isShowing
+        }
+    }
+
+    private var alertBinding: Binding<SettingsAlert?> {
+        Binding {
+            model.alert
+        } set: { alert in
+            model.alert = alert
+        }
+    }
+}
+
+@MainActor
+private final class MemoryListRouter {
+    weak var hostViewController: UIViewController?
+
+    private let dependencies: AppDependencyContainer
+
+    init(dependencies: AppDependencyContainer) {
+        self.dependencies = dependencies
+    }
+
+    func addMemory() {
+        hostViewController?.navigationController?.pushViewController(
+            MemoryEditorViewController(
+                memory: dependencies.memoryManager.makeMemoryDraft(),
+                dependencies: dependencies,
+                isNewMemory: true
+            ),
+            animated: true
+        )
+    }
+
+    func editMemory(_ memory: MemoryRecord) {
+        hostViewController?.navigationController?.pushViewController(
+            MemoryEditorViewController(
+                memory: memory,
+                dependencies: dependencies
+            ),
+            animated: true
+        )
+    }
+}
+
+@MainActor
+@Observable
+private final class MemoryListModel {
+    @ObservationIgnored private let dependencies: AppDependencyContainer
+    @ObservationIgnored private var storeObservation: NSObjectProtocol?
+    @ObservationIgnored private var reloadTask: Task<Void, Never>?
+    @ObservationIgnored private var clearTask: Task<Void, Never>?
+
+    var memories: [MemoryRecord] = []
+    var searchText = ""
+    var isShowingClearAllConfirmation = false
+    var alert: SettingsAlert?
+
+    init(dependencies: AppDependencyContainer) {
+        self.dependencies = dependencies
+        installStoreObserver()
+        reloadContent()
     }
 
     deinit {
@@ -38,60 +247,108 @@ final class MemoryListViewController: UITableViewController {
         }
     }
 
-    override func viewDidLoad() {
-        super.viewDidLoad()
-
-        title = String(localized: .memoriesMemory)
-        configureActionsMenu()
-        configureSearch()
-        installStoreObserver()
-        reloadContent()
+    var visibleMemories: [MemoryRecord] {
+        MemoryTextSearch.filtered(memories, matching: searchText)
     }
 
-    override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
-
-        reloadContent()
+    var clearAllConfirmationMessage: String {
+        memories.count == 1
+            ? String(localized: .memoriesClearAllConfirmationOneMessage)
+            : String(localized: .memoriesClearAllConfirmationCountMessageFormat(memories.count))
     }
 
-    private func configureActionsMenu() {
-        let actionsButton = UIBarButtonItem(
-            image: UIImage(systemName: "ellipsis"),
-            menu: actionsMenu()
-        )
-        actionsButton.accessibilityLabel = String(localized: .generalMore)
-        navigationItem.rightBarButtonItem = actionsButton
+    func reloadContent() {
+        reloadTask?.cancel()
+        reloadTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+
+            do {
+                let memories = try await dependencies.memoryManager.savedMemories(scope: .user)
+                guard !Task.isCancelled else {
+                    return
+                }
+
+                self.memories = memories
+            } catch {
+                guard !Task.isCancelled else {
+                    return
+                }
+
+                memories = []
+                alert = SettingsAlert(
+                    title: String(localized: .memoriesMemory),
+                    message: error.localizedDescription
+                )
+            }
+        }
     }
 
-    private func actionsMenu() -> UIMenu {
-        let addAction = UIAction(
-            title: String(localized: .memoriesAddMemory),
-            image: UIImage(systemName: "plus")
-        ) { [weak self] _ in
-            self?.addMemory()
+    func showClearAllConfirmation() {
+        guard !memories.isEmpty else {
+            return
         }
 
-        let deleteAttributes: UIMenuElement.Attributes = memories.isEmpty
-            ? [.destructive, .disabled]
-            : .destructive
-        let deleteAction = UIAction(
-            title: String(localized: .memoriesClearAll),
-            image: UIImage(systemName: "trash"),
-            attributes: deleteAttributes
-        ) { [weak self] _ in
-            self?.presentClearAllConfirmation()
-        }
-
-        return UIMenu(children: [addAction, deleteAction])
+        isShowingClearAllConfirmation = true
     }
 
-    private func configureSearch() {
-        searchController.searchResultsUpdater = self
-        searchController.obscuresBackgroundDuringPresentation = false
-        searchController.searchBar.placeholder = String(localized: .memoriesSearchSavedMemories)
-        navigationItem.searchController = searchController
-        navigationItem.hidesSearchBarWhenScrolling = false
-        definesPresentationContext = true
+    func deleteVisibleMemories(at offsets: IndexSet) {
+        let deletedIDs = offsets.compactMap { index in
+            visibleMemories.indices.contains(index) ? visibleMemories[index].id : nil
+        }
+        guard !deletedIDs.isEmpty else {
+            return
+        }
+
+        memories.removeAll {
+            deletedIDs.contains($0.id)
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+
+            do {
+                for id in deletedIDs {
+                    try await dependencies.memoryManager.deleteMemory(id: id)
+                }
+            } catch {
+                alert = SettingsAlert(
+                    title: String(localized: .generalDelete),
+                    message: error.localizedDescription
+                )
+                reloadContent()
+            }
+        }
+    }
+
+    func clearAllMemories() {
+        clearTask?.cancel()
+        clearTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+
+            do {
+                try await dependencies.memoryManager.deleteAllMemories(scope: .user)
+            } catch {
+                alert = SettingsAlert(
+                    title: String(localized: .memoriesClearAll),
+                    message: error.localizedDescription
+                )
+                reloadContent()
+            }
+        }
+    }
+
+    func displayText(for memory: MemoryRecord) -> String {
+        let text = memory.text
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        return text.isEmpty ? String(localized: .memoriesUntitledMemory) : text
     }
 
     private func installStoreObserver() {
@@ -100,209 +357,9 @@ final class MemoryListViewController: UITableViewController {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.reloadContent()
-        }
-    }
-
-    private func reloadContent() {
-        reloadTask?.cancel()
-        reloadTask = Task { @MainActor [weak self] in
-            guard let self else {
-                return
-            }
-
-            do {
-                let memories = try await self.dependencies.memoryManager.savedMemories(scope: .user)
-                guard !Task.isCancelled else {
-                    return
-                }
-
-                self.memories = memories
-                self.navigationItem.rightBarButtonItem?.menu = self.actionsMenu()
-                self.applySearchFilter()
-            } catch {
-                guard !Task.isCancelled else {
-                    return
-                }
-
-                self.memories = []
-                self.visibleMemories = []
-                self.navigationItem.rightBarButtonItem?.menu = self.actionsMenu()
-                self.tableView.reloadData()
-                self.setNeedsUpdateContentUnavailableConfiguration()
+            Task { @MainActor [weak self] in
+                self?.reloadContent()
             }
         }
-    }
-
-    @objc private func addMemory() {
-        navigationController?.pushViewController(
-            MemoryEditorViewController(
-                memory: dependencies.memoryManager.makeMemoryDraft(),
-                dependencies: dependencies,
-                isNewMemory: true
-            ),
-            animated: true
-        )
-    }
-
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        visibleMemories.count
-    }
-
-    override func updateContentUnavailableConfiguration(
-        using state: UIContentUnavailableConfigurationState
-    ) {
-        guard visibleMemories.isEmpty else {
-            contentUnavailableConfiguration = nil
-            return
-        }
-
-        var configuration = UIContentUnavailableConfiguration.empty()
-        configuration.image = UIImage(systemName: "brain.head.profile")
-        if memories.isEmpty {
-            configuration.text = String(localized: .memoriesEmptyNoSavedTitle)
-            configuration.secondaryText = String(localized: .memoriesEmptyNoSavedDetail)
-            configuration.button = addMemoryButtonConfiguration()
-            configuration.buttonProperties.primaryAction = UIAction { [weak self] _ in
-                self?.addMemory()
-            }
-        } else {
-            configuration.text = String(localized: .memoriesEmptyNoMatchingTitle)
-            configuration.secondaryText = String(localized: .memoriesEmptyNoMatchingDetail)
-        }
-        contentUnavailableConfiguration = configuration
-    }
-
-    private func addMemoryButtonConfiguration() -> UIButton.Configuration {
-        var configuration = UIButton.Configuration.filled()
-        configuration.title = String(localized: .memoriesAddMemory)
-        configuration.image = UIImage(systemName: "plus")
-        configuration.imagePadding = 6
-        return configuration
-    }
-
-    override func tableView(
-        _ tableView: UITableView,
-        cellForRowAt indexPath: IndexPath
-    ) -> UITableViewCell {
-        memoryCell(for: indexPath)
-    }
-
-    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        tableView.deselectRow(at: indexPath, animated: true)
-        guard visibleMemories.indices.contains(indexPath.row) else {
-            return
-        }
-
-        navigationController?.pushViewController(
-            MemoryEditorViewController(
-                memory: visibleMemories[indexPath.row],
-                dependencies: dependencies
-            ),
-            animated: true
-        )
-    }
-
-    override func tableView(
-        _ tableView: UITableView,
-        trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath
-    ) -> UISwipeActionsConfiguration? {
-        guard visibleMemories.indices.contains(indexPath.row) else {
-            return nil
-        }
-
-        let memoryID = visibleMemories[indexPath.row].id
-        let deleteAction = UIContextualAction(style: .destructive, title: String(localized: .generalDelete)) { [weak self] _, _, completion in
-            guard let self else {
-                completion(false)
-                return
-            }
-
-            Task { @MainActor in
-                do {
-                    try await self.dependencies.memoryManager.deleteMemory(id: memoryID)
-                    completion(true)
-                } catch {
-                    completion(false)
-                }
-            }
-        }
-        deleteAction.image = UIImage(systemName: "trash")
-
-        let configuration = UISwipeActionsConfiguration(actions: [deleteAction])
-        configuration.performsFirstActionWithFullSwipe = false
-        return configuration
-    }
-
-    private func memoryCell(for indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.memoryCell)
-            ?? UITableViewCell(style: .subtitle, reuseIdentifier: ReuseIdentifier.memoryCell)
-        let memory = visibleMemories[indexPath.row]
-        var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = displayText(for: memory)
-        contentConfiguration.secondaryText = String(localized: .generalUpdatedFormat(memory.updatedAt.formatted(date: .abbreviated, time: .shortened)))
-        contentConfiguration.secondaryTextProperties.numberOfLines = 1
-        contentConfiguration.image = UIImage(systemName: "brain.head.profile")
-        cell.contentConfiguration = contentConfiguration
-        cell.accessoryType = .disclosureIndicator
-        return cell
-    }
-
-    private func applySearchFilter() {
-        let query = searchController.searchBar.text ?? ""
-        visibleMemories = MemoryTextSearch.filtered(memories, matching: query)
-        tableView.reloadData()
-        setNeedsUpdateContentUnavailableConfiguration()
-    }
-
-    private func presentClearAllConfirmation() {
-        guard !memories.isEmpty else {
-            return
-        }
-
-        let message = memories.count == 1
-            ? String(localized: .memoriesClearAllConfirmationOneMessage)
-            : String(localized: .memoriesClearAllConfirmationCountMessageFormat(memories.count))
-        let alertController = UIAlertController(
-            title: String(localized: .memoriesClearAllConfirmationTitle),
-            message: message,
-            preferredStyle: .alert
-        )
-        alertController.addAction(UIAlertAction(title: String(localized: .generalCancel), style: .cancel))
-        alertController.addAction(
-            UIAlertAction(title: String(localized: .memoriesClearMemories), style: .destructive) { [weak self] _ in
-                self?.clearAllMemories()
-            }
-        )
-        present(alertController, animated: true)
-    }
-
-    private func clearAllMemories() {
-        clearTask?.cancel()
-        clearTask = Task { @MainActor [weak self] in
-            guard let self else {
-                return
-            }
-
-            do {
-                try await self.dependencies.memoryManager.deleteAllMemories(scope: .user)
-            } catch {
-                self.reloadContent()
-            }
-        }
-    }
-
-    private func displayText(for memory: MemoryRecord) -> String {
-        let text = memory.text
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-        return text.isEmpty ? String(localized: .memoriesUntitledMemory) : text
-    }
-}
-
-extension MemoryListViewController: UISearchResultsUpdating {
-    func updateSearchResults(for searchController: UISearchController) {
-        applySearchFilter()
     }
 }

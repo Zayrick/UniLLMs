@@ -2,136 +2,162 @@
 //  MemoryEditorViewController.swift
 //  UniLLMs
 //
-//  Edits a saved long-term memory.
+//  Hosts saved long-term memory editing.
 //
 
+import Observation
+import SwiftUI
 import UIKit
 
-final class MemoryEditorViewController: UITableViewController {
-    private enum Section: Int, CaseIterable {
-        case memory
-
-        var headerTitle: String? {
-            String(localized: .memoriesMemory)
-        }
-
-        var footerTitle: String? {
-            nil
-        }
-    }
-
-    private let dependencies: AppDependencyContainer
-    private var memory: MemoryRecord
-    private var savedMemory: MemoryRecord
-    private var isNewMemory: Bool
-    private var memoryText: String
-    private var saveTask: Task<Void, Never>?
-
-    private lazy var saveButtonItem = UIBarButtonItem(
-        barButtonSystemItem: .save,
-        target: self,
-        action: #selector(saveMemory)
-    )
+final class MemoryEditorViewController: UIHostingController<MemoryEditorForm> {
+    private let model: MemoryEditorModel
+    private let router: MemoryEditorRouter
 
     init(
         memory: MemoryRecord,
         dependencies: AppDependencyContainer = AppEnvironment.shared.dependencies,
         isNewMemory: Bool = false
     ) {
+        let model = MemoryEditorModel(
+            memory: memory,
+            dependencies: dependencies,
+            isNewMemory: isNewMemory
+        )
+        let router = MemoryEditorRouter()
+        self.model = model
+        self.router = router
+        super.init(rootView: MemoryEditorForm(model: model, router: router))
+        router.hostViewController = self
+    }
+
+    @MainActor
+    required init?(coder: NSCoder) {
+        let dependencies = AppEnvironment.shared.dependencies
+        let model = MemoryEditorModel(
+            memory: dependencies.memoryManager.makeMemoryDraft(),
+            dependencies: dependencies,
+            isNewMemory: true
+        )
+        let router = MemoryEditorRouter()
+        self.model = model
+        self.router = router
+        super.init(coder: coder, rootView: MemoryEditorForm(model: model, router: router))
+        router.hostViewController = self
+    }
+}
+
+struct MemoryEditorForm: View {
+    private let model: MemoryEditorModel
+    private let router: MemoryEditorRouter
+
+    fileprivate init(
+        model: MemoryEditorModel,
+        router: MemoryEditorRouter
+    ) {
+        self.model = model
+        self.router = router
+    }
+
+    var body: some View {
+        Form {
+            Section(String(localized: .memoriesMemory)) {
+                SettingsTextEditor(
+                    text: memoryTextBinding,
+                    placeholder: String(localized: .memoriesMemoryPlaceholder),
+                    accessibilityLabel: String(localized: .memoriesMemory),
+                    minimumHeight: 220.0
+                )
+            }
+        }
+        .navigationTitle(model.navigationTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .scrollDismissesKeyboard(.interactively)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(String(localized: .generalSave)) {
+                    router.saveMemory(model)
+                }
+                .disabled(!model.canSaveMemory || model.isSaving)
+            }
+        }
+        .settingsAlert(alertBinding)
+    }
+
+    private var memoryTextBinding: Binding<String> {
+        Binding {
+            model.memoryText
+        } set: { text in
+            model.memoryText = text
+        }
+    }
+
+    private var alertBinding: Binding<SettingsAlert?> {
+        Binding {
+            model.alert
+        } set: { alert in
+            model.alert = alert
+        }
+    }
+}
+
+@MainActor
+private final class MemoryEditorRouter {
+    weak var hostViewController: UIViewController?
+
+    func saveMemory(_ model: MemoryEditorModel) {
+        hostViewController?.view.endEditing(true)
+
+        Task { @MainActor [weak self] in
+            guard let self,
+                  await model.saveMemory() else {
+                return
+            }
+
+            hostViewController?.navigationController?.popViewController(animated: true)
+        }
+    }
+}
+
+@MainActor
+@Observable
+private final class MemoryEditorModel {
+    @ObservationIgnored private let dependencies: AppDependencyContainer
+
+    private var memory: MemoryRecord
+    private var savedMemory: MemoryRecord
+    private var isNewMemory: Bool
+
+    var memoryText: String
+    var isSaving = false
+    var alert: SettingsAlert?
+
+    init(
+        memory: MemoryRecord,
+        dependencies: AppDependencyContainer,
+        isNewMemory: Bool
+    ) {
         self.memory = memory
         savedMemory = memory
         self.isNewMemory = isNewMemory
         self.dependencies = dependencies
         memoryText = memory.text
-        super.init(style: .insetGrouped)
     }
 
-    required init?(coder: NSCoder) {
-        let dependencies = AppEnvironment.shared.dependencies
-        self.dependencies = dependencies
-        memory = dependencies.memoryManager.makeMemoryDraft()
-        savedMemory = memory
-        isNewMemory = true
-        memoryText = memory.text
-        super.init(coder: coder)
+    var navigationTitle: String {
+        isNewMemory ? String(localized: .memoriesNewMemory) : String(localized: .memoriesMemory)
     }
 
-    deinit {
-        saveTask?.cancel()
-    }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-
-        title = navigationTitle
-        navigationItem.largeTitleDisplayMode = .never
-        navigationItem.rightBarButtonItem = saveButtonItem
-        tableView.keyboardDismissMode = .interactive
-        tableView.rowHeight = UITableView.automaticDimension
-        tableView.estimatedRowHeight = 220
-        tableView.register(
-            MemoryTextViewCell.self,
-            forCellReuseIdentifier: MemoryTextViewCell.reuseIdentifier
-        )
-        updateSaveButtonState()
-    }
-
-    override func numberOfSections(in tableView: UITableView) -> Int {
-        Section.allCases.count
-    }
-
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        1
-    }
-
-    override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        Section(rawValue: section)?.headerTitle
-    }
-
-    override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        Section(rawValue: section)?.footerTitle
-    }
-
-    override func tableView(
-        _ tableView: UITableView,
-        cellForRowAt indexPath: IndexPath
-    ) -> UITableViewCell {
-        memoryCell()
-    }
-
-    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        tableView.deselectRow(at: indexPath, animated: true)
-
-        guard let cell = tableView.cellForRow(at: indexPath) as? MemoryTextViewCell else {
-            return
+    var canSaveMemory: Bool {
+        guard let memoryForSaving else {
+            return false
         }
 
-        cell.activateTextView()
+        return isNewMemory || memoryForSaving != savedMemory
     }
 
-    private func memoryCell() -> UITableViewCell {
-        guard let cell = tableView.dequeueReusableCell(
-            withIdentifier: MemoryTextViewCell.reuseIdentifier
-        ) as? MemoryTextViewCell else {
-            return UITableViewCell()
-        }
-
-        cell.configure(
-            text: memoryText,
-            placeholder: String(localized: .memoriesMemoryPlaceholder)
-        )
-        cell.onTextChange = { [weak self] text in
-            self?.memoryText = text
-            self?.updateAfterFieldChange()
-        }
-        return cell
-    }
-
-    @objc private func saveMemory() {
-        view.endEditing(true)
+    func saveMemory() async -> Bool {
         guard var memoryForSaving else {
-            updateSaveButtonState()
-            return
+            return false
         }
 
         let now = Date()
@@ -139,47 +165,23 @@ final class MemoryEditorViewController: UITableViewController {
             memoryForSaving.createdAt = now
         }
         memoryForSaving.updatedAt = now
-        saveButtonItem.isEnabled = false
+        isSaving = true
 
-        saveTask?.cancel()
-        saveTask = Task { @MainActor [weak self] in
-            guard let self else {
-                return
-            }
-
-            do {
-                try await self.dependencies.memoryManager.saveMemory(memoryForSaving)
-                self.memory = memoryForSaving
-                self.savedMemory = memoryForSaving
-                self.isNewMemory = false
-                self.title = self.navigationTitle
-                self.updateSaveButtonState()
-                self.navigationController?.popViewController(animated: true)
-            } catch {
-                self.updateSaveButtonState()
-            }
-        }
-    }
-
-    private func updateAfterFieldChange() {
-        title = navigationTitle
-        updateSaveButtonState()
-    }
-
-    private func updateSaveButtonState() {
-        saveButtonItem.isEnabled = canSaveMemory
-    }
-
-    private var navigationTitle: String {
-        isNewMemory ? String(localized: .memoriesNewMemory) : String(localized: .memoriesMemory)
-    }
-
-    private var canSaveMemory: Bool {
-        guard let memoryForSaving else {
+        do {
+            try await dependencies.memoryManager.saveMemory(memoryForSaving)
+            memory = memoryForSaving
+            savedMemory = memoryForSaving
+            isNewMemory = false
+            isSaving = false
+            return true
+        } catch {
+            isSaving = false
+            alert = SettingsAlert(
+                title: String(localized: .memoriesMemory),
+                message: error.localizedDescription
+            )
             return false
         }
-
-        return isNewMemory || memoryForSaving != savedMemory
     }
 
     private var memoryForSaving: MemoryRecord? {
@@ -192,94 +194,5 @@ final class MemoryEditorViewController: UITableViewController {
         updatedMemory.scope = .user
         updatedMemory.text = trimmedText
         return updatedMemory
-    }
-}
-
-private final class MemoryTextViewCell: UITableViewCell {
-    static let reuseIdentifier = "MemoryTextViewCell"
-
-    private enum Layout {
-        static let minimumHeight: CGFloat = 220
-    }
-
-    private let textView = UITextView()
-    private let placeholderLabel = UILabel()
-
-    var onTextChange: ((String) -> Void)?
-
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        configure()
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        configure()
-    }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
-
-        onTextChange = nil
-        textView.text = ""
-        placeholderLabel.text = nil
-        updatePlaceholderVisibility()
-    }
-
-    func configure(text: String, placeholder: String) {
-        textView.text = text
-        placeholderLabel.text = placeholder
-        updatePlaceholderVisibility()
-    }
-
-    func activateTextView() {
-        textView.becomeFirstResponder()
-    }
-
-    private func configure() {
-        selectionStyle = .none
-
-        textView.delegate = self
-        textView.font = .preferredFont(forTextStyle: .body)
-        textView.adjustsFontForContentSizeCategory = true
-        textView.backgroundColor = .clear
-        textView.textContainerInset = .zero
-        textView.textContainer.lineFragmentPadding = 0
-        textView.accessibilityLabel = String(localized: .memoriesMemory)
-        textView.translatesAutoresizingMaskIntoConstraints = false
-
-        placeholderLabel.font = .preferredFont(forTextStyle: .body)
-        placeholderLabel.adjustsFontForContentSizeCategory = true
-        placeholderLabel.textColor = .placeholderText
-        placeholderLabel.lineBreakMode = .byWordWrapping
-        placeholderLabel.numberOfLines = 0
-        placeholderLabel.isUserInteractionEnabled = false
-        placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        contentView.addSubview(textView)
-        contentView.addSubview(placeholderLabel)
-
-        let margins = contentView.layoutMarginsGuide
-        NSLayoutConstraint.activate([
-            textView.topAnchor.constraint(equalTo: margins.topAnchor),
-            textView.leadingAnchor.constraint(equalTo: margins.leadingAnchor),
-            textView.trailingAnchor.constraint(equalTo: margins.trailingAnchor),
-            textView.bottomAnchor.constraint(equalTo: margins.bottomAnchor),
-            textView.heightAnchor.constraint(greaterThanOrEqualToConstant: Layout.minimumHeight),
-            placeholderLabel.topAnchor.constraint(equalTo: textView.topAnchor),
-            placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor),
-            placeholderLabel.trailingAnchor.constraint(equalTo: textView.trailingAnchor)
-        ])
-    }
-
-    private func updatePlaceholderVisibility() {
-        placeholderLabel.isHidden = !textView.text.isEmpty
-    }
-}
-
-extension MemoryTextViewCell: UITextViewDelegate {
-    func textViewDidChange(_ textView: UITextView) {
-        updatePlaceholderVisibility()
-        onTextChange?(textView.text)
     }
 }

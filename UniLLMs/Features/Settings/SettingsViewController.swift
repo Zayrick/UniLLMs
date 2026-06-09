@@ -2,247 +2,200 @@
 //  SettingsViewController.swift
 //  UniLLMs
 //
-//  Displays settings entry points.
+//  Hosts the SwiftUI settings experience.
 //  Created by Zayrick on 2026/5/11.
 //
 
+import Observation
+import SwiftUI
 import UIKit
 
-final class SettingsViewController: UITableViewController {
-    private enum Section: Int, CaseIterable {
-        case modelAndConversation
-        case capabilities
-        case appAndSystem
+final class SettingsViewController: UIHostingController<SettingsForm> {
+    private let model: SettingsModel
+    private let router: SettingsRouter
 
-        var title: String {
-            switch self {
-            case .modelAndConversation:
-                return String(localized: "settings.section.model_and_conversation")
-            case .capabilities:
-                return String(localized: "settings.section.capabilities")
-            case .appAndSystem:
-                return String(localized: "settings.section.app_and_system")
-            }
+    init(dependencies: AppDependencyContainer = AppEnvironment.shared.dependencies) {
+        let model = SettingsModel(dependencies: dependencies)
+        let router = SettingsRouter(dependencies: dependencies)
+        self.model = model
+        self.router = router
+        super.init(rootView: SettingsForm(model: model, router: router))
+        router.hostViewController = self
+    }
+
+    @MainActor
+    required init?(coder: NSCoder) {
+        let dependencies = AppEnvironment.shared.dependencies
+        let model = SettingsModel(dependencies: dependencies)
+        let router = SettingsRouter(dependencies: dependencies)
+        self.model = model
+        self.router = router
+        super.init(coder: coder, rootView: SettingsForm(model: model, router: router))
+        router.hostViewController = self
+    }
+}
+
+struct SettingsForm: View {
+    private let model: SettingsModel
+    private let router: SettingsRouter
+
+    fileprivate init(
+        model: SettingsModel,
+        router: SettingsRouter
+    ) {
+        self.model = model
+        self.router = router
+    }
+
+    var body: some View {
+        Form {
+            modelAndConversationSection
+            capabilitiesSection
+            appAndSystemSection
         }
-
-        var rows: [Row] {
-            switch self {
-            case .modelAndConversation:
-                return [.providers, .systemPrompts]
-            case .capabilities:
-                return [.memories, .tools]
-            case .appAndSystem:
-                return [.backgroundRuntime, .permissions, .about]
+        .navigationTitle(String(localized: .generalSettings))
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: router.close) {
+                    Image(systemName: "xmark")
+                }
+                .accessibilityLabel(String(localized: "general.close"))
             }
         }
     }
 
-    private enum Row {
-        case providers
-        case systemPrompts
-        case memories
-        case tools
-        case backgroundRuntime
-        case permissions
-        case about
+    private var modelAndConversationSection: some View {
+        Section(String(localized: "settings.section.model_and_conversation")) {
+            SettingsNavigationRow(
+                title: String(localized: .settingsRowProvidersTitle),
+                symbolName: "globe",
+                tintColor: .systemBlue,
+                action: router.showProviders
+            )
 
-        var title: String {
-            switch self {
-            case .providers:
-                return String(localized: .settingsRowProvidersTitle)
-            case .systemPrompts:
-                return String(localized: .settingsRowSystemPromptsTitle)
-            case .memories:
-                return String(localized: .settingsRowMemoriesTitle)
-            case .tools:
-                return String(localized: .settingsRowToolsTitle)
-            case .backgroundRuntime:
-                return String(localized: "settings.background_runtime.title")
-            case .permissions:
-                return String(localized: "settings.row.permissions.title")
-            case .about:
-                return String(localized: "settings.row.about.title")
-            }
-        }
-
-        var symbolName: String {
-            switch self {
-            case .providers:
-                return "globe"
-            case .systemPrompts:
-                return "text.quote"
-            case .memories:
-                return "brain.head.profile"
-            case .tools:
-                return "hammer"
-            case .backgroundRuntime:
-                return "arrow.triangle.2.circlepath.circle"
-            case .permissions:
-                return "key"
-            case .about:
-                return "info.circle"
-            }
-        }
-
-        var iconTintColor: UIColor {
-            switch self {
-            case .providers:
-                return .systemBlue
-            case .systemPrompts:
-                return .systemPurple
-            case .memories:
-                return .systemTeal
-            case .tools:
-                return .systemGreen
-            case .backgroundRuntime:
-                return .systemOrange
-            case .permissions:
-                return .systemIndigo
-            case .about:
-                return .systemGray
-            }
+            SettingsNavigationRow(
+                title: String(localized: .settingsRowSystemPromptsTitle),
+                symbolName: "text.quote",
+                tintColor: .systemPurple,
+                action: router.showSystemPrompts
+            )
         }
     }
+
+    private var capabilitiesSection: some View {
+        Section(String(localized: "settings.section.capabilities")) {
+            SettingsNavigationRow(
+                title: String(localized: .settingsRowMemoriesTitle),
+                symbolName: "brain.head.profile",
+                tintColor: .systemTeal,
+                action: router.showMemories
+            )
+
+            SettingsNavigationRow(
+                title: String(localized: .settingsRowToolsTitle),
+                symbolName: "hammer",
+                tintColor: .systemGreen,
+                action: router.showTools
+            )
+        }
+    }
+
+    private var appAndSystemSection: some View {
+        Section(String(localized: "settings.section.app_and_system")) {
+            Toggle(isOn: backgroundRuntimeBinding) {
+                SettingsRowLabel(
+                    title: String(localized: "settings.background_runtime.title"),
+                    symbolName: "arrow.triangle.2.circlepath.circle",
+                    tintColor: model.isBackgroundRuntimeEnabled ? .systemOrange : .secondaryLabel
+                )
+            }
+
+            SettingsNavigationRow(
+                title: String(localized: "settings.row.permissions.title"),
+                symbolName: "key",
+                tintColor: .systemIndigo,
+                action: router.showPermissions
+            )
+
+            SettingsNavigationRow(
+                title: String(localized: "settings.row.about.title"),
+                symbolName: "info.circle",
+                tintColor: .systemGray,
+                action: router.showAbout
+            )
+        }
+    }
+
+    private var backgroundRuntimeBinding: Binding<Bool> {
+        Binding {
+            model.isBackgroundRuntimeEnabled
+        } set: { isEnabled in
+            model.setBackgroundRuntimeEnabled(isEnabled)
+        }
+    }
+}
+
+@MainActor
+private final class SettingsRouter {
+    weak var hostViewController: UIViewController?
 
     private let dependencies: AppDependencyContainer
 
-    init(dependencies: AppDependencyContainer = AppEnvironment.shared.dependencies) {
+    init(dependencies: AppDependencyContainer) {
         self.dependencies = dependencies
-        super.init(style: .insetGrouped)
     }
 
-    required init?(coder: NSCoder) {
-        dependencies = AppEnvironment.shared.dependencies
-        super.init(coder: coder)
+    func close() {
+        hostViewController?.dismiss(animated: true)
     }
 
-    override func viewDidLoad() {
-        super.viewDidLoad()
-
-        title = String(localized: .generalSettings)
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            barButtonSystemItem: .close,
-            target: self,
-            action: #selector(close)
-        )
+    func showProviders() {
+        push(LLMsProviderViewController(dependencies: dependencies))
     }
 
-    @objc private func close() {
-        dismiss(animated: true)
+    func showSystemPrompts() {
+        push(SystemPromptSettingsViewController(dependencies: dependencies))
     }
 
-    @objc private func backgroundRuntimeSwitchChanged(_ sender: UISwitch) {
-        dependencies.appSettingsStore.isBackgroundRuntimeEnabled = sender.isOn
+    func showMemories() {
+        push(MemoryListViewController(dependencies: dependencies))
     }
 
-    override func numberOfSections(in tableView: UITableView) -> Int {
-        Section.allCases.count
+    func showTools() {
+        push(ToolsViewController(dependencies: dependencies))
     }
 
-    override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        Section(rawValue: section)?.title
+    func showPermissions() {
+        push(PermissionsViewController())
     }
 
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        Section(rawValue: section)?.rows.count ?? 0
+    func showAbout() {
+        push(AboutViewController())
     }
 
-    override func tableView(
-        _ tableView: UITableView,
-        cellForRowAt indexPath: IndexPath
-    ) -> UITableViewCell {
-        guard let row = row(for: indexPath) else {
-            return UITableViewCell(style: .default, reuseIdentifier: nil)
-        }
+    private func push(_ viewController: UIViewController) {
+        hostViewController?.navigationController?.pushViewController(viewController, animated: true)
+    }
+}
 
-        switch row {
-        case .backgroundRuntime:
-            return backgroundRuntimeCell(for: row)
-        case .providers, .systemPrompts, .memories, .tools, .permissions, .about:
-            return navigationCell(for: row)
-        }
+@MainActor
+@Observable
+private final class SettingsModel {
+    @ObservationIgnored private let dependencies: AppDependencyContainer
+
+    var isBackgroundRuntimeEnabled: Bool
+
+    init(dependencies: AppDependencyContainer) {
+        self.dependencies = dependencies
+        isBackgroundRuntimeEnabled = dependencies.appSettingsStore.isBackgroundRuntimeEnabled
     }
 
-    private func row(for indexPath: IndexPath) -> Row? {
-        guard let section = Section(rawValue: indexPath.section),
-              section.rows.indices.contains(indexPath.row) else {
-            return nil
-        }
-
-        return section.rows[indexPath.row]
-    }
-
-    private func backgroundRuntimeCell(for row: Row) -> UITableViewCell {
-        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
-        var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = row.title
-        contentConfiguration.image = UIImage(systemName: row.symbolName)
-        contentConfiguration.imageProperties.tintColor = row.iconTintColor
-        cell.contentConfiguration = contentConfiguration
-
-        let backgroundRuntimeSwitch = UISwitch()
-        backgroundRuntimeSwitch.isOn = dependencies.appSettingsStore.isBackgroundRuntimeEnabled
-        backgroundRuntimeSwitch.addTarget(
-            self,
-            action: #selector(backgroundRuntimeSwitchChanged(_:)),
-            for: .valueChanged
-        )
-        backgroundRuntimeSwitch.accessibilityLabel = contentConfiguration.text
-        cell.accessoryView = backgroundRuntimeSwitch
-        cell.selectionStyle = .none
-        return cell
-    }
-
-    private func navigationCell(for row: Row) -> UITableViewCell {
-        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
-        var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = row.title
-        contentConfiguration.image = UIImage(systemName: row.symbolName)
-        contentConfiguration.imageProperties.tintColor = row.iconTintColor
-        cell.contentConfiguration = contentConfiguration
-        cell.accessoryType = .disclosureIndicator
-        return cell
-    }
-
-    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        tableView.deselectRow(at: indexPath, animated: true)
-        guard let row = row(for: indexPath) else {
+    func setBackgroundRuntimeEnabled(_ isEnabled: Bool) {
+        guard isBackgroundRuntimeEnabled != isEnabled else {
             return
         }
 
-        switch row {
-        case .providers:
-            navigationController?.pushViewController(
-                LLMsProviderViewController(dependencies: dependencies),
-                animated: true
-            )
-        case .memories:
-            navigationController?.pushViewController(
-                MemoryListViewController(dependencies: dependencies),
-                animated: true
-            )
-        case .tools:
-            navigationController?.pushViewController(
-                ToolsViewController(dependencies: dependencies),
-                animated: true
-            )
-        case .permissions:
-            navigationController?.pushViewController(
-                PermissionsViewController(),
-                animated: true
-            )
-        case .about:
-            navigationController?.pushViewController(
-                AboutViewController(),
-                animated: true
-            )
-        case .systemPrompts:
-            navigationController?.pushViewController(
-                SystemPromptSettingsViewController(dependencies: dependencies),
-                animated: true
-            )
-        case .backgroundRuntime:
-            return
-        }
+        isBackgroundRuntimeEnabled = isEnabled
+        dependencies.appSettingsStore.isBackgroundRuntimeEnabled = isEnabled
     }
 }

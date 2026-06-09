@@ -2,439 +2,248 @@
 //  LLMsProviderConfigurationViewController.swift
 //  UniLLMs
 //
-//  Displays provider configuration fields supplied by adapters and refreshes provider model lists.
+//  Hosts provider configuration fields and model list management.
 //  Created by Zayrick on 2026/5/11.
 //
 
+import Observation
+import SwiftUI
 import UIKit
 
-final class LLMsProviderConfigurationViewController: UITableViewController {
-    private enum Section: Int, CaseIterable {
-        case configuration
-        case models
-    }
-
-    private enum ModelRows {
-        static var addTitle: String { String(localized: .providerConfigurationAddModel) }
-        static var modelIDTitle: String { String(localized: .providerConfigurationModelId) }
-        static let modelIDPlaceholder = "gpt-4.1-mini"
-    }
-
-    private enum ReuseIdentifier {
-        static let readOnlyModelCell = "ReadOnlyModelCell"
-    }
-
-    private let dependencies: AppDependencyContainer
-    private var saveButtonItem: UIBarButtonItem?
-    private var provider: LLMsProviderRecord
-    private var savedProvider: LLMsProviderRecord
-    private var isNewProvider: Bool
-    private var isLoadingModels = false
-    private var didStartInitialModelLoad = false
-
-    private var configurationFields: [LLMsProviderConfigurationField] {
-        dependencies.providerManager.configurationFields(for: provider.kind)
-    }
-
-    private var modelSource: LLMsProviderModelSource? {
-        dependencies.providerManager.modelSource(for: provider.kind)
-    }
-
-    private lazy var updatedDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter
-    }()
+final class LLMsProviderConfigurationViewController: UIHostingController<LLMsProviderConfigurationForm> {
+    private let model: LLMsProviderConfigurationModel
+    private let router: LLMsProviderConfigurationRouter
 
     init(
         provider: LLMsProviderRecord,
         dependencies: AppDependencyContainer = AppEnvironment.shared.dependencies,
         isNewProvider: Bool = false
     ) {
-        self.provider = provider
-        savedProvider = provider
-        self.isNewProvider = isNewProvider
-        self.dependencies = dependencies
-        super.init(style: .insetGrouped)
+        let model = LLMsProviderConfigurationModel(
+            provider: provider,
+            dependencies: dependencies,
+            isNewProvider: isNewProvider
+        )
+        let router = LLMsProviderConfigurationRouter()
+        self.model = model
+        self.router = router
+        super.init(rootView: LLMsProviderConfigurationForm(model: model, router: router))
+        router.hostViewController = self
     }
 
+    @MainActor
     required init?(coder: NSCoder) {
         let dependencies = AppEnvironment.shared.dependencies
-        self.dependencies = dependencies
-        provider = (try? dependencies.providerManager.makeDefaultProviderDraft())
+        let provider = (try? dependencies.providerManager.makeDefaultProviderDraft())
             ?? LLMsProviderRecord(
                 kind: LLMsProviderKind(rawValue: ""),
                 name: "",
                 configuration: LLMsProviderConfiguration()
             )
-        savedProvider = provider
-        isNewProvider = true
-        super.init(coder: coder)
-    }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-
-        title = dependencies.providerManager.displayName(for: provider)
-        tableView.register(
-            ProviderTextFieldCell.self,
-            forCellReuseIdentifier: ProviderTextFieldCell.reuseIdentifier
+        let model = LLMsProviderConfigurationModel(
+            provider: provider,
+            dependencies: dependencies,
+            isNewProvider: true
         )
-        tableView.register(
-            ModelsSectionHeaderView.self,
-            forHeaderFooterViewReuseIdentifier: ModelsSectionHeaderView.reuseIdentifier
-        )
-        configureSaveButton()
+        let router = LLMsProviderConfigurationRouter()
+        self.model = model
+        self.router = router
+        super.init(coder: coder, rootView: LLMsProviderConfigurationForm(model: model, router: router))
+        router.hostViewController = self
+    }
+}
+
+typealias ProviderConfigurationViewController = LLMsProviderConfigurationViewController
+
+struct LLMsProviderConfigurationForm: View {
+    private let model: LLMsProviderConfigurationModel
+    private let router: LLMsProviderConfigurationRouter
+
+    fileprivate init(
+        model: LLMsProviderConfigurationModel,
+        router: LLMsProviderConfigurationRouter
+    ) {
+        self.model = model
+        self.router = router
     }
 
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-
-        guard let modelSource,
-              case .remote = modelSource,
-              !isNewProvider,
-              !didStartInitialModelLoad else {
-            return
+    var body: some View {
+        Form {
+            configurationSection
+            modelsSection
         }
-
-        didStartInitialModelLoad = true
-        refreshModels()
-    }
-
-    override func numberOfSections(in tableView: UITableView) -> Int {
-        Section.allCases.count
-    }
-
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        guard let section = Section(rawValue: section) else {
-            return 0
-        }
-
-        switch section {
-        case .configuration:
-            return configurationFields.count
-        case .models:
-            guard let modelSource else {
-                return 0
-            }
-
-            switch modelSource {
-            case .remote:
-                return provider.models.count
-            case .manual:
-                return provider.models.count + 1
-            case .`static`:
-                return provider.models.count
-            }
-        }
-    }
-
-    override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        guard let section = Section(rawValue: section) else {
-            return nil
-        }
-
-        switch section {
-        case .configuration:
-            return String(localized: .providerConfigurationSectionConfiguration)
-        case .models:
-            guard modelSource != .remote else {
-                return nil
-            }
-
-            return String(localized: .providerConfigurationSectionModels)
-        }
-    }
-
-    override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        guard let section = Section(rawValue: section),
-              section == .models,
-              modelSource == .remote else {
-            return nil
-        }
-
-        return modelRefreshDetailText
-    }
-
-    override func tableView(
-        _ tableView: UITableView,
-        viewForHeaderInSection section: Int
-    ) -> UIView? {
-        guard let section = Section(rawValue: section),
-              section == .models,
-              modelSource == .remote,
-              let headerView = tableView.dequeueReusableHeaderFooterView(
-                withIdentifier: ModelsSectionHeaderView.reuseIdentifier
-              ) as? ModelsSectionHeaderView else {
-            return nil
-        }
-
-        headerView.configure(title: String(localized: .providerConfigurationSectionModels), isLoading: isLoadingModels)
-        headerView.onRefresh = { [weak self] in
-            self?.refreshModels()
-        }
-        return headerView
-    }
-
-    override func tableView(
-        _ tableView: UITableView,
-        cellForRowAt indexPath: IndexPath
-    ) -> UITableViewCell {
-        guard let section = Section(rawValue: indexPath.section) else {
-            return UITableViewCell()
-        }
-
-        switch section {
-        case .configuration:
-            return configurationCell(for: indexPath)
-        case .models:
-            return modelCell(for: indexPath)
-        }
-    }
-
-    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        tableView.deselectRow(at: indexPath, animated: true)
-
-        guard let section = Section(rawValue: indexPath.section) else {
-            return
-        }
-
-        switch section {
-        case .configuration:
-            guard configurationFields.indices.contains(indexPath.row),
-                  configurationFields[indexPath.row].inputKind != .toggle else {
-                return
-            }
-
-            (tableView.cellForRow(at: indexPath) as? ProviderTextFieldCell)?.activateTextField()
-        case .models:
-            handleModelSelection(at: indexPath)
-        }
-    }
-
-    override func tableView(
-        _ tableView: UITableView,
-        trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath
-    ) -> UISwipeActionsConfiguration? {
-        guard let section = Section(rawValue: indexPath.section),
-              section == .models,
-              let modelSource,
-              case .manual = modelSource,
-              indexPath.row > 0 else {
-            return nil
-        }
-
-        let modelIndex = indexPath.row - 1
-        let deleteAction = UIContextualAction(style: .destructive, title: String(localized: .generalDelete)) { [weak self] _, _, completion in
-            guard let self,
-                  provider.models.indices.contains(modelIndex) else {
-                completion(false)
-                return
-            }
-
-            provider.models.remove(at: modelIndex)
-            updateSaveButtonState()
-            tableView.performBatchUpdates {
-                tableView.deleteRows(at: [indexPath], with: .fade)
-            } completion: { [weak self] _ in
-                self?.reloadManualModelsSummary()
-            }
-            completion(true)
-        }
-        deleteAction.image = UIImage(systemName: "trash")
-
-        let configuration = UISwipeActionsConfiguration(actions: [deleteAction])
-        configuration.performsFirstActionWithFullSwipe = false
-        return configuration
-    }
-
-    private func configurationCell(for indexPath: IndexPath) -> UITableViewCell {
-        guard configurationFields.indices.contains(indexPath.row) else {
-            return UITableViewCell()
-        }
-
-        let field = configurationFields[indexPath.row]
-        guard field.inputKind != .toggle else {
-            return toggleConfigurationCell(for: field)
-        }
-
-        guard let cell = tableView.dequeueReusableCell(
-            withIdentifier: ProviderTextFieldCell.reuseIdentifier,
-            for: indexPath
-        ) as? ProviderTextFieldCell else {
-            return UITableViewCell()
-        }
-
-        cell.configure(
-            title: field.title,
-            text: value(for: field),
-            placeholder: field.placeholder,
-            isSecureTextEntry: field.inputKind == .secret,
-            keyboardType: keyboardType(for: field.inputKind),
-            textContentType: textContentType(for: field.inputKind)
-        )
-        cell.onTextChange = { [weak self] text in
-            self?.setValue(text, for: field)
-        }
-        return cell
-    }
-
-    private func toggleConfigurationCell(for field: LLMsProviderConfigurationField) -> UITableViewCell {
-        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
-        var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = field.title
-        cell.contentConfiguration = contentConfiguration
-
-        let toggle = UISwitch()
-        toggle.isOn = booleanValue(for: field)
-        toggle.addAction(
-            UIAction { [weak self, weak toggle, field] _ in
-                guard let toggle else {
-                    return
+        .navigationTitle(model.navigationTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .scrollDismissesKeyboard(.interactively)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(String(localized: .generalSave)) {
+                    router.saveConfiguration(model)
                 }
-
-                self?.setValue(toggle.isOn ? "true" : "false", for: field)
-            },
-            for: .valueChanged
-        )
-        cell.accessoryView = toggle
-        cell.selectionStyle = .none
-        return cell
-    }
-
-    private func modelCell(for indexPath: IndexPath) -> UITableViewCell {
-        guard let modelSource else {
-            return UITableViewCell()
-        }
-
-        switch modelSource {
-        case .remote:
-            return remoteModelCell(for: indexPath)
-        case .manual:
-            return manualModelCell(for: indexPath)
-        case .`static`:
-            return staticModelCell(for: indexPath)
-        }
-    }
-
-    private func remoteModelCell(for indexPath: IndexPath) -> UITableViewCell {
-        guard provider.models.indices.contains(indexPath.row) else {
-            return UITableViewCell()
-        }
-
-        let model = provider.models[indexPath.row]
-        return readOnlyModelCell(for: model)
-    }
-
-    private func manualModelCell(for indexPath: IndexPath) -> UITableViewCell {
-        if indexPath.row == 0 {
-            let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
-            var contentConfiguration = cell.defaultContentConfiguration()
-            contentConfiguration.text = ModelRows.addTitle
-            contentConfiguration.secondaryText = manualModelsDetailText
-            contentConfiguration.image = UIImage(systemName: "plus.circle")
-            cell.contentConfiguration = contentConfiguration
-            return cell
-        }
-
-        guard let cell = tableView.dequeueReusableCell(
-            withIdentifier: ProviderTextFieldCell.reuseIdentifier,
-            for: indexPath
-        ) as? ProviderTextFieldCell else {
-            return UITableViewCell()
-        }
-
-        let model = provider.models[indexPath.row - 1]
-        cell.configure(
-            title: ModelRows.modelIDTitle,
-            text: model.id,
-            placeholder: ModelRows.modelIDPlaceholder,
-            isSecureTextEntry: false,
-            keyboardType: .asciiCapable,
-            textContentType: nil
-        )
-        cell.onTextChange = { [weak self, weak cell] text in
-            guard let self,
-                  let cell,
-                  let currentIndexPath = self.tableView.indexPath(for: cell) else {
-                return
+                .disabled(!model.canSaveConfiguration)
             }
-
-            self.setManualModelID(text, at: currentIndexPath.row - 1)
         }
-        return cell
-    }
-
-    private func staticModelCell(for indexPath: IndexPath) -> UITableViewCell {
-        let model = provider.models[indexPath.row]
-        return readOnlyModelCell(for: model)
-    }
-
-    private func readOnlyModelCell(for model: LLMsProviderModel) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: ReuseIdentifier.readOnlyModelCell)
-            ?? UITableViewCell(style: .subtitle, reuseIdentifier: ReuseIdentifier.readOnlyModelCell)
-        var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = modelTitle(for: model)
-        contentConfiguration.secondaryText = modelSubtitle(for: model)
-        contentConfiguration.image = UIImage(systemName: "cpu")
-        contentConfiguration.imageProperties.tintColor = .secondaryLabel
-        cell.contentConfiguration = contentConfiguration
-        cell.selectionStyle = .none
-        return cell
-    }
-
-    private var modelRefreshDetailText: String? {
-        guard let updatedAt = provider.modelsUpdatedAt else {
-            return nil
+        .task {
+            model.startInitialModelLoadIfNeeded()
         }
-
-        return String(localized: .generalUpdatedFormat(updatedDateFormatter.string(from: updatedAt)))
+        .settingsAlert(alertBinding)
     }
 
-    private var manualModelsDetailText: String? {
-        let modelCount = manualModelCount
-        guard modelCount > 0 else {
-            return nil
+    @ViewBuilder
+    private var configurationSection: some View {
+        if !model.configurationFields.isEmpty {
+            Section(String(localized: .providerConfigurationSectionConfiguration)) {
+                ForEach(model.configurationFields) { field in
+                    ProviderConfigurationFieldRow(
+                        field: field,
+                        text: textBinding(for: field),
+                        isOn: toggleBinding(for: field)
+                    )
+                }
+            }
         }
-
-        return modelCount == 1
-            ? String(localized: .providerConfigurationModelCountOne)
-            : String(localized: .providerConfigurationModelCountFormat(modelCount))
     }
 
-    private var manualModelCount: Int {
-        provider.models
-            .filter { !$0.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            .count
-    }
+    @ViewBuilder
+    private var modelsSection: some View {
+        if let modelSource = model.modelSource {
+            Section {
+                switch modelSource {
+                case .remote, .`static`:
+                    ForEach(model.provider.models, id: \.id) { providerModel in
+                        ReadOnlyProviderModelRow(
+                            title: model.title(for: providerModel),
+                            subtitle: model.subtitle(for: providerModel)
+                        )
+                    }
+                case .manual:
+                    Button {
+                        withAnimation(.default) {
+                            model.appendManualModel()
+                        }
+                    } label: {
+                        SettingsRowLabel(
+                            title: String(localized: .providerConfigurationAddModel),
+                            subtitle: model.manualModelsDetailText,
+                            symbolName: "plus.circle",
+                            tintColor: .systemBlue
+                        )
+                    }
+                    .buttonStyle(.plain)
 
-    private func value(for field: LLMsProviderConfigurationField) -> String {
-        provider.configurationValue(for: field.binding)
-    }
-
-    private func booleanValue(for field: LLMsProviderConfigurationField) -> Bool {
-        let normalizedValue = value(for: field)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        return ["true", "1", "yes", "on"].contains(normalizedValue)
-    }
-
-    private func setValue(_ text: String, for field: LLMsProviderConfigurationField) {
-        provider.setConfigurationValue(text, for: field.binding)
-
-        switch field.binding {
-        case .providerName:
-            title = text.isEmpty ? dependencies.providerManager.displayName(for: provider) : text
-        case .configurationValue(_):
-            break
+                    ForEach(Array(model.provider.models.enumerated()), id: \.offset) { index, _ in
+                        LabeledContent(String(localized: .providerConfigurationModelId)) {
+                            TextField(
+                                LLMsProviderConfigurationModel.modelIDPlaceholder,
+                                text: manualModelBinding(at: index)
+                            )
+                            .multilineTextAlignment(.trailing)
+                            .keyboardType(.asciiCapable)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled(true)
+                        }
+                    }
+                    .onDelete(perform: model.deleteManualModels)
+                }
+            } header: {
+                providerModelsHeader(for: modelSource)
+            } footer: {
+                if let detail = model.modelRefreshDetailText {
+                    Text(detail)
+                }
+            }
         }
-
-        updateSaveButtonState()
     }
 
-    private func keyboardType(for inputKind: LLMsProviderConfigurationField.InputKind) -> UIKeyboardType {
-        switch inputKind {
+    @ViewBuilder
+    private func providerModelsHeader(for modelSource: LLMsProviderModelSource) -> some View {
+        if modelSource == .remote {
+            HStack {
+                Text(String(localized: .providerConfigurationSectionModels))
+                Spacer()
+                Button {
+                    model.refreshModels()
+                } label: {
+                    if model.isLoadingModels {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Text(String(localized: .providerConfigurationRefresh))
+                    }
+                }
+                .disabled(model.isLoadingModels)
+                .accessibilityLabel(String(localized: .providerConfigurationRefreshModels))
+                .accessibilityValue(model.isLoadingModels ? String(localized: .providerConfigurationRefreshing) : "")
+            }
+        } else {
+            Text(String(localized: .providerConfigurationSectionModels))
+        }
+    }
+
+    private func textBinding(for field: LLMsProviderConfigurationField) -> Binding<String> {
+        Binding {
+            model.value(for: field)
+        } set: { text in
+            model.setValue(text, for: field)
+        }
+    }
+
+    private func toggleBinding(for field: LLMsProviderConfigurationField) -> Binding<Bool> {
+        Binding {
+            model.booleanValue(for: field)
+        } set: { isEnabled in
+            model.setValue(isEnabled ? "true" : "false", for: field)
+        }
+    }
+
+    private func manualModelBinding(at index: Int) -> Binding<String> {
+        Binding {
+            model.manualModelID(at: index)
+        } set: { text in
+            model.setManualModelID(text, at: index)
+        }
+    }
+
+    private var alertBinding: Binding<SettingsAlert?> {
+        Binding {
+            model.alert
+        } set: { alert in
+            model.alert = alert
+        }
+    }
+}
+
+private struct ProviderConfigurationFieldRow: View {
+    let field: LLMsProviderConfigurationField
+    let text: Binding<String>
+    let isOn: Binding<Bool>
+
+    var body: some View {
+        switch field.inputKind {
+        case .toggle:
+            Toggle(field.title, isOn: isOn)
+        case .secret:
+            LabeledContent(field.title) {
+                SecureField(field.placeholder, text: text)
+                    .multilineTextAlignment(.trailing)
+                    .textContentType(.password)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled(true)
+            }
+        case .plain, .url:
+            LabeledContent(field.title) {
+                TextField(field.placeholder, text: text)
+                    .multilineTextAlignment(.trailing)
+                    .keyboardType(keyboardType)
+                    .textContentType(textContentType)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled(true)
+            }
+        }
+    }
+
+    private var keyboardType: UIKeyboardType {
+        switch field.inputKind {
         case .plain:
             return .default
         case .secret:
@@ -446,10 +255,8 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
         }
     }
 
-    private func textContentType(
-        for inputKind: LLMsProviderConfigurationField.InputKind
-    ) -> UITextContentType? {
-        switch inputKind {
+    private var textContentType: UITextContentType? {
+        switch field.inputKind {
         case .plain:
             return .name
         case .secret:
@@ -460,23 +267,136 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
             return nil
         }
     }
+}
 
-    private func handleModelSelection(at indexPath: IndexPath) {
-        guard let modelSource else {
+private struct ReadOnlyProviderModelRow: View {
+    let title: String
+    let subtitle: String?
+
+    var body: some View {
+        SettingsRowLabel(
+            title: title,
+            subtitle: subtitle,
+            symbolName: "cpu",
+            tintColor: .secondaryLabel
+        )
+    }
+}
+
+@MainActor
+private final class LLMsProviderConfigurationRouter {
+    weak var hostViewController: UIViewController?
+
+    func saveConfiguration(_ model: LLMsProviderConfigurationModel) {
+        hostViewController?.view.endEditing(true)
+        guard model.saveConfiguration() else {
             return
         }
 
-        switch modelSource {
-        case .manual where indexPath.row == 0:
-            appendManualModelRow()
-        case .manual:
-            (tableView.cellForRow(at: indexPath) as? ProviderTextFieldCell)?.activateTextField()
-        case .remote, .`static`:
-            return
-        }
+        hostViewController?.navigationController?.popViewController(animated: true)
+    }
+}
+
+@MainActor
+@Observable
+private final class LLMsProviderConfigurationModel {
+    static let modelIDPlaceholder = "gpt-4.1-mini"
+
+    @ObservationIgnored private let dependencies: AppDependencyContainer
+    @ObservationIgnored private let updatedDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    private var savedProvider: LLMsProviderRecord
+    private var isNewProvider: Bool
+    private var didStartInitialModelLoad = false
+
+    var provider: LLMsProviderRecord
+    var isLoadingModels = false
+    var alert: SettingsAlert?
+
+    init(
+        provider: LLMsProviderRecord,
+        dependencies: AppDependencyContainer,
+        isNewProvider: Bool
+    ) {
+        self.provider = provider
+        savedProvider = provider
+        self.isNewProvider = isNewProvider
+        self.dependencies = dependencies
     }
 
-    private func appendManualModelRow() {
+    var navigationTitle: String {
+        dependencies.providerManager.displayName(for: provider)
+    }
+
+    var configurationFields: [LLMsProviderConfigurationField] {
+        dependencies.providerManager.configurationFields(for: provider.kind)
+    }
+
+    var modelSource: LLMsProviderModelSource? {
+        dependencies.providerManager.modelSource(for: provider.kind)
+    }
+
+    var modelRefreshDetailText: String? {
+        guard let updatedAt = provider.modelsUpdatedAt else {
+            return nil
+        }
+
+        return String(localized: .generalUpdatedFormat(updatedDateFormatter.string(from: updatedAt)))
+    }
+
+    var manualModelsDetailText: String? {
+        let modelCount = manualModelCount
+        guard modelCount > 0 else {
+            return nil
+        }
+
+        return modelCount == 1
+            ? String(localized: .providerConfigurationModelCountOne)
+            : String(localized: .providerConfigurationModelCountFormat(modelCount))
+    }
+
+    var canSaveConfiguration: Bool {
+        hasRequiredConfigurationFields && (isNewProvider || hasUnsavedChanges)
+    }
+
+    func value(for field: LLMsProviderConfigurationField) -> String {
+        provider.configurationValue(for: field.binding)
+    }
+
+    func booleanValue(for field: LLMsProviderConfigurationField) -> Bool {
+        let normalizedValue = value(for: field)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return ["true", "1", "yes", "on"].contains(normalizedValue)
+    }
+
+    func setValue(_ text: String, for field: LLMsProviderConfigurationField) {
+        provider.setConfigurationValue(text, for: field.binding)
+    }
+
+    func manualModelID(at index: Int) -> String {
+        guard provider.models.indices.contains(index) else {
+            return ""
+        }
+
+        return provider.models[index].id
+    }
+
+    func setManualModelID(_ text: String, at index: Int) {
+        guard provider.models.indices.contains(index) else {
+            return
+        }
+
+        provider.models[index].id = text
+        provider.models[index].name = normalizedModelName(provider.models[index].name)
+    }
+
+    func appendManualModel() {
         provider.models.append(
             LLMsProviderModel(
                 id: "",
@@ -484,62 +404,40 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
                 contextLength: nil
             )
         )
-
-        let insertedIndexPath = IndexPath(
-            row: provider.models.count,
-            section: Section.models.rawValue
-        )
-        updateSaveButtonState()
-        tableView.insertRows(at: [insertedIndexPath], with: .automatic)
-        tableView.scrollToRow(at: insertedIndexPath, at: .middle, animated: true)
-
-        DispatchQueue.main.async { [weak self] in
-            (self?.tableView.cellForRow(at: insertedIndexPath) as? ProviderTextFieldCell)?
-                .activateTextField()
-        }
     }
 
-    private func setManualModelID(_ text: String, at modelIndex: Int) {
-        guard provider.models.indices.contains(modelIndex) else {
+    func deleteManualModels(at offsets: IndexSet) {
+        provider.models.remove(atOffsets: offsets)
+    }
+
+    func title(for model: LLMsProviderModel) -> String {
+        normalizedModelName(model.name) ?? model.id
+    }
+
+    func subtitle(for model: LLMsProviderModel) -> String? {
+        normalizedModelName(model.name) == nil ? nil : model.id
+    }
+
+    func startInitialModelLoadIfNeeded() {
+        guard modelSource == .remote,
+              !isNewProvider,
+              !didStartInitialModelLoad else {
             return
         }
 
-        let oldModelCount = manualModelCount
-        provider.models[modelIndex].id = text
-        provider.models[modelIndex].name = normalizedModelName(provider.models[modelIndex].name)
-
-        updateSaveButtonState()
-
-        if oldModelCount != manualModelCount {
-            reloadManualModelsSummary()
-        }
+        didStartInitialModelLoad = true
+        refreshModels()
     }
 
-    private func presentModelLoadError(_ error: Error) {
-        guard presentedViewController == nil else {
-            return
-        }
-
-        let alertController = UIAlertController(
-            title: String(localized: .providerConfigurationErrorUnableToRefreshModels),
-            message: error.localizedDescription,
-            preferredStyle: .alert
-        )
-        alertController.addAction(UIAlertAction(title: String(localized: .generalOk), style: .default))
-        present(alertController, animated: true)
-    }
-
-    private func refreshModels() {
-        guard let modelSource,
-              case .remote = modelSource,
+    func refreshModels() {
+        guard modelSource == .remote,
               !isLoadingModels else {
             return
         }
 
         isLoadingModels = true
-        reloadModelsSection(animated: true)
 
-        Task { [weak self] in
+        Task { @MainActor [weak self] in
             guard let self else {
                 return
             }
@@ -559,42 +457,28 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
                     )
                 }
             } catch {
-                presentModelLoadError(error)
+                alert = SettingsAlert(
+                    title: String(localized: .providerConfigurationErrorUnableToRefreshModels),
+                    message: error.localizedDescription
+                )
             }
 
             isLoadingModels = false
-            updateSaveButtonState()
-            reloadModelsSection(animated: true)
         }
     }
 
-    private func configureSaveButton() {
-        let saveItem = UIBarButtonItem(
-            barButtonSystemItem: .save,
-            target: self,
-            action: #selector(saveConfiguration)
-        )
-        saveButtonItem = saveItem
-        updateSaveButtonState()
-    }
-
-    @objc private func saveConfiguration() {
-        view.endEditing(true)
+    func saveConfiguration() -> Bool {
         provider = providerForSaving
         dependencies.providerStore.saveProvider(provider)
         isNewProvider = false
         savedProvider = provider
-        title = dependencies.providerManager.displayName(for: provider)
-        updateSaveButtonState()
-        navigationController?.popViewController(animated: true)
+        return true
     }
 
-    private func updateSaveButtonState() {
-        navigationItem.rightBarButtonItem = canSaveConfiguration ? saveButtonItem : nil
-    }
-
-    private var canSaveConfiguration: Bool {
-        hasRequiredConfigurationFields && (isNewProvider || hasUnsavedChanges)
+    private var manualModelCount: Int {
+        provider.models
+            .filter { !$0.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .count
     }
 
     private var hasRequiredConfigurationFields: Bool {
@@ -651,113 +535,5 @@ final class LLMsProviderConfigurationViewController: UITableViewController {
     private func normalizedModelName(_ name: String?) -> String? {
         let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmedName.isEmpty ? nil : trimmedName
-    }
-
-    private func modelTitle(for model: LLMsProviderModel) -> String {
-        normalizedModelName(model.name) ?? model.id
-    }
-
-    private func modelSubtitle(for model: LLMsProviderModel) -> String? {
-        normalizedModelName(model.name) == nil ? nil : model.id
-    }
-
-    private func reloadManualModelsSummary() {
-        let addIndexPath = IndexPath(row: 0, section: Section.models.rawValue)
-        guard tableView.indexPathsForVisibleRows?.contains(addIndexPath) == true else {
-            return
-        }
-
-        tableView.reloadRows(at: [addIndexPath], with: .none)
-    }
-
-    private func reloadModelsSection(animated: Bool) {
-        let sectionIndexSet = IndexSet(integer: Section.models.rawValue)
-        tableView.reloadSections(sectionIndexSet, with: animated ? .automatic : .none)
-    }
-}
-
-typealias ProviderConfigurationViewController = LLMsProviderConfigurationViewController
-
-private final class ModelsSectionHeaderView: UITableViewHeaderFooterView {
-    static let reuseIdentifier = "ModelsSectionHeaderView"
-
-    var onRefresh: (() -> Void)?
-
-    private lazy var titleContentView = UIListContentView(
-        configuration: defaultContentConfiguration()
-    )
-
-    private let refreshButton: UIButton = {
-        var configuration = UIButton.Configuration.plain()
-        configuration.title = String(localized: .providerConfigurationRefresh)
-        configuration.buttonSize = .mini
-
-        let button = UIButton(configuration: configuration)
-        button.accessibilityLabel = String(localized: .providerConfigurationRefreshModels)
-        return button
-    }()
-
-    override init(reuseIdentifier: String?) {
-        super.init(reuseIdentifier: reuseIdentifier)
-
-        configureLayout()
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-
-        configureLayout()
-    }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
-
-        onRefresh = nil
-        configure(title: nil, isLoading: false)
-    }
-
-    func configure(title: String?, isLoading: Bool) {
-        var titleConfiguration = defaultContentConfiguration()
-        titleConfiguration.text = title
-        titleContentView.configuration = titleConfiguration
-
-        var buttonConfiguration = refreshButton.configuration ?? .plain()
-        buttonConfiguration.title = isLoading
-            ? String(localized: .providerConfigurationRefreshing)
-            : String(localized: .providerConfigurationRefresh)
-        buttonConfiguration.image = nil
-        buttonConfiguration.buttonSize = .mini
-        buttonConfiguration.showsActivityIndicator = false
-        refreshButton.configuration = buttonConfiguration
-        refreshButton.isEnabled = !isLoading
-        refreshButton.accessibilityValue = isLoading ? String(localized: .providerConfigurationRefreshing) : nil
-    }
-
-    private func configureLayout() {
-        titleContentView.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(titleContentView)
-
-        refreshButton.translatesAutoresizingMaskIntoConstraints = false
-        refreshButton.addTarget(self, action: #selector(refreshModels), for: .touchUpInside)
-        contentView.addSubview(refreshButton)
-
-        NSLayoutConstraint.activate([
-            titleContentView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            titleContentView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            titleContentView.trailingAnchor.constraint(
-                lessThanOrEqualTo: refreshButton.leadingAnchor,
-                constant: -8
-            ),
-            titleContentView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-
-            refreshButton.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
-            refreshButton.centerYAnchor.constraint(equalTo: titleContentView.centerYAnchor),
-            refreshButton.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor),
-            refreshButton.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor)
-        ])
-    }
-
-    @objc private func refreshModels() {
-        onRefresh?()
     }
 }

@@ -2,44 +2,207 @@
 //  MCPServerConfigurationViewController.swift
 //  UniLLMs
 //
-//  Edits a Streamable HTTP MCP server configuration.
+//  Hosts Streamable HTTP MCP server configuration.
 //  Created by Zayrick on 2026/5/15.
 //
 
+import Observation
+import SwiftUI
 import UIKit
 
-final class MCPServerConfigurationViewController: UITableViewController {
-    private enum Section: Int, CaseIterable {
-        case availability
-        case metadata
-        case connection
-    }
-
-    private enum ConnectionRow: Int, CaseIterable {
-        case endpoint
-        case headers
-        case timeout
-    }
-
-    private enum MetadataRow: Int, CaseIterable {
-        case name
-    }
-
-    private let dependencies: AppDependencyContainer
-    private var saveButtonItem: UIBarButtonItem?
-    private var server: MCPServerRecord
-    private var savedServer: MCPServerRecord
-    private var isNewServer: Bool
-    private var nameText: String
-    private var endpointText: String
-    private var headersText: String
-    private var timeoutText: String
-    private var isServerEnabled: Bool
+final class MCPServerConfigurationViewController: UIHostingController<MCPServerConfigurationForm> {
+    private let model: MCPServerConfigurationModel
+    private let router: MCPServerConfigurationRouter
 
     init(
         server: MCPServerRecord,
         dependencies: AppDependencyContainer = AppEnvironment.shared.dependencies,
         isNewServer: Bool = false
+    ) {
+        let model = MCPServerConfigurationModel(
+            server: server,
+            dependencies: dependencies,
+            isNewServer: isNewServer
+        )
+        let router = MCPServerConfigurationRouter()
+        self.model = model
+        self.router = router
+        super.init(rootView: MCPServerConfigurationForm(model: model, router: router))
+        router.hostViewController = self
+    }
+
+    @MainActor
+    required init?(coder: NSCoder) {
+        let dependencies = AppEnvironment.shared.dependencies
+        let model = MCPServerConfigurationModel(
+            server: dependencies.mcpServerManager.makeServerDraft(),
+            dependencies: dependencies,
+            isNewServer: true
+        )
+        let router = MCPServerConfigurationRouter()
+        self.model = model
+        self.router = router
+        super.init(coder: coder, rootView: MCPServerConfigurationForm(model: model, router: router))
+        router.hostViewController = self
+    }
+}
+
+struct MCPServerConfigurationForm: View {
+    private let model: MCPServerConfigurationModel
+    private let router: MCPServerConfigurationRouter
+
+    fileprivate init(
+        model: MCPServerConfigurationModel,
+        router: MCPServerConfigurationRouter
+    ) {
+        self.model = model
+        self.router = router
+    }
+
+    var body: some View {
+        Form {
+            availabilitySection
+            metadataSection
+            connectionSection
+        }
+        .navigationTitle(model.navigationTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .scrollDismissesKeyboard(.interactively)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(String(localized: .generalSave)) {
+                    router.saveConfiguration(model)
+                }
+                .disabled(!model.canSaveConfiguration)
+            }
+        }
+    }
+
+    private var availabilitySection: some View {
+        Section {
+            Toggle(isOn: isServerEnabledBinding) {
+                SettingsRowLabel(
+                    title: String(localized: .mcpEnableServer),
+                    symbolName: "power",
+                    tintColor: model.isServerEnabled ? .systemGreen : .secondaryLabel
+                )
+            }
+        }
+    }
+
+    private var metadataSection: some View {
+        Section {
+            LabeledContent(String(localized: .mcpName)) {
+                TextField(String(localized: .mcpServer), text: nameTextBinding)
+                    .multilineTextAlignment(.trailing)
+                    .textContentType(.name)
+            }
+        }
+    }
+
+    private var connectionSection: some View {
+        Section(String(localized: .mcpConnection)) {
+            LabeledContent(String(localized: .mcpEndpoint)) {
+                TextField("https://example.com/mcp", text: endpointTextBinding)
+                    .multilineTextAlignment(.trailing)
+                    .keyboardType(.URL)
+                    .textContentType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled(true)
+            }
+
+            LabeledContent(String(localized: .mcpHeaders)) {
+                TextField(#"{"Authorization":"Bearer token"}"#, text: headersTextBinding)
+                    .multilineTextAlignment(.trailing)
+                    .keyboardType(.asciiCapable)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled(true)
+            }
+
+            LabeledContent(String(localized: .mcpTimeout)) {
+                TextField("60", text: timeoutTextBinding)
+                    .multilineTextAlignment(.trailing)
+                    .keyboardType(.decimalPad)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled(true)
+            }
+        }
+    }
+
+    private var isServerEnabledBinding: Binding<Bool> {
+        Binding {
+            model.isServerEnabled
+        } set: { isEnabled in
+            model.isServerEnabled = isEnabled
+        }
+    }
+
+    private var nameTextBinding: Binding<String> {
+        Binding {
+            model.nameText
+        } set: { text in
+            model.nameText = text
+        }
+    }
+
+    private var endpointTextBinding: Binding<String> {
+        Binding {
+            model.endpointText
+        } set: { text in
+            model.endpointText = text
+        }
+    }
+
+    private var headersTextBinding: Binding<String> {
+        Binding {
+            model.headersText
+        } set: { text in
+            model.headersText = text
+        }
+    }
+
+    private var timeoutTextBinding: Binding<String> {
+        Binding {
+            model.timeoutText
+        } set: { text in
+            model.timeoutText = text
+        }
+    }
+}
+
+@MainActor
+private final class MCPServerConfigurationRouter {
+    weak var hostViewController: UIViewController?
+
+    func saveConfiguration(_ model: MCPServerConfigurationModel) {
+        hostViewController?.view.endEditing(true)
+        guard model.saveConfiguration() else {
+            return
+        }
+
+        hostViewController?.navigationController?.popViewController(animated: true)
+    }
+}
+
+@MainActor
+@Observable
+private final class MCPServerConfigurationModel {
+    @ObservationIgnored private let dependencies: AppDependencyContainer
+
+    private var server: MCPServerRecord
+    private var savedServer: MCPServerRecord
+    private var isNewServer: Bool
+
+    var nameText: String
+    var endpointText: String
+    var headersText: String
+    var timeoutText: String
+    var isServerEnabled: Bool
+
+    init(
+        server: MCPServerRecord,
+        dependencies: AppDependencyContainer,
+        isNewServer: Bool
     ) {
         self.server = server
         savedServer = server
@@ -50,247 +213,27 @@ final class MCPServerConfigurationViewController: UITableViewController {
         headersText = Self.headersText(from: server.configuration.headers)
         timeoutText = Self.timeoutText(from: server.configuration.timeout)
         isServerEnabled = server.configuration.isEnabled
-        super.init(style: .insetGrouped)
     }
 
-    required init?(coder: NSCoder) {
-        let dependencies = AppEnvironment.shared.dependencies
-        self.dependencies = dependencies
-        server = dependencies.mcpServerManager.makeServerDraft()
-        savedServer = server
-        isNewServer = true
-        nameText = server.name
-        endpointText = server.configuration.endpoint
-        headersText = Self.headersText(from: server.configuration.headers)
-        timeoutText = Self.timeoutText(from: server.configuration.timeout)
-        isServerEnabled = server.configuration.isEnabled
-        super.init(coder: coder)
+    var navigationTitle: String {
+        let trimmedText = nameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedText.isEmpty ? server.displayName : trimmedText
     }
 
-    override func viewDidLoad() {
-        super.viewDidLoad()
-
-        title = server.displayName
-        tableView.register(
-            ProviderTextFieldCell.self,
-            forCellReuseIdentifier: ProviderTextFieldCell.reuseIdentifier
-        )
-        configureSaveButton()
+    var canSaveConfiguration: Bool {
+        serverForSaving != nil && (isNewServer || hasUnsavedChanges)
     }
 
-    override func numberOfSections(in tableView: UITableView) -> Int {
-        Section.allCases.count
-    }
-
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        guard let section = Section(rawValue: section) else {
-            return 0
-        }
-
-        switch section {
-        case .availability:
-            return 1
-        case .connection:
-            return ConnectionRow.allCases.count
-        case .metadata:
-            return MetadataRow.allCases.count
-        }
-    }
-
-    override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        guard let section = Section(rawValue: section) else {
-            return nil
-        }
-
-        switch section {
-        case .availability:
-            return nil
-        case .metadata:
-            return nil
-        case .connection:
-            return String(localized: .mcpConnection)
-        }
-    }
-
-    override func tableView(
-        _ tableView: UITableView,
-        cellForRowAt indexPath: IndexPath
-    ) -> UITableViewCell {
-        guard let section = Section(rawValue: indexPath.section) else {
-            return UITableViewCell()
-        }
-
-        switch section {
-        case .availability:
-            return enabledCell()
-        case .connection:
-            return connectionCell(for: indexPath)
-        case .metadata:
-            return metadataCell(for: indexPath)
-        }
-    }
-
-    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        tableView.deselectRow(at: indexPath, animated: true)
-
-        guard let section = Section(rawValue: indexPath.section) else {
-            return
-        }
-
-        switch section {
-        case .availability:
-            return
-        case .connection, .metadata:
-            (tableView.cellForRow(at: indexPath) as? ProviderTextFieldCell)?.activateTextField()
-        }
-    }
-
-    private func enabledCell() -> UITableViewCell {
-        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
-        var contentConfiguration = cell.defaultContentConfiguration()
-        contentConfiguration.text = String(localized: .mcpEnableServer)
-        contentConfiguration.image = UIImage(systemName: "power")
-        cell.contentConfiguration = contentConfiguration
-
-        let toggle = UISwitch()
-        toggle.isOn = isServerEnabled
-        toggle.addTarget(self, action: #selector(toggleServer(_:)), for: .valueChanged)
-        cell.accessoryView = toggle
-        cell.selectionStyle = .none
-        return cell
-    }
-
-    private func connectionCell(for indexPath: IndexPath) -> UITableViewCell {
-        guard let row = ConnectionRow(rawValue: indexPath.row) else {
-            return UITableViewCell()
-        }
-
-        switch row {
-        case .endpoint:
-            return textFieldCell(
-                title: String(localized: .mcpEndpoint),
-                text: endpointText,
-                placeholder: "https://example.com/mcp",
-                keyboardType: .URL,
-                textContentType: .URL
-            ) { [weak self] text in
-                self?.endpointText = text
-                self?.updateAfterFieldChange()
-            }
-        case .headers:
-            return textFieldCell(
-                title: String(localized: .mcpHeaders),
-                text: headersText,
-                placeholder: #"{"Authorization":"Bearer token"}"#,
-                keyboardType: .asciiCapable,
-                textContentType: nil
-            ) { [weak self] text in
-                self?.headersText = text
-                self?.updateAfterFieldChange()
-            }
-        case .timeout:
-            return textFieldCell(
-                title: String(localized: .mcpTimeout),
-                text: timeoutText,
-                placeholder: "60",
-                keyboardType: .decimalPad,
-                textContentType: nil
-            ) { [weak self] text in
-                self?.timeoutText = text
-                self?.updateAfterFieldChange()
-            }
-        }
-    }
-
-    private func metadataCell(for indexPath: IndexPath) -> UITableViewCell {
-        guard let row = MetadataRow(rawValue: indexPath.row) else {
-            return UITableViewCell()
-        }
-
-        switch row {
-        case .name:
-            return textFieldCell(
-                title: String(localized: .mcpName),
-                text: nameText,
-                placeholder: String(localized: .mcpServer),
-                keyboardType: .default,
-                textContentType: .name
-            ) { [weak self] text in
-                self?.nameText = text
-                let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                self?.title = trimmedText.isEmpty ? self?.server.displayName : trimmedText
-                self?.updateAfterFieldChange()
-            }
-        }
-    }
-
-    private func textFieldCell(
-        title: String,
-        text: String,
-        placeholder: String,
-        keyboardType: UIKeyboardType,
-        textContentType: UITextContentType?,
-        onChange: @escaping (String) -> Void
-    ) -> UITableViewCell {
-        guard let cell = tableView.dequeueReusableCell(
-            withIdentifier: ProviderTextFieldCell.reuseIdentifier
-        ) as? ProviderTextFieldCell else {
-            return UITableViewCell()
-        }
-
-        cell.configure(
-            title: title,
-            text: text,
-            placeholder: placeholder,
-            isSecureTextEntry: false,
-            keyboardType: keyboardType,
-            textContentType: textContentType
-        )
-        cell.onTextChange = onChange
-        return cell
-    }
-
-    @objc private func toggleServer(_ sender: UISwitch) {
-        isServerEnabled = sender.isOn
-        updateAfterFieldChange()
-    }
-
-    private func updateAfterFieldChange() {
-        updateSaveButtonState()
-    }
-
-    private func configureSaveButton() {
-        let saveItem = UIBarButtonItem(
-            barButtonSystemItem: .save,
-            target: self,
-            action: #selector(saveConfiguration)
-        )
-        saveButtonItem = saveItem
-        updateSaveButtonState()
-    }
-
-    @objc private func saveConfiguration() {
-        view.endEditing(true)
+    func saveConfiguration() -> Bool {
         guard let serverForSaving else {
-            updateSaveButtonState()
-            return
+            return false
         }
 
         server = serverForSaving
         dependencies.mcpServerManager.saveServer(server)
         isNewServer = false
         savedServer = server
-        title = server.displayName
-        updateSaveButtonState()
-        navigationController?.popViewController(animated: true)
-    }
-
-    private func updateSaveButtonState() {
-        navigationItem.rightBarButtonItem = canSaveConfiguration ? saveButtonItem : nil
-    }
-
-    private var canSaveConfiguration: Bool {
-        serverForSaving != nil && (isNewServer || hasUnsavedChanges)
+        return true
     }
 
     private var hasUnsavedChanges: Bool {
