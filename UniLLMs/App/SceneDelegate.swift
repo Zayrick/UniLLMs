@@ -16,8 +16,11 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard scene is UIWindowScene else { return }
 
+        let dependencies = AppEnvironment.shared.dependencies
+        AppAppearanceController.apply(dependencies.appSettingsStore.colorMode, to: window)
+
         if let chatViewController = window?.rootViewController as? ChatViewController {
-            chatViewController.configure(dependencies: AppEnvironment.shared.dependencies)
+            chatViewController.configure(dependencies: dependencies)
         }
     }
 

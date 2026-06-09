@@ -162,6 +162,7 @@ final class ChatViewController: UIViewController {
 
     deinit {
         activeResponseTask?.cancel()
+        updateIdleTimerForAssistantResponseStream(isActive: false)
         if let activeContinuationTask {
             Task { @MainActor in
                 activeContinuationTask.finish(success: false)
@@ -1511,6 +1512,7 @@ final class ChatViewController: UIViewController {
         composerView.isSendingEnabled = false
         composerView.setStreamingResponseActive(true, animated: true)
         setBackgroundFlowing(true, animated: true)
+        updateIdleTimerForAssistantResponseStream(isActive: true)
 
         activeResponseTask = Task { [weak self, weak responseView] in
             do {
@@ -1698,7 +1700,13 @@ final class ChatViewController: UIViewController {
         composerView.isSendingEnabled = true
         composerView.setStreamingResponseActive(false, animated: true)
         setBackgroundFlowing(false, animated: true)
+        updateIdleTimerForAssistantResponseStream(isActive: false)
         updateRightHeaderButtonState(animated: true)
+    }
+
+    private func updateIdleTimerForAssistantResponseStream(isActive: Bool) {
+        UIApplication.shared.isIdleTimerDisabled = isActive
+            && dependencies.appSettingsStore.keepsScreenAwakeDuringAIOutput
     }
 
     private func setBackgroundFlowing(_ isFlowing: Bool, animated: Bool) {

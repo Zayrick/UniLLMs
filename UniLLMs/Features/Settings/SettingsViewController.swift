@@ -102,11 +102,32 @@ struct SettingsForm: View {
 
     private var appAndSystemSection: some View {
         Section(String(localized: "settings.section.app_and_system")) {
+            Picker(selection: colorModeBinding) {
+                ForEach(AppColorMode.allCases) { mode in
+                    Text(model.title(for: mode)).tag(mode)
+                }
+            } label: {
+                SettingsRowLabel(
+                    title: String(localized: "settings.color_mode.title"),
+                    symbolName: "circle.lefthalf.filled",
+                    tintColor: .systemBlue
+                )
+            }
+            .pickerStyle(.menu)
+
             Toggle(isOn: backgroundRuntimeBinding) {
                 SettingsRowLabel(
                     title: String(localized: "settings.background_runtime.title"),
                     symbolName: "arrow.triangle.2.circlepath.circle",
                     tintColor: model.isBackgroundRuntimeEnabled ? .systemOrange : .secondaryLabel
+                )
+            }
+
+            Toggle(isOn: keepsScreenAwakeDuringAIOutputBinding) {
+                SettingsRowLabel(
+                    title: String(localized: "settings.keep_screen_awake_ai_output.title"),
+                    symbolName: "display",
+                    tintColor: model.keepsScreenAwakeDuringAIOutput ? .systemGreen : .secondaryLabel
                 )
             }
 
@@ -131,6 +152,22 @@ struct SettingsForm: View {
             model.isBackgroundRuntimeEnabled
         } set: { isEnabled in
             model.setBackgroundRuntimeEnabled(isEnabled)
+        }
+    }
+
+    private var colorModeBinding: Binding<AppColorMode> {
+        Binding {
+            model.colorMode
+        } set: { colorMode in
+            model.setColorMode(colorMode)
+        }
+    }
+
+    private var keepsScreenAwakeDuringAIOutputBinding: Binding<Bool> {
+        Binding {
+            model.keepsScreenAwakeDuringAIOutput
+        } set: { isEnabled in
+            model.setKeepsScreenAwakeDuringAIOutput(isEnabled)
         }
     }
 }
@@ -184,10 +221,14 @@ private final class SettingsModel {
     @ObservationIgnored private let dependencies: AppDependencyContainer
 
     var isBackgroundRuntimeEnabled: Bool
+    var colorMode: AppColorMode
+    var keepsScreenAwakeDuringAIOutput: Bool
 
     init(dependencies: AppDependencyContainer) {
         self.dependencies = dependencies
         isBackgroundRuntimeEnabled = dependencies.appSettingsStore.isBackgroundRuntimeEnabled
+        colorMode = dependencies.appSettingsStore.colorMode
+        keepsScreenAwakeDuringAIOutput = dependencies.appSettingsStore.keepsScreenAwakeDuringAIOutput
     }
 
     func setBackgroundRuntimeEnabled(_ isEnabled: Bool) {
@@ -197,5 +238,35 @@ private final class SettingsModel {
 
         isBackgroundRuntimeEnabled = isEnabled
         dependencies.appSettingsStore.isBackgroundRuntimeEnabled = isEnabled
+    }
+
+    func setColorMode(_ mode: AppColorMode) {
+        guard colorMode != mode else {
+            return
+        }
+
+        colorMode = mode
+        dependencies.appSettingsStore.colorMode = mode
+        AppAppearanceController.apply(mode)
+    }
+
+    func setKeepsScreenAwakeDuringAIOutput(_ isEnabled: Bool) {
+        guard keepsScreenAwakeDuringAIOutput != isEnabled else {
+            return
+        }
+
+        keepsScreenAwakeDuringAIOutput = isEnabled
+        dependencies.appSettingsStore.keepsScreenAwakeDuringAIOutput = isEnabled
+    }
+
+    func title(for colorMode: AppColorMode) -> String {
+        switch colorMode {
+        case .system:
+            return String(localized: "settings.color_mode.system")
+        case .light:
+            return String(localized: "settings.color_mode.light")
+        case .dark:
+            return String(localized: "settings.color_mode.dark")
+        }
     }
 }
