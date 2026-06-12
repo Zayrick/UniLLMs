@@ -69,7 +69,7 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
         XCTAssertTrue(sessions.isEmpty)
     }
 
-    func testFailedFirstTurnWithSystemPromptClearsOptimisticHistoryEvent() async throws {
+    func testFailedFirstTurnWithSystemPromptPersistsUserMessageAndError() async throws {
         let prompt = SystemPromptRecord(title: "Translator", content: "Always answer in Chinese.")
         let promptStore = InMemorySystemPromptStore(prompts: [prompt])
         let (runtime, historyStore) = makeRuntime(
@@ -88,7 +88,18 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
         await runtime.waitForPendingHistoryPersistence()
 
         let sessions = try await historyStore.fetchSessions()
-        XCTAssertTrue(sessions.isEmpty)
+        let session = try XCTUnwrap(sessions.first)
+        XCTAssertEqual(session.selectedSystemPromptID, prompt.id)
+
+        let events = try await historyStore.fetchEvents(sessionID: session.id)
+        XCTAssertEqual(
+            events.map(\.kind),
+            [
+                .userMessage(text: "Hello"),
+                .assistantError(message: "Provider failed before streaming.")
+            ]
+        )
+        XCTAssertEqual(ChatTimelineEvent.messages(from: events).map(\.content), ["Hello"])
     }
 
     func testSuccessfulFirstTurnWithSystemPromptSendsPromptAndPersistsSelection() async throws {
@@ -311,6 +322,61 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
         XCTAssertEqual(revisions.compactMap(\.firstUserMessageText), ["Original", "First edit"])
     }
 
+    func testEditingFailedTurnArchivesFailureAndKeepsMessageEditable() async throws {
+        let messageID = UUID()
+        let adapter = FailingThenRecoveringRuntimeProvider()
+        let (runtime, historyStore) = makeRuntime(
+            adapter: adapter,
+            systemPromptStore: InMemorySystemPromptStore(prompts: [])
+        )
+
+        let failedTurn = try runtime.startTurn(
+            prompt: "Original",
+            userMessageID: messageID
+        )
+        do {
+            for try await _ in failedTurn {}
+            XCTFail("Expected the first provider request to fail.")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, "Provider failed before streaming.")
+        }
+        await runtime.waitForPendingHistoryPersistence()
+
+        XCTAssertEqual(runtime.messageRevisions(for: messageID).count, 0)
+
+        let editedTurn = try runtime.startTurn(
+            prompt: "Edited",
+            userMessageID: messageID,
+            replacingUserMessageID: messageID
+        )
+        for try await _ in editedTurn {}
+        await runtime.waitForPendingHistoryPersistence()
+
+        let events = try await historyStore.fetchEvents(sessionID: runtime.currentSessionID)
+        let revisions = try XCTUnwrap(ChatTimelineEvent.messageRevisions(from: events)[messageID])
+        let archivedFailure = try XCTUnwrap(revisions.first)
+        XCTAssertEqual(
+            archivedFailure.events.map(\.kind),
+            [
+                .userMessage(text: "Original"),
+                .assistantError(message: "Provider failed before streaming.")
+            ]
+        )
+        XCTAssertEqual(
+            events.filter { event in
+                if case .messageRevision = event.kind {
+                    return false
+                }
+                return true
+            }
+            .map(\.kind),
+            [
+                .userMessage(text: "Edited"),
+                .assistantRawText(rawText: "Recovered.")
+            ]
+        )
+    }
+
     private func makeRuntime(
         adapter: any LLMsProviderAdapter,
         systemPromptStore: any SystemPromptStore
@@ -431,6 +497,37 @@ private struct FailingRuntimeProvider: LLMsProviderAdapter {
     }
 }
 
+private final class FailingThenRecoveringRuntimeProvider: LLMsProviderAdapter {
+    let kind = LLMsProviderKind(rawValue: "failingThenRecoveringRuntimeProvider")
+    let displayName = "Failing Then Recovering Runtime Provider"
+    let capabilities: Set<LLMsProviderCapability> = [.streamingChat]
+    let defaultConfiguration = LLMsProviderConfiguration()
+    let configurationFields: [LLMsProviderConfigurationField] = []
+    let modelSource: LLMsProviderModelSource = .manual
+
+    private let lock = NSLock()
+    private var requestCount = 0
+
+    func streamChat(
+        request: ChatRequest,
+        configuration: LLMsProviderConfiguration
+    ) -> AsyncThrowingStream<ChatResponseDelta, Error> {
+        lock.lock()
+        requestCount += 1
+        let currentRequestCount = requestCount
+        lock.unlock()
+
+        return AsyncThrowingStream { continuation in
+            if currentRequestCount == 1 {
+                continuation.finish(throwing: RuntimeProviderError.failedBeforeStreaming)
+            } else {
+                continuation.yield(ChatResponseDelta(content: "Recovered."))
+                continuation.finish()
+            }
+        }
+    }
+}
+
 private final class CapturingRuntimeProvider: LLMsProviderAdapter {
     let kind = LLMsProviderKind(rawValue: "capturingRuntimeProvider")
     let displayName = "Capturing Runtime Provider"
@@ -540,6 +637,7 @@ private extension ChatMessageRevision {
                 return text
             case .assistantReasoning,
                  .assistantRawText,
+                 .assistantError,
                  .assistantToolCalls,
                  .toolEvent:
                 continue

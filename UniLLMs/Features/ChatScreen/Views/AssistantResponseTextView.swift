@@ -82,6 +82,18 @@ final class AssistantResponseTextView: UIView {
         updateVisibility()
     }
 
+    func appendStoredError(_ message: String) {
+        guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
+
+        isLoading = false
+        isResponseFinished = true
+        timelineView.finishStreamingContent(animated: false)
+        errorLabel.text = message
+        updateVisibility()
+    }
+
     func showLoadingIfNeeded() {
         guard timelineView.isEmpty,
               (errorLabel.text ?? "").isEmpty else {

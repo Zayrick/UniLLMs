@@ -257,6 +257,24 @@ final class ChatHistoryStoreTests: XCTestCase {
         XCTAssertEqual(messages[3].content, "It is 20C.")
     }
 
+    func testTimelineEventsDoNotDeriveProviderMessagesFromAssistantError() {
+        let events = [
+            ChatTimelineEvent(
+                timestamp: Date(timeIntervalSince1970: 1),
+                kind: .userMessage(text: "Hello")
+            ),
+            ChatTimelineEvent(
+                timestamp: Date(timeIntervalSince1970: 2),
+                kind: .assistantError(message: "Provider failed.")
+            )
+        ]
+
+        let messages = ChatTimelineEvent.messages(from: events)
+
+        XCTAssertEqual(messages.map(\.role), [.user])
+        XCTAssertEqual(messages.map(\.content), ["Hello"])
+    }
+
     func testTimelineEventEncodesAssistantRawTextKey() throws {
         let event = ChatTimelineEvent(
             timestamp: Date(timeIntervalSince1970: 0),
@@ -269,6 +287,20 @@ final class ChatHistoryStoreTests: XCTestCase {
         let assistantRawText = try XCTUnwrap(kind["assistantRawText"] as? [String: Any])
 
         XCTAssertEqual(assistantRawText["rawText"] as? String, "Raw content")
+    }
+
+    func testTimelineEventEncodesAssistantErrorKey() throws {
+        let event = ChatTimelineEvent(
+            timestamp: Date(timeIntervalSince1970: 0),
+            kind: .assistantError(message: "Provider failed.")
+        )
+
+        let data = try JSONEncoder().encode(event)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let kind = try XCTUnwrap(object["kind"] as? [String: Any])
+        let assistantError = try XCTUnwrap(kind["assistantError"] as? [String: Any])
+
+        XCTAssertEqual(assistantError["text"] as? String, "Provider failed.")
     }
 
     func testTimelineRevisionEventEncodesAssistantRawTextKey() throws {
@@ -284,6 +316,21 @@ final class ChatHistoryStoreTests: XCTestCase {
         let assistantRawText = try XCTUnwrap(kind["assistantRawText"] as? [String: Any])
 
         XCTAssertEqual(assistantRawText["rawText"] as? String, "Revision raw content")
+    }
+
+    func testTimelineRevisionEventEncodesAssistantErrorKey() throws {
+        let timelineEvent = ChatTimelineEvent(
+            timestamp: Date(timeIntervalSince1970: 0),
+            kind: .assistantError(message: "Revision provider failed.")
+        )
+        let revisionEvent = try XCTUnwrap(ChatTimelineRevisionEvent(event: timelineEvent))
+
+        let data = try JSONEncoder().encode(revisionEvent)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let kind = try XCTUnwrap(object["kind"] as? [String: Any])
+        let assistantError = try XCTUnwrap(kind["assistantError"] as? [String: Any])
+
+        XCTAssertEqual(assistantError["text"] as? String, "Revision provider failed.")
     }
 
     func testTimelineEventsKeepToolCallBatchTogether() {

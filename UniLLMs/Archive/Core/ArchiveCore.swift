@@ -85,6 +85,8 @@ nonisolated private extension ChatTimelineEvent {
                 .joined(separator: " ")
         case let .assistantRawText(rawText):
             return rawText
+        case let .assistantError(message):
+            return message
         case let .assistantToolCalls(toolCalls):
             return toolCalls
                 .map { [$0.toolID, $0.presentationName, $0.serializedArguments].joined(separator: " ") }
@@ -114,6 +116,8 @@ nonisolated private extension ChatTimelineRevisionEvent {
                 .joined(separator: " ")
         case let .assistantRawText(rawText):
             return rawText
+        case let .assistantError(message):
+            return message
         case let .assistantToolCalls(toolCalls):
             return toolCalls
                 .map { [$0.toolID, $0.presentationName, $0.serializedArguments].joined(separator: " ") }

@@ -34,10 +34,6 @@ final class ChatRuntime {
     private struct TurnProgress {
         var timelineAccumulator = ChatTimelineAccumulator()
 
-        var hasPersistableProgress: Bool {
-            !timelineAccumulator.events.isEmpty
-        }
-
         mutating func append(displayDelta delta: ChatResponseDelta, timestamp: Date) {
             timelineAccumulator.appendDisplayDelta(delta, timestamp: timestamp)
         }
@@ -276,25 +272,23 @@ final class ChatRuntime {
 
                     self.finishTurn(
                         id: turnID,
-                        userEventID: userEvent.id,
-                        progress: turnProgress,
-                        shouldKeepUserMessage: true
+                        progress: turnProgress
                     )
                     continuation.finish()
                 } catch is CancellationError {
                     self?.finishTurn(
                         id: turnID,
-                        userEventID: userEvent.id,
-                        progress: turnProgress,
-                        shouldKeepUserMessage: true
+                        progress: turnProgress
                     )
                     continuation.finish()
                 } catch {
+                    turnProgress.append(
+                        timelineEvent: .assistantError(message: Self.persistedErrorMessage(from: error)),
+                        timestamp: self?.clock.now ?? Date()
+                    )
                     self?.finishTurn(
                         id: turnID,
-                        userEventID: userEvent.id,
-                        progress: turnProgress,
-                        shouldKeepUserMessage: replacingUserMessageID != nil || turnProgress.hasPersistableProgress
+                        progress: turnProgress
                     )
                     continuation.finish(throwing: error)
                 }
@@ -367,9 +361,7 @@ final class ChatRuntime {
 
     private func finishTurn(
         id turnID: UUID,
-        userEventID: UUID,
-        progress: TurnProgress,
-        shouldKeepUserMessage: Bool
+        progress: TurnProgress
     ) {
         guard activeTurnID == turnID else {
             return
@@ -382,8 +374,6 @@ final class ChatRuntime {
                lastEvent.timestamp > currentSession.updatedAt {
                 currentSession.updatedAt = lastEvent.timestamp
             }
-        } else if !shouldKeepUserMessage {
-            conversationTimeline.removeAll { $0.id == userEventID }
         }
 
         activeTurnID = nil
@@ -437,6 +427,15 @@ final class ChatRuntime {
             currentSession.updatedAt = clock.now
         }
         persistCurrentHistorySnapshot()
+    }
+
+    private static func persistedErrorMessage(from error: Error) -> String {
+        let localizedMessage = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard localizedMessage.isEmpty else {
+            return localizedMessage
+        }
+
+        return String(describing: error)
     }
 
     private func resolvedSystemPromptForNextTurn() -> SystemPromptRecord? {

@@ -1921,6 +1921,9 @@ final class ChatViewController: UIViewController {
                 assistantView().appendStoredReasoning(text)
             case let .assistantRawText(rawText):
                 assistantView().appendStoredRawText(rawText)
+            case let .assistantError(message):
+                assistantView().appendStoredError(message)
+                finishCurrentAssistantView()
             case let .assistantToolCalls(toolCalls):
                 for toolCall in toolCalls {
                     assistantView().appendDisplayPart(.toolEvent(.started(toolCall)))
@@ -2937,6 +2940,7 @@ private extension ChatMessageRevision {
                 }
             case .assistantReasoning,
                  .assistantRawText,
+                 .assistantError,
                  .assistantToolCalls,
                  .toolEvent:
                 continue
@@ -2953,6 +2957,7 @@ private extension ChatMessageRevision {
                 return text
             case .assistantReasoning,
                  .assistantRawText,
+                 .assistantError,
                  .assistantToolCalls,
                  .toolEvent:
                 continue
