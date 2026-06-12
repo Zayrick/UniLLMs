@@ -403,7 +403,11 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
         return fittingSize.height <= ceil(font.lineHeight * 1.25)
     }
 
-    private func makeTargetedPreview() -> UITargetedPreview {
+    private func makeTargetedPreview() -> UITargetedPreview? {
+        guard window != nil, !bounds.isEmpty else {
+            return nil
+        }
+
         let parameters = UIPreviewParameters()
         let visiblePath = makePreviewVisiblePath()
         parameters.backgroundColor = .clear
