@@ -187,16 +187,33 @@ final class ToolCatalog {
 
 final class ToolManager {
     private let catalog: ToolCatalog
+    private let approvalManager: (any ToolApprovalManaging)?
 
-    init(catalog: ToolCatalog) {
+    init(
+        catalog: ToolCatalog,
+        approvalManager: (any ToolApprovalManaging)? = nil
+    ) {
         self.catalog = catalog
+        self.approvalManager = approvalManager
     }
 
     func execute(call: ToolCall, context: ToolExecutionContext) async throws -> ToolResult {
+        try Task.checkCancellation()
+
         guard let tool = catalog.tool(id: call.toolID) else {
             throw ToolManagerError.missingTool(call.toolID)
         }
 
+        if let approvalManager {
+            switch await approvalManager.requestApprovalIfNeeded(call: call, definition: tool.definition) {
+            case .approved:
+                break
+            case let .rejected(message):
+                return ToolResult(callID: call.id, content: message, status: .error)
+            }
+        }
+
+        try Task.checkCancellation()
         return try await tool.execute(call: call, context: context)
     }
 }

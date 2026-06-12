@@ -204,8 +204,27 @@ private struct ToolGroupSettingsForm: View {
                     }
                 }
             }
+
+            Section {
+                Toggle(isOn: approvalSkippedBinding) {
+                    ToolRowLabel(
+                        title: String(localized: "tools.approval.skip_title"),
+                        subtitle: group.approvalSkipDetail,
+                        symbolName: "checkmark.shield",
+                        isEnabled: model.isApprovalSkipped(for: group)
+                    )
+                }
+            }
         }
         .navigationTitle(group.listTitle)
+    }
+
+    private var approvalSkippedBinding: Binding<Bool> {
+        Binding {
+            model.isApprovalSkipped(for: group)
+        } set: { isSkipped in
+            model.setApprovalSkipped(isSkipped, for: group)
+        }
     }
 }
 
@@ -362,6 +381,7 @@ private final class ToolsSettingsModel {
     var memoryToolItems: [MemoryToolUserFacingItem] = []
     var servers: [MCPServerRecord] = []
     var enabledBuiltInToolIDs: Set<String> = []
+    var approvalSkippedToolIDs: Set<String> = []
 
     init(dependencies: AppDependencyContainer) {
         self.dependencies = dependencies
@@ -409,6 +429,16 @@ private final class ToolsSettingsModel {
 
     func setBuiltInTool(id: String, isEnabled: Bool) {
         dependencies.toolSettingsManager.setBuiltInTool(id: id, isEnabled: isEnabled)
+        refreshToolSettings()
+    }
+
+    func isApprovalSkipped(for group: ToolsSettingsGroup) -> Bool {
+        let ids = toolIDs(for: group)
+        return !ids.isEmpty && ids.allSatisfy { approvalSkippedToolIDs.contains($0) }
+    }
+
+    func setApprovalSkipped(_ isSkipped: Bool, for group: ToolsSettingsGroup) {
+        dependencies.toolSettingsManager.setApprovalSkipped(isSkipped, forToolIDs: toolIDs(for: group))
         refreshToolSettings()
     }
 
@@ -497,6 +527,7 @@ private final class ToolsSettingsModel {
                 .filter { dependencies.toolSettingsManager.isBuiltInToolEnabled(id: $0.id) }
                 .map(\.id)
         )
+        approvalSkippedToolIDs = dependencies.toolSettingsManager.approvalSkippedToolIDs()
     }
 
     private func refreshServers() {
@@ -612,6 +643,15 @@ private enum ToolsSettingsGroup {
             return "calendar.badge.clock"
         case .memory:
             return "brain.head.profile"
+        }
+    }
+
+    var approvalSkipDetail: String {
+        switch self {
+        case .calendar:
+            return String(localized: "tools.approval.calendar_skip_detail")
+        case .memory:
+            return String(localized: "tools.approval.memory_skip_detail")
         }
     }
 }

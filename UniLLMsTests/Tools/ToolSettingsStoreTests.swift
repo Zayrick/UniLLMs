@@ -18,9 +18,12 @@ final class ToolSettingsStoreTests: UserDefaultsBackedTestCase {
 
         XCTAssertFalse(settingsStore.loadToolsEnabled())
         XCTAssertTrue(settingsStore.isBuiltInToolEnabled(id: "current_datetime"))
+        XCTAssertFalse(settingsStore.isApprovalSkipped(forToolID: CalendarToolCatalog.createID))
+        XCTAssertFalse(settingsStore.isApprovalSkipped(forToolID: MemoryToolCatalog.addID))
 
         settingsStore.saveToolsEnabled(true)
         settingsStore.saveBuiltInToolEnabled(false, id: "current_datetime")
+        settingsStore.saveApprovalSkipped(true, forToolID: CalendarToolCatalog.createID)
 
         let reloadedStore = UserDefaultsToolSettingsStore(
             defaults: defaults,
@@ -30,10 +33,14 @@ final class ToolSettingsStoreTests: UserDefaultsBackedTestCase {
 
         XCTAssertTrue(reloadedStore.loadToolsEnabled())
         XCTAssertFalse(reloadedStore.isBuiltInToolEnabled(id: "current_datetime"))
+        XCTAssertTrue(reloadedStore.isApprovalSkipped(forToolID: CalendarToolCatalog.createID))
+        XCTAssertFalse(reloadedStore.isApprovalSkipped(forToolID: MemoryToolCatalog.addID))
 
         reloadedStore.saveBuiltInToolEnabled(true, id: "current_datetime")
+        reloadedStore.saveApprovalSkipped(false, forToolID: CalendarToolCatalog.createID)
 
         XCTAssertTrue(reloadedStore.isBuiltInToolEnabled(id: "current_datetime"))
+        XCTAssertFalse(reloadedStore.isApprovalSkipped(forToolID: CalendarToolCatalog.createID))
     }
 
     func testToolSettingsStoreReadsLegacyMCPGlobalToolsEnabled() throws {

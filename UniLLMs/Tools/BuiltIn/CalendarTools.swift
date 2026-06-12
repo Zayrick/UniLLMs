@@ -7,6 +7,7 @@
 
 import EventKit
 import Foundation
+import SwiftUI
 
 nonisolated enum CalendarToolCatalog {
     static let createID = "calendar_create"
@@ -86,6 +87,485 @@ protocol CalendarEventStore {
     @MainActor func saveEvent(draft: CalendarEventDraft) async throws -> CalendarEventRecord
     @MainActor func updateEvent(update: CalendarEventUpdate) async throws -> CalendarEventRecord
     @MainActor func deleteEvent(id: String) async throws -> CalendarEventRecord
+}
+
+protocol CalendarToolApprovalContextProviding {
+    func calendarEvent(id: String) async -> CalendarEventRecord?
+}
+
+nonisolated struct SystemCalendarToolApprovalContextProvider: CalendarToolApprovalContextProviding {
+    func calendarEvent(id: String) async -> CalendarEventRecord? {
+        SystemCalendarEventStore.shared.eventIfFullAccessGranted(id: id)
+    }
+}
+
+struct CalendarToolApprovalRequestProvider: ToolApprovalRequestProviding {
+    let toolIDs = Set(CalendarToolCatalog.toolIDs)
+
+    private let contextProvider: any CalendarToolApprovalContextProviding
+
+    init(contextProvider: any CalendarToolApprovalContextProviding = SystemCalendarToolApprovalContextProvider()) {
+        self.contextProvider = contextProvider
+    }
+
+    func approvalRequest(
+        for call: ToolCall,
+        definition: ToolDefinition
+    ) async -> ToolApprovalRequest? {
+        guard CalendarToolCatalog.containsTool(id: call.toolID) else {
+            return nil
+        }
+
+        let details = await details(for: call)
+        let isDestructive = call.toolID == CalendarToolCatalog.deleteID
+        let confirmationTitle = isDestructive
+            ? String(localized: "tools.approval.allow_destructive")
+            : String(localized: "tools.approval.allow")
+
+        return ToolApprovalRequest(
+            toolID: call.toolID,
+            toolName: definition.presentationName,
+            confirmationTitle: confirmationTitle,
+            isDestructive: isDestructive
+        ) {
+            ToolApprovalDetailList(details: details)
+        }
+    }
+
+    func details(for call: ToolCall) async -> [ToolApprovalDetail] {
+        switch call.toolID {
+        case CalendarToolCatalog.createID:
+            return Self.compactDetails([
+                Self.detail("tools.approval.detail.title", value: Self.stringValue(call.arguments["title"])),
+                Self.detail("tools.approval.detail.time", value: Self.eventTimeText(from: call.arguments)),
+                Self.detail("tools.approval.detail.all_day", value: Self.boolValue(call.arguments["is_all_day"])),
+                Self.detail("tools.approval.detail.location", value: Self.stringValue(call.arguments["location"])),
+                Self.detail("tools.approval.detail.notes", value: Self.stringValue(call.arguments["notes"])),
+                Self.detail("tools.approval.detail.url", value: Self.stringValue(call.arguments["url"]))
+            ])
+        case CalendarToolCatalog.readID:
+            return Self.compactDetails([
+                Self.detail("tools.approval.detail.date_range", value: Self.dateRangeText(from: call.arguments)),
+                Self.detail("tools.approval.detail.limit", value: Self.integerText(call.arguments["limit"]))
+            ])
+        case CalendarToolCatalog.updateID:
+            let event = await calendarEvent(from: call.arguments)
+            return Self.calendarUpdateDetails(from: call.arguments, originalEvent: event)
+        case CalendarToolCatalog.deleteID:
+            let event = await calendarEvent(from: call.arguments)
+            return Self.calendarDeleteDetails(event)
+        default:
+            return []
+        }
+    }
+
+    private func calendarEvent(from arguments: [String: JSONValue]) async -> CalendarEventRecord? {
+        guard let id = Self.trimmed(Self.stringValue(arguments["id"])) else {
+            return nil
+        }
+
+        return await contextProvider.calendarEvent(id: id)
+    }
+
+    private static func compactDetails(_ details: [ToolApprovalDetail?]) -> [ToolApprovalDetail] {
+        details.compactMap { $0 }
+    }
+
+    private static func detail(_ labelKey: String, value: String?) -> ToolApprovalDetail? {
+        guard let value = sanitized(value) else {
+            return nil
+        }
+
+        return ToolApprovalDetail(
+            id: labelKey,
+            label: NSLocalizedString(labelKey, comment: ""),
+            value: value
+        )
+    }
+
+    private static func changedDetail(
+        _ labelKey: String,
+        originalValue: String?,
+        changedValue: String?
+    ) -> ToolApprovalDetail? {
+        guard let originalValue = sanitized(originalValue),
+              let changedValue = sanitized(changedValue),
+              originalValue != changedValue else {
+            return nil
+        }
+
+        return ToolApprovalDetail(
+            id: labelKey,
+            label: NSLocalizedString(labelKey, comment: ""),
+            value: String(
+                format: NSLocalizedString("tools.approval.value.changed_format", comment: ""),
+                locale: Locale.current,
+                originalValue,
+                changedValue
+            ),
+            change: ToolApprovalValueChange(
+                originalValue: originalValue,
+                changedValue: changedValue
+            )
+        )
+    }
+
+    private static func sanitized(_ value: String?) -> String? {
+        guard let trimmedValue = trimmed(value) else {
+            return nil
+        }
+
+        if trimmedValue.count <= 240 {
+            return trimmedValue
+        }
+
+        let endIndex = trimmedValue.index(trimmedValue.startIndex, offsetBy: 240)
+        return String(trimmedValue[..<endIndex]) + "..."
+    }
+
+    private static func trimmed(_ value: String?) -> String? {
+        let trimmedValue = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmedValue.isEmpty ? nil : trimmedValue
+    }
+
+    private static func stringValue(_ value: JSONValue?) -> String? {
+        guard case let .string(stringValue) = value else {
+            return nil
+        }
+
+        return stringValue
+    }
+
+    private static func integerText(_ value: JSONValue?) -> String? {
+        guard let intValue = integerValue(value) else {
+            return nil
+        }
+
+        return String(intValue)
+    }
+
+    private static func integerValue(_ value: JSONValue?) -> Int? {
+        switch value {
+        case let .int(intValue):
+            return intValue
+        case let .double(doubleValue) where doubleValue.rounded() == doubleValue:
+            return Int(doubleValue)
+        case let .string(stringValue):
+            return Int(stringValue.trimmingCharacters(in: .whitespacesAndNewlines))
+        default:
+            return nil
+        }
+    }
+
+    private static func boolValue(_ value: JSONValue?) -> String? {
+        switch value {
+        case let .bool(boolValue):
+            return boolText(boolValue)
+        case let .string(stringValue):
+            switch stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "true":
+                return boolText(true)
+            case "false":
+                return boolText(false)
+            default:
+                return nil
+            }
+        default:
+            return nil
+        }
+    }
+
+    private static func boolValueForComparison(_ value: JSONValue?) -> Bool? {
+        switch value {
+        case let .bool(boolValue):
+            return boolValue
+        case let .string(stringValue):
+            switch stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "true":
+                return true
+            case "false":
+                return false
+            default:
+                return nil
+            }
+        default:
+            return nil
+        }
+    }
+
+    private static func boolText(_ value: Bool) -> String {
+        value
+            ? NSLocalizedString("tools.approval.value.yes", comment: "")
+            : NSLocalizedString("tools.approval.value.no", comment: "")
+    }
+
+    private static func eventTimeText(from arguments: [String: JSONValue]) -> String? {
+        if let startDate = dateText(arguments["start_date"]),
+           let endDate = dateText(arguments["end_date"]) {
+            return "\(startDate) - \(endDate)"
+        }
+
+        if let startDate = dateText(arguments["start_date"]) {
+            if let duration = integerValue(arguments["duration_minutes"]) {
+                let durationText = String(
+                    format: NSLocalizedString("tools.approval.value.minutes_format", comment: ""),
+                    locale: Locale.current,
+                    duration
+                )
+                return "\(startDate), \(durationText)"
+            }
+
+            return startDate
+        }
+
+        if let endDate = dateText(arguments["end_date"]) {
+            return endDate
+        }
+
+        return nil
+    }
+
+    private static func dateRangeText(from arguments: [String: JSONValue]) -> String? {
+        guard let startDate = dateText(arguments["start_date"]),
+              let endDate = dateText(arguments["end_date"]) else {
+            return eventTimeText(from: arguments)
+        }
+
+        return "\(startDate) - \(endDate)"
+    }
+
+    private static func dateText(_ value: JSONValue?) -> String? {
+        guard let rawValue = stringValue(value) else {
+            return nil
+        }
+
+        guard let date = parsedDate(rawValue) else {
+            return rawValue
+        }
+
+        return displayDateFormatter.string(from: date)
+    }
+
+    private static func displayDateText(_ date: Date) -> String {
+        displayDateFormatter.string(from: date)
+    }
+
+    private static func parsedDate(_ value: String) -> Date? {
+        if let date = isoDateFormatter(options: [.withInternetDateTime, .withFractionalSeconds])
+            .date(from: value) {
+            return date
+        }
+        if let date = isoDateFormatter(options: [.withInternetDateTime]).date(from: value) {
+            return date
+        }
+
+        for format in ["yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm", "yyyy-MM-dd"] {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.calendar = Calendar(identifier: .gregorian)
+            formatter.dateFormat = format
+            if let date = formatter.date(from: value) {
+                return date
+            }
+        }
+
+        return nil
+    }
+
+    private static func isoDateFormatter(options: ISO8601DateFormatter.Options) -> ISO8601DateFormatter {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = options
+        return formatter
+    }
+
+    private static let displayDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    private static func eventDisplayName(_ event: CalendarEventRecord?) -> String {
+        guard let event else {
+            return NSLocalizedString("tools.approval.value.event_unavailable", comment: "")
+        }
+
+        return sanitized(event.title) ?? NSLocalizedString("tools.approval.value.untitled_event", comment: "")
+    }
+
+    private static func calendarDeleteDetails(_ event: CalendarEventRecord?) -> [ToolApprovalDetail] {
+        guard let event else {
+            return compactDetails([
+                detail("tools.approval.detail.event_id", value: eventDisplayName(nil))
+            ])
+        }
+
+        return compactDetails([
+            detail("tools.approval.detail.event_id", value: eventDisplayName(event)),
+            detail("tools.approval.detail.time", value: eventTimeText(from: event)),
+            detail("tools.approval.detail.all_day", value: boolText(event.isAllDay)),
+            detail("tools.approval.detail.calendar", value: event.calendarTitle),
+            detail("tools.approval.detail.location", value: event.location),
+            detail("tools.approval.detail.notes", value: event.notes),
+            detail("tools.approval.detail.url", value: event.url?.absoluteString)
+        ])
+    }
+
+    private static func eventTimeText(from event: CalendarEventRecord) -> String {
+        "\(displayDateText(event.startDate)) - \(displayDateText(event.endDate))"
+    }
+
+    private static func calendarUpdateDetails(
+        from arguments: [String: JSONValue],
+        originalEvent: CalendarEventRecord?
+    ) -> [ToolApprovalDetail] {
+        var details = compactDetails([
+            detail("tools.approval.detail.event_id", value: eventDisplayName(originalEvent))
+        ])
+
+        guard let originalEvent else {
+            details.append(
+                contentsOf: compactDetails([
+                    detail("tools.approval.detail.title", value: stringValue(arguments["title"])),
+                    detail("tools.approval.detail.time", value: eventTimeText(from: arguments)),
+                    detail("tools.approval.detail.all_day", value: boolValue(arguments["is_all_day"])),
+                    detail("tools.approval.detail.location", value: stringValue(arguments["location"])),
+                    detail("tools.approval.detail.notes", value: stringValue(arguments["notes"])),
+                    detail("tools.approval.detail.url", value: stringValue(arguments["url"]))
+                ])
+            )
+            return details
+        }
+
+        if let title = sanitized(stringValue(arguments["title"])) {
+            appendChangedDetail(
+                &details,
+                labelKey: "tools.approval.detail.title",
+                originalValue: originalEvent.title,
+                changedValue: title
+            )
+        }
+
+        let updatedTiming = calendarUpdatedTiming(from: arguments, originalEvent: originalEvent)
+        if updatedTiming.startDate != originalEvent.startDate {
+            appendChangedDetail(
+                &details,
+                labelKey: "tools.approval.detail.start_time",
+                originalValue: displayDateText(originalEvent.startDate),
+                changedValue: displayDateText(updatedTiming.startDate)
+            )
+        }
+        if updatedTiming.endDate != originalEvent.endDate {
+            appendChangedDetail(
+                &details,
+                labelKey: "tools.approval.detail.end_time",
+                originalValue: displayDateText(originalEvent.endDate),
+                changedValue: displayDateText(updatedTiming.endDate)
+            )
+        }
+
+        if let isAllDay = boolValueForComparison(arguments["is_all_day"]) {
+            appendChangedDetail(
+                &details,
+                labelKey: "tools.approval.detail.all_day",
+                originalValue: boolText(originalEvent.isAllDay),
+                changedValue: boolText(isAllDay)
+            )
+        }
+
+        appendOptionalTextChange(
+            &details,
+            labelKey: "tools.approval.detail.location",
+            argumentKey: "location",
+            clearKey: "clear_location",
+            originalValue: originalEvent.location,
+            arguments: arguments
+        )
+        appendOptionalTextChange(
+            &details,
+            labelKey: "tools.approval.detail.notes",
+            argumentKey: "notes",
+            clearKey: "clear_notes",
+            originalValue: originalEvent.notes,
+            arguments: arguments
+        )
+        appendOptionalTextChange(
+            &details,
+            labelKey: "tools.approval.detail.url",
+            argumentKey: "url",
+            clearKey: "clear_url",
+            originalValue: originalEvent.url?.absoluteString,
+            arguments: arguments
+        )
+
+        return details
+    }
+
+    private static func appendChangedDetail(
+        _ details: inout [ToolApprovalDetail],
+        labelKey: String,
+        originalValue: String?,
+        changedValue: String?
+    ) {
+        if let detail = changedDetail(labelKey, originalValue: originalValue, changedValue: changedValue) {
+            details.append(detail)
+        }
+    }
+
+    private static func calendarUpdatedTiming(
+        from arguments: [String: JSONValue],
+        originalEvent: CalendarEventRecord
+    ) -> (startDate: Date, endDate: Date) {
+        let argumentStartDate = parsedArgumentDate(arguments["start_date"])
+        let startDate = argumentStartDate ?? originalEvent.startDate
+        let endDate: Date
+        if let explicitEndDate = parsedArgumentDate(arguments["end_date"]) {
+            endDate = explicitEndDate
+        } else if argumentStartDate != nil,
+                  boolValueForComparison(arguments["is_all_day"]) == true,
+                  let allDayEndDate = Calendar.current.date(byAdding: .day, value: 1, to: startDate) {
+            endDate = allDayEndDate
+        } else if argumentStartDate != nil {
+            endDate = startDate.addingTimeInterval(originalEvent.endDate.timeIntervalSince(originalEvent.startDate))
+        } else {
+            endDate = originalEvent.endDate
+        }
+
+        return (startDate, endDate)
+    }
+
+    private static func parsedArgumentDate(_ value: JSONValue?) -> Date? {
+        guard let rawValue = stringValue(value) else {
+            return nil
+        }
+
+        return parsedDate(rawValue)
+    }
+
+    private static func appendOptionalTextChange(
+        _ details: inout [ToolApprovalDetail],
+        labelKey: String,
+        argumentKey: String,
+        clearKey: String,
+        originalValue: String?,
+        arguments: [String: JSONValue]
+    ) {
+        let nextValue: String?
+        if boolValueForComparison(arguments[clearKey]) == true {
+            nextValue = nil
+        } else if let value = stringValue(arguments[argumentKey]) {
+            nextValue = sanitized(value)
+        } else {
+            return
+        }
+
+        appendChangedDetail(
+            &details,
+            labelKey: labelKey,
+            originalValue: originalValue ?? NSLocalizedString("tools.approval.value.empty", comment: ""),
+            changedValue: nextValue ?? NSLocalizedString("tools.approval.value.empty", comment: "")
+        )
+    }
 }
 
 struct CalendarReadTool: Tool {
@@ -398,6 +878,16 @@ private final class SystemCalendarEventStore: CalendarEventStore {
         }
 
         try eventStore.save(event, span: .thisEvent, commit: true)
+        return CalendarEventRecord(event: event)
+    }
+
+    @MainActor
+    func eventIfFullAccessGranted(id: String) -> CalendarEventRecord? {
+        guard EKEventStore.authorizationStatus(for: .event) == .fullAccess,
+              let event = eventStore.event(withIdentifier: id) else {
+            return nil
+        }
+
         return CalendarEventRecord(event: event)
     }
 

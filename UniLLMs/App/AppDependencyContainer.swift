@@ -16,6 +16,9 @@ final class AppDependencyContainer {
     let toolRegistry: ToolRegistry
     let toolSettingsStore: any ToolSettingsStore
     let toolSettingsManager: ToolSettingsManager
+    let toolApprovalPresenter: any ToolApprovalPresenter
+    let toolApprovalRequestRegistry: ToolApprovalRequestRegistry
+    let toolApprovalManager: ToolApprovalManager
     let toolCatalog: ToolCatalog
     let toolManager: ToolManager
     let systemPromptManager: SystemPromptManager
@@ -69,6 +72,18 @@ final class AppDependencyContainer {
             store: toolSettingsStore
         )
         self.toolSettingsManager = toolSettingsManager
+        toolApprovalPresenter = SwiftUIToolApprovalPresenter()
+        toolApprovalRequestRegistry = ToolApprovalRequestRegistry(
+            providers: [
+                CalendarToolApprovalRequestProvider(),
+                MemoryToolApprovalRequestProvider()
+            ]
+        )
+        toolApprovalManager = ToolApprovalManager(
+            settingsStore: toolSettingsStore,
+            presenter: toolApprovalPresenter,
+            requestRegistry: toolApprovalRequestRegistry
+        )
         chatHistoryStore = UserDefaultsChatStore()
         let mcpServerManager = MCPServerManager()
         self.mcpServerManager = mcpServerManager
@@ -78,7 +93,10 @@ final class AppDependencyContainer {
             isRegisteredToolEnabled: { toolSettingsManager.isBuiltInToolEnabled(id: $0) },
             dynamicSources: [mcpServerManager]
         )
-        toolManager = ToolManager(catalog: toolCatalog)
+        toolManager = ToolManager(
+            catalog: toolCatalog,
+            approvalManager: toolApprovalManager
+        )
         archiveStore = InMemoryArchiveStore()
         chatContinuationTaskCoordinator = ChatContinuationTaskCoordinator()
 

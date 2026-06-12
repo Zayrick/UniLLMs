@@ -71,7 +71,7 @@ final class ChatTurnRunner {
                             )
                         }
 
-                        let toolMessages = await executeToolCalls(
+                        let toolMessages = try await executeToolCalls(
                             assistantResponse.toolCalls,
                             context: context,
                             into: continuation
@@ -135,11 +135,13 @@ final class ChatTurnRunner {
         _ toolCalls: [ChatToolCall],
         context: ChatContext,
         into continuation: AsyncThrowingStream<ChatTurnEvent, Error>.Continuation
-    ) async -> [ChatMessage] {
+    ) async throws -> [ChatMessage] {
         var messages: [ChatMessage] = []
         let executionContext = ToolExecutionContext(session: context.session)
 
         for toolCall in toolCalls {
+            try Task.checkCancellation()
+
             let toolDisplayName = Self.resolvedToolDisplayName(for: toolCall, context: context)
             let displayToolCall = ChatToolCall(
                 id: toolCall.id,
@@ -174,6 +176,8 @@ final class ChatTurnRunner {
                         toolStatus: result.status
                     )
                 )
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 let failedEvent = ChatToolEvent.failed(displayToolCall, message: error.localizedDescription)
                 continuation.yield(.timelineEvent(.toolEvent(failedEvent)))

@@ -13,6 +13,8 @@ protocol ToolSettingsStore {
     func saveToolsEnabled(_ isEnabled: Bool)
     func loadDisabledBuiltInToolIDs() -> Set<String>
     func saveDisabledBuiltInToolIDs(_ ids: Set<String>)
+    func loadApprovalSkippedToolIDs() -> Set<String>
+    func saveApprovalSkippedToolIDs(_ ids: Set<String>)
 }
 
 extension ToolSettingsStore {
@@ -29,6 +31,20 @@ extension ToolSettingsStore {
         }
         saveDisabledBuiltInToolIDs(disabledToolIDs)
     }
+
+    func isApprovalSkipped(forToolID toolID: String) -> Bool {
+        loadApprovalSkippedToolIDs().contains(toolID)
+    }
+
+    func saveApprovalSkipped(_ isSkipped: Bool, forToolID toolID: String) {
+        var skippedToolIDs = loadApprovalSkippedToolIDs()
+        if isSkipped {
+            skippedToolIDs.insert(toolID)
+        } else {
+            skippedToolIDs.remove(toolID)
+        }
+        saveApprovalSkippedToolIDs(skippedToolIDs)
+    }
 }
 
 final class UserDefaultsToolSettingsStore: ToolSettingsStore {
@@ -38,18 +54,22 @@ final class UserDefaultsToolSettingsStore: ToolSettingsStore {
     private struct PersistedState: Codable, Equatable {
         var toolsEnabled: Bool
         var disabledBuiltInToolIDs: [String]
+        var approvalSkippedToolIDs: [String]
 
         init(
             toolsEnabled: Bool = false,
-            disabledBuiltInToolIDs: [String] = []
+            disabledBuiltInToolIDs: [String] = [],
+            approvalSkippedToolIDs: [String] = []
         ) {
             self.toolsEnabled = toolsEnabled
             self.disabledBuiltInToolIDs = disabledBuiltInToolIDs
+            self.approvalSkippedToolIDs = approvalSkippedToolIDs
         }
 
         private enum CodingKeys: String, CodingKey {
             case toolsEnabled
             case disabledBuiltInToolIDs
+            case approvalSkippedToolIDs
         }
 
         init(from decoder: Decoder) throws {
@@ -58,6 +78,10 @@ final class UserDefaultsToolSettingsStore: ToolSettingsStore {
             disabledBuiltInToolIDs = try container.decodeIfPresent(
                 [String].self,
                 forKey: .disabledBuiltInToolIDs
+            ) ?? []
+            approvalSkippedToolIDs = try container.decodeIfPresent(
+                [String].self,
+                forKey: .approvalSkippedToolIDs
             ) ?? []
         }
     }
@@ -106,6 +130,21 @@ final class UserDefaultsToolSettingsStore: ToolSettingsStore {
         }
 
         state.disabledBuiltInToolIDs = sortedIDs
+        saveState(state)
+    }
+
+    func loadApprovalSkippedToolIDs() -> Set<String> {
+        Set(loadState().approvalSkippedToolIDs)
+    }
+
+    func saveApprovalSkippedToolIDs(_ ids: Set<String>) {
+        var state = loadState()
+        let sortedIDs = ids.sorted()
+        guard state.approvalSkippedToolIDs != sortedIDs else {
+            return
+        }
+
+        state.approvalSkippedToolIDs = sortedIDs
         saveState(state)
     }
 
@@ -166,6 +205,30 @@ final class ToolSettingsManager {
 
     func isBuiltInToolEnabled(id: String) -> Bool {
         store.isBuiltInToolEnabled(id: id)
+    }
+
+    func approvalSkippedToolIDs() -> Set<String> {
+        store.loadApprovalSkippedToolIDs()
+    }
+
+    func isApprovalSkipped(forToolID toolID: String) -> Bool {
+        store.isApprovalSkipped(forToolID: toolID)
+    }
+
+    func setApprovalSkipped(_ isSkipped: Bool, forToolID toolID: String) {
+        store.saveApprovalSkipped(isSkipped, forToolID: toolID)
+    }
+
+    func setApprovalSkipped(_ isSkipped: Bool, forToolIDs toolIDs: [String]) {
+        var skippedToolIDs = store.loadApprovalSkippedToolIDs()
+        for toolID in toolIDs {
+            if isSkipped {
+                skippedToolIDs.insert(toolID)
+            } else {
+                skippedToolIDs.remove(toolID)
+            }
+        }
+        store.saveApprovalSkippedToolIDs(skippedToolIDs)
     }
 
     @discardableResult
