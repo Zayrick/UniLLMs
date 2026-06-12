@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import SwiftUI
 
 nonisolated struct MemoryToolUserFacingItem: Equatable {
     let id: String
@@ -56,6 +55,8 @@ nonisolated enum MemoryToolCatalog {
     }
 }
 
+private typealias ApprovalDetailBuilder = ToolApprovalDetailBuilder
+
 struct MemoryToolApprovalRequestProvider: ToolApprovalRequestProviding {
     let toolIDs = Set(MemoryToolCatalog.toolIDs)
 
@@ -77,93 +78,58 @@ struct MemoryToolApprovalRequestProvider: ToolApprovalRequestProviding {
             toolID: call.toolID,
             toolName: definition.presentationName,
             confirmationTitle: confirmationTitle,
-            isDestructive: isDestructive
-        ) {
-            ToolApprovalDetailList(details: details)
-        }
+            isDestructive: isDestructive,
+            details: details
+        )
     }
 
     func details(for call: ToolCall) -> [ToolApprovalDetail] {
         switch call.toolID {
         case MemoryToolCatalog.addID:
-            return Self.compactDetails([
-                Self.detail("tools.approval.detail.memory", value: Self.stringValue(call.arguments["text"]))
+            return ApprovalDetailBuilder.compact([
+                ApprovalDetailBuilder.detail(
+                    "tools.approval.detail.memory",
+                    value: ApprovalDetailBuilder.stringValue(call.arguments["text"])
+                )
             ])
         case MemoryToolCatalog.searchID:
-            return Self.compactDetails([
-                Self.detail("tools.approval.detail.query", value: Self.stringValue(call.arguments["query"])),
-                Self.detail("tools.approval.detail.limit", value: Self.integerText(call.arguments["limit"]))
+            return ApprovalDetailBuilder.compact([
+                ApprovalDetailBuilder.detail(
+                    "tools.approval.detail.query",
+                    value: ApprovalDetailBuilder.stringValue(call.arguments["query"])
+                ),
+                ApprovalDetailBuilder.detail(
+                    "tools.approval.detail.limit",
+                    value: ApprovalDetailBuilder.integerText(call.arguments["limit"])
+                )
             ])
         case MemoryToolCatalog.listID:
-            return Self.compactDetails([
-                Self.detail("tools.approval.detail.limit", value: Self.integerText(call.arguments["limit"]))
+            return ApprovalDetailBuilder.compact([
+                ApprovalDetailBuilder.detail(
+                    "tools.approval.detail.limit",
+                    value: ApprovalDetailBuilder.integerText(call.arguments["limit"])
+                )
             ])
         case MemoryToolCatalog.updateID:
-            return Self.compactDetails([
-                Self.detail("tools.approval.detail.memory_id", value: Self.stringValue(call.arguments["id"])),
-                Self.detail("tools.approval.detail.memory", value: Self.stringValue(call.arguments["text"]))
+            return ApprovalDetailBuilder.compact([
+                ApprovalDetailBuilder.detail(
+                    "tools.approval.detail.memory_id",
+                    value: ApprovalDetailBuilder.stringValue(call.arguments["id"])
+                ),
+                ApprovalDetailBuilder.detail(
+                    "tools.approval.detail.memory",
+                    value: ApprovalDetailBuilder.stringValue(call.arguments["text"])
+                )
             ])
         case MemoryToolCatalog.deleteID:
-            return Self.compactDetails([
-                Self.detail("tools.approval.detail.memory_id", value: Self.stringValue(call.arguments["id"]))
+            return ApprovalDetailBuilder.compact([
+                ApprovalDetailBuilder.detail(
+                    "tools.approval.detail.memory_id",
+                    value: ApprovalDetailBuilder.stringValue(call.arguments["id"])
+                )
             ])
         default:
             return []
-        }
-    }
-
-    private static func compactDetails(_ details: [ToolApprovalDetail?]) -> [ToolApprovalDetail] {
-        details.compactMap { $0 }
-    }
-
-    private static func detail(_ labelKey: String, value: String?) -> ToolApprovalDetail? {
-        guard let value = sanitized(value) else {
-            return nil
-        }
-
-        return ToolApprovalDetail(
-            id: labelKey,
-            label: NSLocalizedString(labelKey, comment: ""),
-            value: value
-        )
-    }
-
-    private static func sanitized(_ value: String?) -> String? {
-        let trimmedValue = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !trimmedValue.isEmpty else {
-            return nil
-        }
-
-        if trimmedValue.count <= 240 {
-            return trimmedValue
-        }
-
-        let endIndex = trimmedValue.index(trimmedValue.startIndex, offsetBy: 240)
-        return String(trimmedValue[..<endIndex]) + "..."
-    }
-
-    private static func stringValue(_ value: JSONValue?) -> String? {
-        guard case let .string(stringValue) = value else {
-            return nil
-        }
-
-        return stringValue
-    }
-
-    private static func integerText(_ value: JSONValue?) -> String? {
-        switch value {
-        case let .int(intValue):
-            return String(intValue)
-        case let .double(doubleValue) where doubleValue.rounded() == doubleValue:
-            return String(Int(doubleValue))
-        case let .string(stringValue):
-            let trimmedValue = stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let intValue = Int(trimmedValue) else {
-                return nil
-            }
-            return String(intValue)
-        default:
-            return nil
         }
     }
 }

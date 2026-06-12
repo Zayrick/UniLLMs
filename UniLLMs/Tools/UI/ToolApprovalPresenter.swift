@@ -10,17 +10,17 @@ import UIKit
 
 @MainActor
 final class SwiftUIToolApprovalPresenter: ToolApprovalPresenter {
-    func requestApproval(_ request: ToolApprovalRequest) async -> Bool {
+    func requestApproval(_ request: ToolApprovalRequest) async throws -> ToolApprovalDecision {
         let cancellation = ToolApprovalCancellation()
-        return await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
                 guard !Task.isCancelled else {
-                    continuation.resume(returning: false)
+                    continuation.resume(throwing: CancellationError())
                     return
                 }
 
                 guard let presenter = Self.topViewController() else {
-                    continuation.resume(returning: false)
+                    continuation.resume(returning: .rejected)
                     return
                 }
 
@@ -30,9 +30,9 @@ final class SwiftUIToolApprovalPresenter: ToolApprovalPresenter {
                     toolName: request.toolName,
                     confirmationTitle: request.confirmationTitle,
                     confirmationRole: request.isDestructive ? .destructive : nil,
-                    content: request.makeContent()
-                ) { isApproved in
-                    coordinator.resolve(isApproved)
+                    details: request.details
+                ) { decision in
+                    coordinator.resolve(decision)
                 }
                 let hostingController = UIHostingController(rootView: modalView)
                 hostingController.modalPresentationStyle = .pageSheet
@@ -97,25 +97,29 @@ private final class ToolApprovalCancellation {
 private final class ToolApprovalModalCoordinator: NSObject, UIAdaptivePresentationControllerDelegate {
     var hostingController: UIViewController?
 
-    private var continuation: CheckedContinuation<Bool, Never>?
+    private var continuation: CheckedContinuation<ToolApprovalDecision, Error>?
 
-    init(continuation: CheckedContinuation<Bool, Never>) {
+    init(continuation: CheckedContinuation<ToolApprovalDecision, Error>) {
         self.continuation = continuation
     }
 
-    func resolve(_ isApproved: Bool) {
-        finish(isApproved, shouldDismiss: true, animated: true)
+    func resolve(_ decision: ToolApprovalDecision) {
+        finish(.success(decision), shouldDismiss: true, animated: true)
     }
 
     func cancel() {
-        finish(false, shouldDismiss: true, animated: false)
+        finish(.failure(CancellationError()), shouldDismiss: true, animated: false)
     }
 
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
-        finish(false, shouldDismiss: false, animated: false)
+        finish(.success(.rejected), shouldDismiss: false, animated: false)
     }
 
-    private func finish(_ isApproved: Bool, shouldDismiss: Bool, animated: Bool) {
+    private func finish(
+        _ result: Result<ToolApprovalDecision, Error>,
+        shouldDismiss: Bool,
+        animated: Bool
+    ) {
         guard let continuation else {
             return
         }
@@ -126,21 +130,33 @@ private final class ToolApprovalModalCoordinator: NSObject, UIAdaptivePresentati
 
         if shouldDismiss,
            let controller {
-            controller.dismiss(animated: true) {
-                continuation.resume(returning: isApproved)
+            controller.dismiss(animated: animated) {
+                Self.resume(continuation, with: result)
             }
         } else {
-            continuation.resume(returning: isApproved)
+            Self.resume(continuation, with: result)
+        }
+    }
+
+    private static func resume(
+        _ continuation: CheckedContinuation<ToolApprovalDecision, Error>,
+        with result: Result<ToolApprovalDecision, Error>
+    ) {
+        switch result {
+        case let .success(decision):
+            continuation.resume(returning: decision)
+        case let .failure(error):
+            continuation.resume(throwing: error)
         }
     }
 }
 
-private struct ToolApprovalModalView<Content: View>: View {
+private struct ToolApprovalModalView: View {
     let toolName: String
     let confirmationTitle: String
     let confirmationRole: ButtonRole?
-    let content: Content
-    let onDecision: (Bool) -> Void
+    let details: [ToolApprovalDetail]
+    let onDecision: (ToolApprovalDecision) -> Void
 
     var body: some View {
         NavigationStack {
@@ -153,7 +169,7 @@ private struct ToolApprovalModalView<Content: View>: View {
 
                 Divider()
 
-                content
+                ToolApprovalDetailList(details: details)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
             .navigationTitle(String(localized: "tools.approval.navigation_title"))
@@ -161,13 +177,13 @@ private struct ToolApprovalModalView<Content: View>: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(String(localized: .generalCancel), role: .cancel) {
-                        onDecision(false)
+                        onDecision(.rejected)
                     }
                 }
 
                 ToolbarItem(placement: .confirmationAction) {
                     Button(confirmationTitle, role: confirmationRole) {
-                        onDecision(true)
+                        onDecision(.approved)
                     }
                 }
             }
@@ -218,10 +234,11 @@ private struct ToolApprovalDetailRow: View {
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.secondary)
 
-            if let change = detail.change {
+            switch detail.value {
+            case let .change(change):
                 ToolApprovalChangeComparison(change: change)
-            } else {
-                Text(detail.value)
+            case let .text(value):
+                Text(value)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -307,20 +324,23 @@ private struct ToolApprovalChangeComparison: View {
         toolName: "Create Calendar Event",
         confirmationTitle: String(localized: "tools.approval.allow"),
         confirmationRole: nil,
-        content: ToolApprovalDetailList(
-            details: [
-                ToolApprovalDetail(id: "title", label: "Title", value: "Design review"),
-                ToolApprovalDetail(id: "time", label: "Time", value: "Jun 10, 2026, 9:00 AM - Jun 10, 2026, 10:00 AM"),
-                ToolApprovalDetail(
-                    id: "location",
-                    label: "Location",
-                    value: "Original: Old Room\nChanged to: New Room",
-                    change: ToolApprovalValueChange(
+        details: [
+            ToolApprovalDetail(id: "title", label: "Title", value: .text("Design review")),
+            ToolApprovalDetail(
+                id: "time",
+                label: "Time",
+                value: .text("Jun 10, 2026, 9:00 AM - Jun 10, 2026, 10:00 AM")
+            ),
+            ToolApprovalDetail(
+                id: "location",
+                label: "Location",
+                value: .change(
+                    ToolApprovalValueChange(
                         originalValue: "Old Room",
                         changedValue: "New Room"
                     )
                 )
-            ]
-        )
+            )
+        ]
     ) { _ in }
 }

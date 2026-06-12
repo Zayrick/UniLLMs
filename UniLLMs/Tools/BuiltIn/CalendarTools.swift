@@ -7,7 +7,6 @@
 
 import EventKit
 import Foundation
-import SwiftUI
 
 nonisolated enum CalendarToolCatalog {
     static let createID = "calendar_create"
@@ -99,6 +98,8 @@ nonisolated struct SystemCalendarToolApprovalContextProvider: CalendarToolApprov
     }
 }
 
+private typealias ApprovalDetailBuilder = ToolApprovalDetailBuilder
+
 struct CalendarToolApprovalRequestProvider: ToolApprovalRequestProviding {
     let toolIDs = Set(CalendarToolCatalog.toolIDs)
 
@@ -126,27 +127,47 @@ struct CalendarToolApprovalRequestProvider: ToolApprovalRequestProviding {
             toolID: call.toolID,
             toolName: definition.presentationName,
             confirmationTitle: confirmationTitle,
-            isDestructive: isDestructive
-        ) {
-            ToolApprovalDetailList(details: details)
-        }
+            isDestructive: isDestructive,
+            details: details
+        )
     }
 
     func details(for call: ToolCall) async -> [ToolApprovalDetail] {
         switch call.toolID {
         case CalendarToolCatalog.createID:
-            return Self.compactDetails([
-                Self.detail("tools.approval.detail.title", value: Self.stringValue(call.arguments["title"])),
-                Self.detail("tools.approval.detail.time", value: Self.eventTimeText(from: call.arguments)),
-                Self.detail("tools.approval.detail.all_day", value: Self.boolValue(call.arguments["is_all_day"])),
-                Self.detail("tools.approval.detail.location", value: Self.stringValue(call.arguments["location"])),
-                Self.detail("tools.approval.detail.notes", value: Self.stringValue(call.arguments["notes"])),
-                Self.detail("tools.approval.detail.url", value: Self.stringValue(call.arguments["url"]))
+            return ApprovalDetailBuilder.compact([
+                ApprovalDetailBuilder.detail(
+                    "tools.approval.detail.title",
+                    value: ApprovalDetailBuilder.stringValue(call.arguments["title"])
+                ),
+                ApprovalDetailBuilder.detail("tools.approval.detail.time", value: Self.eventTimeText(from: call.arguments)),
+                ApprovalDetailBuilder.detail(
+                    "tools.approval.detail.all_day",
+                    value: ApprovalDetailBuilder.boolValue(call.arguments["is_all_day"]).map(ApprovalDetailBuilder.boolText)
+                ),
+                ApprovalDetailBuilder.detail(
+                    "tools.approval.detail.location",
+                    value: ApprovalDetailBuilder.stringValue(call.arguments["location"])
+                ),
+                ApprovalDetailBuilder.detail(
+                    "tools.approval.detail.notes",
+                    value: ApprovalDetailBuilder.stringValue(call.arguments["notes"])
+                ),
+                ApprovalDetailBuilder.detail(
+                    "tools.approval.detail.url",
+                    value: ApprovalDetailBuilder.stringValue(call.arguments["url"])
+                )
             ])
         case CalendarToolCatalog.readID:
-            return Self.compactDetails([
-                Self.detail("tools.approval.detail.date_range", value: Self.dateRangeText(from: call.arguments)),
-                Self.detail("tools.approval.detail.limit", value: Self.integerText(call.arguments["limit"]))
+            return ApprovalDetailBuilder.compact([
+                ApprovalDetailBuilder.detail(
+                    "tools.approval.detail.date_range",
+                    value: Self.dateRangeText(from: call.arguments)
+                ),
+                ApprovalDetailBuilder.detail(
+                    "tools.approval.detail.limit",
+                    value: ApprovalDetailBuilder.integerText(call.arguments["limit"])
+                )
             ])
         case CalendarToolCatalog.updateID:
             let event = await calendarEvent(from: call.arguments)
@@ -160,143 +181,11 @@ struct CalendarToolApprovalRequestProvider: ToolApprovalRequestProviding {
     }
 
     private func calendarEvent(from arguments: [String: JSONValue]) async -> CalendarEventRecord? {
-        guard let id = Self.trimmed(Self.stringValue(arguments["id"])) else {
+        guard let id = ApprovalDetailBuilder.trimmed(ApprovalDetailBuilder.stringValue(arguments["id"])) else {
             return nil
         }
 
         return await contextProvider.calendarEvent(id: id)
-    }
-
-    private static func compactDetails(_ details: [ToolApprovalDetail?]) -> [ToolApprovalDetail] {
-        details.compactMap { $0 }
-    }
-
-    private static func detail(_ labelKey: String, value: String?) -> ToolApprovalDetail? {
-        guard let value = sanitized(value) else {
-            return nil
-        }
-
-        return ToolApprovalDetail(
-            id: labelKey,
-            label: NSLocalizedString(labelKey, comment: ""),
-            value: value
-        )
-    }
-
-    private static func changedDetail(
-        _ labelKey: String,
-        originalValue: String?,
-        changedValue: String?
-    ) -> ToolApprovalDetail? {
-        guard let originalValue = sanitized(originalValue),
-              let changedValue = sanitized(changedValue),
-              originalValue != changedValue else {
-            return nil
-        }
-
-        return ToolApprovalDetail(
-            id: labelKey,
-            label: NSLocalizedString(labelKey, comment: ""),
-            value: String(
-                format: NSLocalizedString("tools.approval.value.changed_format", comment: ""),
-                locale: Locale.current,
-                originalValue,
-                changedValue
-            ),
-            change: ToolApprovalValueChange(
-                originalValue: originalValue,
-                changedValue: changedValue
-            )
-        )
-    }
-
-    private static func sanitized(_ value: String?) -> String? {
-        guard let trimmedValue = trimmed(value) else {
-            return nil
-        }
-
-        if trimmedValue.count <= 240 {
-            return trimmedValue
-        }
-
-        let endIndex = trimmedValue.index(trimmedValue.startIndex, offsetBy: 240)
-        return String(trimmedValue[..<endIndex]) + "..."
-    }
-
-    private static func trimmed(_ value: String?) -> String? {
-        let trimmedValue = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmedValue.isEmpty ? nil : trimmedValue
-    }
-
-    private static func stringValue(_ value: JSONValue?) -> String? {
-        guard case let .string(stringValue) = value else {
-            return nil
-        }
-
-        return stringValue
-    }
-
-    private static func integerText(_ value: JSONValue?) -> String? {
-        guard let intValue = integerValue(value) else {
-            return nil
-        }
-
-        return String(intValue)
-    }
-
-    private static func integerValue(_ value: JSONValue?) -> Int? {
-        switch value {
-        case let .int(intValue):
-            return intValue
-        case let .double(doubleValue) where doubleValue.rounded() == doubleValue:
-            return Int(doubleValue)
-        case let .string(stringValue):
-            return Int(stringValue.trimmingCharacters(in: .whitespacesAndNewlines))
-        default:
-            return nil
-        }
-    }
-
-    private static func boolValue(_ value: JSONValue?) -> String? {
-        switch value {
-        case let .bool(boolValue):
-            return boolText(boolValue)
-        case let .string(stringValue):
-            switch stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-            case "true":
-                return boolText(true)
-            case "false":
-                return boolText(false)
-            default:
-                return nil
-            }
-        default:
-            return nil
-        }
-    }
-
-    private static func boolValueForComparison(_ value: JSONValue?) -> Bool? {
-        switch value {
-        case let .bool(boolValue):
-            return boolValue
-        case let .string(stringValue):
-            switch stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-            case "true":
-                return true
-            case "false":
-                return false
-            default:
-                return nil
-            }
-        default:
-            return nil
-        }
-    }
-
-    private static func boolText(_ value: Bool) -> String {
-        value
-            ? NSLocalizedString("tools.approval.value.yes", comment: "")
-            : NSLocalizedString("tools.approval.value.no", comment: "")
     }
 
     private static func eventTimeText(from arguments: [String: JSONValue]) -> String? {
@@ -306,7 +195,7 @@ struct CalendarToolApprovalRequestProvider: ToolApprovalRequestProviding {
         }
 
         if let startDate = dateText(arguments["start_date"]) {
-            if let duration = integerValue(arguments["duration_minutes"]) {
+            if let duration = ApprovalDetailBuilder.integerValue(arguments["duration_minutes"]) {
                 let durationText = String(
                     format: NSLocalizedString("tools.approval.value.minutes_format", comment: ""),
                     locale: Locale.current,
@@ -335,7 +224,7 @@ struct CalendarToolApprovalRequestProvider: ToolApprovalRequestProviding {
     }
 
     private static func dateText(_ value: JSONValue?) -> String? {
-        guard let rawValue = stringValue(value) else {
+        guard let rawValue = ApprovalDetailBuilder.stringValue(value) else {
             return nil
         }
 
@@ -390,24 +279,28 @@ struct CalendarToolApprovalRequestProvider: ToolApprovalRequestProviding {
             return NSLocalizedString("tools.approval.value.event_unavailable", comment: "")
         }
 
-        return sanitized(event.title) ?? NSLocalizedString("tools.approval.value.untitled_event", comment: "")
+        return ApprovalDetailBuilder.sanitized(event.title)
+            ?? NSLocalizedString("tools.approval.value.untitled_event", comment: "")
     }
 
     private static func calendarDeleteDetails(_ event: CalendarEventRecord?) -> [ToolApprovalDetail] {
         guard let event else {
-            return compactDetails([
-                detail("tools.approval.detail.event_id", value: eventDisplayName(nil))
+            return ApprovalDetailBuilder.compact([
+                ApprovalDetailBuilder.detail("tools.approval.detail.event_id", value: eventDisplayName(nil))
             ])
         }
 
-        return compactDetails([
-            detail("tools.approval.detail.event_id", value: eventDisplayName(event)),
-            detail("tools.approval.detail.time", value: eventTimeText(from: event)),
-            detail("tools.approval.detail.all_day", value: boolText(event.isAllDay)),
-            detail("tools.approval.detail.calendar", value: event.calendarTitle),
-            detail("tools.approval.detail.location", value: event.location),
-            detail("tools.approval.detail.notes", value: event.notes),
-            detail("tools.approval.detail.url", value: event.url?.absoluteString)
+        return ApprovalDetailBuilder.compact([
+            ApprovalDetailBuilder.detail("tools.approval.detail.event_id", value: eventDisplayName(event)),
+            ApprovalDetailBuilder.detail("tools.approval.detail.time", value: eventTimeText(from: event)),
+            ApprovalDetailBuilder.detail(
+                "tools.approval.detail.all_day",
+                value: ApprovalDetailBuilder.boolText(event.isAllDay)
+            ),
+            ApprovalDetailBuilder.detail("tools.approval.detail.calendar", value: event.calendarTitle),
+            ApprovalDetailBuilder.detail("tools.approval.detail.location", value: event.location),
+            ApprovalDetailBuilder.detail("tools.approval.detail.notes", value: event.notes),
+            ApprovalDetailBuilder.detail("tools.approval.detail.url", value: event.url?.absoluteString)
         ])
     }
 
@@ -419,26 +312,41 @@ struct CalendarToolApprovalRequestProvider: ToolApprovalRequestProviding {
         from arguments: [String: JSONValue],
         originalEvent: CalendarEventRecord?
     ) -> [ToolApprovalDetail] {
-        var details = compactDetails([
-            detail("tools.approval.detail.event_id", value: eventDisplayName(originalEvent))
+        var details = ApprovalDetailBuilder.compact([
+            ApprovalDetailBuilder.detail("tools.approval.detail.event_id", value: eventDisplayName(originalEvent))
         ])
 
         guard let originalEvent else {
             details.append(
-                contentsOf: compactDetails([
-                    detail("tools.approval.detail.title", value: stringValue(arguments["title"])),
-                    detail("tools.approval.detail.time", value: eventTimeText(from: arguments)),
-                    detail("tools.approval.detail.all_day", value: boolValue(arguments["is_all_day"])),
-                    detail("tools.approval.detail.location", value: stringValue(arguments["location"])),
-                    detail("tools.approval.detail.notes", value: stringValue(arguments["notes"])),
-                    detail("tools.approval.detail.url", value: stringValue(arguments["url"]))
+                contentsOf: ApprovalDetailBuilder.compact([
+                    ApprovalDetailBuilder.detail(
+                        "tools.approval.detail.title",
+                        value: ApprovalDetailBuilder.stringValue(arguments["title"])
+                    ),
+                    ApprovalDetailBuilder.detail("tools.approval.detail.time", value: eventTimeText(from: arguments)),
+                    ApprovalDetailBuilder.detail(
+                        "tools.approval.detail.all_day",
+                        value: ApprovalDetailBuilder.boolValue(arguments["is_all_day"]).map(ApprovalDetailBuilder.boolText)
+                    ),
+                    ApprovalDetailBuilder.detail(
+                        "tools.approval.detail.location",
+                        value: ApprovalDetailBuilder.stringValue(arguments["location"])
+                    ),
+                    ApprovalDetailBuilder.detail(
+                        "tools.approval.detail.notes",
+                        value: ApprovalDetailBuilder.stringValue(arguments["notes"])
+                    ),
+                    ApprovalDetailBuilder.detail(
+                        "tools.approval.detail.url",
+                        value: ApprovalDetailBuilder.stringValue(arguments["url"])
+                    )
                 ])
             )
             return details
         }
 
-        if let title = sanitized(stringValue(arguments["title"])) {
-            appendChangedDetail(
+        if let title = ApprovalDetailBuilder.sanitized(ApprovalDetailBuilder.stringValue(arguments["title"])) {
+            ApprovalDetailBuilder.appendChangedDetail(
                 &details,
                 labelKey: "tools.approval.detail.title",
                 originalValue: originalEvent.title,
@@ -448,7 +356,7 @@ struct CalendarToolApprovalRequestProvider: ToolApprovalRequestProviding {
 
         let updatedTiming = calendarUpdatedTiming(from: arguments, originalEvent: originalEvent)
         if updatedTiming.startDate != originalEvent.startDate {
-            appendChangedDetail(
+            ApprovalDetailBuilder.appendChangedDetail(
                 &details,
                 labelKey: "tools.approval.detail.start_time",
                 originalValue: displayDateText(originalEvent.startDate),
@@ -456,7 +364,7 @@ struct CalendarToolApprovalRequestProvider: ToolApprovalRequestProviding {
             )
         }
         if updatedTiming.endDate != originalEvent.endDate {
-            appendChangedDetail(
+            ApprovalDetailBuilder.appendChangedDetail(
                 &details,
                 labelKey: "tools.approval.detail.end_time",
                 originalValue: displayDateText(originalEvent.endDate),
@@ -464,12 +372,12 @@ struct CalendarToolApprovalRequestProvider: ToolApprovalRequestProviding {
             )
         }
 
-        if let isAllDay = boolValueForComparison(arguments["is_all_day"]) {
-            appendChangedDetail(
+        if let isAllDay = ApprovalDetailBuilder.boolValue(arguments["is_all_day"]) {
+            ApprovalDetailBuilder.appendChangedDetail(
                 &details,
                 labelKey: "tools.approval.detail.all_day",
-                originalValue: boolText(originalEvent.isAllDay),
-                changedValue: boolText(isAllDay)
+                originalValue: ApprovalDetailBuilder.boolText(originalEvent.isAllDay),
+                changedValue: ApprovalDetailBuilder.boolText(isAllDay)
             )
         }
 
@@ -501,17 +409,6 @@ struct CalendarToolApprovalRequestProvider: ToolApprovalRequestProviding {
         return details
     }
 
-    private static func appendChangedDetail(
-        _ details: inout [ToolApprovalDetail],
-        labelKey: String,
-        originalValue: String?,
-        changedValue: String?
-    ) {
-        if let detail = changedDetail(labelKey, originalValue: originalValue, changedValue: changedValue) {
-            details.append(detail)
-        }
-    }
-
     private static func calendarUpdatedTiming(
         from arguments: [String: JSONValue],
         originalEvent: CalendarEventRecord
@@ -522,7 +419,7 @@ struct CalendarToolApprovalRequestProvider: ToolApprovalRequestProviding {
         if let explicitEndDate = parsedArgumentDate(arguments["end_date"]) {
             endDate = explicitEndDate
         } else if argumentStartDate != nil,
-                  boolValueForComparison(arguments["is_all_day"]) == true,
+                  ApprovalDetailBuilder.boolValue(arguments["is_all_day"]) == true,
                   let allDayEndDate = Calendar.current.date(byAdding: .day, value: 1, to: startDate) {
             endDate = allDayEndDate
         } else if argumentStartDate != nil {
@@ -535,7 +432,7 @@ struct CalendarToolApprovalRequestProvider: ToolApprovalRequestProviding {
     }
 
     private static func parsedArgumentDate(_ value: JSONValue?) -> Date? {
-        guard let rawValue = stringValue(value) else {
+        guard let rawValue = ApprovalDetailBuilder.stringValue(value) else {
             return nil
         }
 
@@ -551,19 +448,19 @@ struct CalendarToolApprovalRequestProvider: ToolApprovalRequestProviding {
         arguments: [String: JSONValue]
     ) {
         let nextValue: String?
-        if boolValueForComparison(arguments[clearKey]) == true {
+        if ApprovalDetailBuilder.boolValue(arguments[clearKey]) == true {
             nextValue = nil
-        } else if let value = stringValue(arguments[argumentKey]) {
-            nextValue = sanitized(value)
+        } else if let value = ApprovalDetailBuilder.stringValue(arguments[argumentKey]) {
+            nextValue = ApprovalDetailBuilder.sanitized(value)
         } else {
             return
         }
 
-        appendChangedDetail(
+        ApprovalDetailBuilder.appendChangedDetail(
             &details,
             labelKey: labelKey,
-            originalValue: originalValue ?? NSLocalizedString("tools.approval.value.empty", comment: ""),
-            changedValue: nextValue ?? NSLocalizedString("tools.approval.value.empty", comment: "")
+            originalValue: originalValue ?? ApprovalDetailBuilder.emptyText,
+            changedValue: nextValue ?? ApprovalDetailBuilder.emptyText
         )
     }
 }

@@ -11,7 +11,7 @@ import XCTest
 final class ToolApprovalTests: UserDefaultsBackedTestCase {
     func testSensitiveToolRejectionPreventsExecution() async throws {
         let tool = ApprovalTestTool(name: CalendarToolCatalog.createID)
-        let presenter = ApprovalPresenterSpy(decisions: [false])
+        let presenter = ApprovalPresenterSpy(decisions: [.rejected])
         let toolManager = makeToolManager(tool: tool, presenter: presenter, storageKey: "approvalRejected")
 
         let result = try await toolManager.execute(
@@ -38,7 +38,7 @@ final class ToolApprovalTests: UserDefaultsBackedTestCase {
 
     func testSensitiveToolApprovalAllowsExecution() async throws {
         let tool = ApprovalTestTool(name: MemoryToolCatalog.addID)
-        let presenter = ApprovalPresenterSpy(decisions: [true])
+        let presenter = ApprovalPresenterSpy(decisions: [.approved])
         let toolManager = makeToolManager(tool: tool, presenter: presenter, storageKey: "approvalAllowed")
 
         let result = try await toolManager.execute(
@@ -66,7 +66,7 @@ final class ToolApprovalTests: UserDefaultsBackedTestCase {
         settingsStore.saveApprovalSkipped(true, forToolID: MemoryToolCatalog.deleteID)
 
         let tool = ApprovalTestTool(name: MemoryToolCatalog.deleteID)
-        let presenter = ApprovalPresenterSpy(decisions: [false])
+        let presenter = ApprovalPresenterSpy(decisions: [.rejected])
         let toolManager = makeToolManager(
             tool: tool,
             presenter: presenter,
@@ -112,11 +112,35 @@ final class ToolApprovalTests: UserDefaultsBackedTestCase {
 
         await presenter.waitForRequest()
         task.cancel()
-        presenter.resolve(true)
+        presenter.resolve(.approved)
 
         do {
             _ = try await task.value
             XCTFail("Expected cancellation to stop tool execution.")
+        } catch is CancellationError {
+            XCTAssertEqual(tool.executionCount, 0)
+            XCTAssertEqual(presenter.requests.map(\.toolID), [CalendarToolCatalog.createID])
+        }
+    }
+
+    func testApprovalPresenterCancellationPropagatesWithoutExecution() async throws {
+        let tool = ApprovalTestTool(name: CalendarToolCatalog.createID)
+        let presenter = ThrowingApprovalPresenter(error: CancellationError())
+        let toolManager = makeToolManager(tool: tool, presenter: presenter, storageKey: "approvalPresenterCancelled")
+
+        do {
+            _ = try await toolManager.execute(
+                call: ToolCall(
+                    id: "call_1",
+                    toolID: CalendarToolCatalog.createID,
+                    arguments: [
+                        "title": .string("Planning"),
+                        "start_date": .string("2026-06-10T09:00:00Z")
+                    ]
+                ),
+                context: ToolExecutionContext()
+            )
+            XCTFail("Expected approval cancellation to propagate.")
         } catch is CancellationError {
             XCTAssertEqual(tool.executionCount, 0)
             XCTAssertEqual(presenter.requests.map(\.toolID), [CalendarToolCatalog.createID])
@@ -155,9 +179,10 @@ final class ToolApprovalTests: UserDefaultsBackedTestCase {
 
         XCTAssertEqual(request.toolID, CalendarToolCatalog.updateID)
         XCTAssertEqual(request.toolName, CalendarToolCatalog.updateID)
+        XCTAssertEqual(request.details, details)
         XCTAssertEqual(details.first?.id, "tools.approval.detail.event_id")
-        XCTAssertEqual(details.first?.value, "Team Sync")
-        XCTAssertFalse(details.contains { $0.value == "event-1" })
+        XCTAssertEqual(details.first?.textValue, "Team Sync")
+        XCTAssertFalse(details.contains { $0.textValue == "event-1" })
 
         let titleDetail = try XCTUnwrap(
             details.first { $0.id == "tools.approval.detail.title" }
@@ -207,24 +232,53 @@ final class ToolApprovalTests: UserDefaultsBackedTestCase {
         XCTAssertEqual(request.toolID, CalendarToolCatalog.deleteID)
         XCTAssertTrue(request.isDestructive)
         XCTAssertEqual(request.confirmationTitle, String(localized: "tools.approval.allow_destructive"))
+        XCTAssertEqual(request.details, details)
         XCTAssertEqual(details.first?.id, "tools.approval.detail.event_id")
-        XCTAssertEqual(details.first?.value, "Cancel This")
-        XCTAssertFalse(details.contains { $0.value == "event-2" })
+        XCTAssertEqual(details.first?.textValue, "Cancel This")
+        XCTAssertFalse(details.contains { $0.textValue == "event-2" })
 
         let timeDetail = try XCTUnwrap(
             details.first { $0.id == "tools.approval.detail.time" }
         )
-        XCTAssertTrue(timeDetail.value.contains(" - "))
+        XCTAssertTrue(try XCTUnwrap(timeDetail.textValue).contains(" - "))
         XCTAssertEqual(
-            details.first { $0.id == "tools.approval.detail.all_day" }?.value,
+            details.first { $0.id == "tools.approval.detail.all_day" }?.textValue,
             String(localized: "tools.approval.value.no")
         )
-        XCTAssertEqual(details.first { $0.id == "tools.approval.detail.calendar" }?.value, "Work")
-        XCTAssertEqual(details.first { $0.id == "tools.approval.detail.location" }?.value, "Room 8")
-        XCTAssertEqual(details.first { $0.id == "tools.approval.detail.notes" }?.value, "Bring agenda")
+        XCTAssertEqual(details.first { $0.id == "tools.approval.detail.calendar" }?.textValue, "Work")
+        XCTAssertEqual(details.first { $0.id == "tools.approval.detail.location" }?.textValue, "Room 8")
+        XCTAssertEqual(details.first { $0.id == "tools.approval.detail.notes" }?.textValue, "Bring agenda")
         XCTAssertEqual(
-            details.first { $0.id == "tools.approval.detail.url" }?.value,
+            details.first { $0.id == "tools.approval.detail.url" }?.textValue,
             "https://example.com/meeting"
+        )
+    }
+
+    func testMemoryApprovalDetailsUseSharedFormatting() async throws {
+        let provider = MemoryToolApprovalRequestProvider()
+        let longText = String(repeating: "A", count: 245)
+        let call = ToolCall(
+            id: "call_1",
+            toolID: MemoryToolCatalog.searchID,
+            arguments: [
+                "query": .string("  project notes  "),
+                "limit": .double(3)
+            ]
+        )
+
+        let details = provider.details(for: call)
+
+        XCTAssertEqual(details.first { $0.id == "tools.approval.detail.query" }?.textValue, "project notes")
+        XCTAssertEqual(details.first { $0.id == "tools.approval.detail.limit" }?.textValue, "3")
+        XCTAssertEqual(
+            MemoryToolApprovalRequestProvider().details(
+                for: ToolCall(
+                    id: "call_2",
+                    toolID: MemoryToolCatalog.addID,
+                    arguments: ["text": .string(longText)]
+                )
+            ).first?.textValue,
+            String(repeating: "A", count: 240) + "..."
         )
     }
 
@@ -263,10 +317,9 @@ final class ToolApprovalTests: UserDefaultsBackedTestCase {
             settingsStore: settingsStore,
             presenter: presenter,
             requestRegistry: ToolApprovalRequestRegistry(
-                providers: [
-                    CalendarToolApprovalRequestProvider(contextProvider: contextProvider),
-                    MemoryToolApprovalRequestProvider()
-                ]
+                providers: BuiltInToolCatalog.makeApprovalRequestProviders(
+                    calendarContextProvider: contextProvider
+                )
             )
         )
         return ToolManager(
@@ -315,17 +368,17 @@ private final class ApprovalTestTool: Tool {
 
 @MainActor
 private final class ApprovalPresenterSpy: ToolApprovalPresenter {
-    private var decisions: [Bool]
+    private var decisions: [ToolApprovalDecision]
     private(set) var requests: [ToolApprovalRequest] = []
 
-    init(decisions: [Bool]) {
+    init(decisions: [ToolApprovalDecision]) {
         self.decisions = decisions
     }
 
-    func requestApproval(_ request: ToolApprovalRequest) async -> Bool {
+    func requestApproval(_ request: ToolApprovalRequest) async throws -> ToolApprovalDecision {
         requests.append(request)
         guard !decisions.isEmpty else {
-            return false
+            return .rejected
         }
 
         return decisions.removeFirst()
@@ -334,11 +387,11 @@ private final class ApprovalPresenterSpy: ToolApprovalPresenter {
 
 @MainActor
 private final class SuspendingApprovalPresenter: ToolApprovalPresenter {
-    private var approvalContinuation: CheckedContinuation<Bool, Never>?
+    private var approvalContinuation: CheckedContinuation<ToolApprovalDecision, Never>?
     private var requestContinuation: CheckedContinuation<Void, Never>?
     private(set) var requests: [ToolApprovalRequest] = []
 
-    func requestApproval(_ request: ToolApprovalRequest) async -> Bool {
+    func requestApproval(_ request: ToolApprovalRequest) async throws -> ToolApprovalDecision {
         requests.append(request)
         requestContinuation?.resume()
         requestContinuation = nil
@@ -358,8 +411,33 @@ private final class SuspendingApprovalPresenter: ToolApprovalPresenter {
         }
     }
 
-    func resolve(_ isApproved: Bool) {
-        approvalContinuation?.resume(returning: isApproved)
+    func resolve(_ decision: ToolApprovalDecision) {
+        approvalContinuation?.resume(returning: decision)
         approvalContinuation = nil
+    }
+}
+
+@MainActor
+private final class ThrowingApprovalPresenter: ToolApprovalPresenter {
+    private let error: Error
+    private(set) var requests: [ToolApprovalRequest] = []
+
+    init(error: Error) {
+        self.error = error
+    }
+
+    func requestApproval(_ request: ToolApprovalRequest) async throws -> ToolApprovalDecision {
+        requests.append(request)
+        throw error
+    }
+}
+
+private extension ToolApprovalDetail {
+    var textValue: String? {
+        guard case let .text(text) = value else {
+            return nil
+        }
+
+        return text
     }
 }

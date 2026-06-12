@@ -175,13 +175,16 @@ final class UserDefaultsToolSettingsStore: ToolSettingsStore {
 final class ToolSettingsManager {
     private let registry: ToolRegistry
     private let store: any ToolSettingsStore
+    private let approvalSkippableToolIDs: Set<String>
 
     init(
         registry: ToolRegistry,
-        store: any ToolSettingsStore
+        store: any ToolSettingsStore,
+        approvalSkippableToolIDs: Set<String> = []
     ) {
         self.registry = registry
         self.store = store
+        self.approvalSkippableToolIDs = approvalSkippableToolIDs
     }
 
     var isToolsEnabled: Bool {
@@ -208,18 +211,27 @@ final class ToolSettingsManager {
     }
 
     func approvalSkippedToolIDs() -> Set<String> {
-        store.loadApprovalSkippedToolIDs()
+        store.loadApprovalSkippedToolIDs().filter(isApprovalSkippableToolID)
     }
 
     func isApprovalSkipped(forToolID toolID: String) -> Bool {
-        store.isApprovalSkipped(forToolID: toolID)
+        isApprovalSkippableToolID(toolID) && store.isApprovalSkipped(forToolID: toolID)
     }
 
     func setApprovalSkipped(_ isSkipped: Bool, forToolID toolID: String) {
+        guard isApprovalSkippableToolID(toolID) else {
+            return
+        }
+
         store.saveApprovalSkipped(isSkipped, forToolID: toolID)
     }
 
     func setApprovalSkipped(_ isSkipped: Bool, forToolIDs toolIDs: [String]) {
+        let toolIDs = toolIDs.filter(isApprovalSkippableToolID)
+        guard !toolIDs.isEmpty else {
+            return
+        }
+
         var skippedToolIDs = store.loadApprovalSkippedToolIDs()
         for toolID in toolIDs {
             if isSkipped {
@@ -229,6 +241,10 @@ final class ToolSettingsManager {
             }
         }
         store.saveApprovalSkippedToolIDs(skippedToolIDs)
+    }
+
+    private func isApprovalSkippableToolID(_ toolID: String) -> Bool {
+        registry.tool(id: toolID) != nil && approvalSkippableToolIDs.contains(toolID)
     }
 
     @discardableResult

@@ -67,17 +67,16 @@ final class AppDependencyContainer {
         // Preserve the previous MCP-owned global switch before MCP configuration is next saved.
         _ = toolSettingsStore.loadToolsEnabled()
         self.toolSettingsStore = toolSettingsStore
+        let toolApprovalRequestProviders = BuiltInToolCatalog.makeApprovalRequestProviders()
         let toolSettingsManager = ToolSettingsManager(
             registry: toolRegistry,
-            store: toolSettingsStore
+            store: toolSettingsStore,
+            approvalSkippableToolIDs: BuiltInToolCatalog.approvalSkippableToolIDs
         )
         self.toolSettingsManager = toolSettingsManager
         toolApprovalPresenter = SwiftUIToolApprovalPresenter()
         toolApprovalRequestRegistry = ToolApprovalRequestRegistry(
-            providers: [
-                CalendarToolApprovalRequestProvider(),
-                MemoryToolApprovalRequestProvider()
-            ]
+            providers: toolApprovalRequestProviders
         )
         toolApprovalManager = ToolApprovalManager(
             settingsStore: toolSettingsStore,

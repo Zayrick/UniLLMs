@@ -56,8 +56,9 @@ struct ToolsSettingsForm: View {
         Form {
             masterSwitchSection
             systemToolsSection
-            groupedToolsSection(.calendar)
-            groupedToolsSection(.memory)
+            ForEach(model.toolGroups) { group in
+                groupedToolsSection(group)
+            }
             mcpServersSection
         }
         .navigationTitle(String(localized: .settingsRowToolsTitle))
@@ -107,32 +108,30 @@ struct ToolsSettingsForm: View {
     }
 
     @ViewBuilder
-    private func groupedToolsSection(_ group: ToolsSettingsGroup) -> some View {
-        if model.isToolGroupAvailable(group) {
-            Section(group.sectionTitle) {
-                Toggle(isOn: groupBinding(for: group)) {
-                    ToolRowLabel(
-                        title: group.title,
-                        subtitle: model.isToolGroupEnabled(group) ? model.enabledCountSummary(for: group) : nil,
-                        symbolName: group.symbolName,
-                        isEnabled: model.isToolGroupEnabled(group)
-                    )
-                }
-
-                if model.isToolGroupEnabled(group) {
-                    ToolNavigationRow(
-                        title: group.listTitle,
-                        subtitle: group.detailText,
-                        symbolName: group.listSymbolName,
-                        isEnabled: true
-                    ) {
-                        router.showToolGroup(group, model: model)
-                    }
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-                }
+    private func groupedToolsSection(_ group: ToolSettingsGroupModel) -> some View {
+        Section(group.sectionTitle) {
+            Toggle(isOn: groupBinding(for: group)) {
+                ToolRowLabel(
+                    title: group.title,
+                    subtitle: model.isToolGroupEnabled(group) ? model.enabledCountSummary(for: group) : nil,
+                    symbolName: group.symbolName,
+                    isEnabled: model.isToolGroupEnabled(group)
+                )
             }
-            .animation(.default, value: model.isToolGroupEnabled(group))
+
+            if model.isToolGroupEnabled(group) {
+                ToolNavigationRow(
+                    title: group.listTitle,
+                    subtitle: group.detailText,
+                    symbolName: group.listSymbolName,
+                    isEnabled: true
+                ) {
+                    router.showToolGroup(group, model: model)
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
+        .animation(.default, value: model.isToolGroupEnabled(group))
     }
 
     private var mcpServersSection: some View {
@@ -161,7 +160,7 @@ struct ToolsSettingsForm: View {
         }
     }
 
-    private func groupBinding(for group: ToolsSettingsGroup) -> Binding<Bool> {
+    private func groupBinding(for group: ToolSettingsGroupModel) -> Binding<Bool> {
         Binding {
             model.isToolGroupEnabled(group)
         } set: { isEnabled in
@@ -173,34 +172,20 @@ struct ToolsSettingsForm: View {
 }
 
 private struct ToolGroupSettingsForm: View {
-    let group: ToolsSettingsGroup
+    let group: ToolSettingsGroupModel
     let model: ToolsSettingsModel
 
     var body: some View {
         Form {
             Section {
-                switch group {
-                case .calendar:
-                    ForEach(model.calendarTools) { tool in
-                        ToolToggleRow(
-                            title: tool.presentationName,
-                            subtitle: tool.summary,
-                            symbolName: tool.symbolName ?? group.symbolName,
-                            isEnabled: model.isBuiltInToolEnabled(id: tool.id)
-                        ) { isEnabled in
-                            model.setBuiltInTool(id: tool.id, isEnabled: isEnabled)
-                        }
-                    }
-                case .memory:
-                    ForEach(model.memoryToolItems, id: \.id) { item in
-                        ToolToggleRow(
-                            title: item.title,
-                            subtitle: model.summaryForBuiltInTool(id: item.id),
-                            symbolName: item.symbolName,
-                            isEnabled: model.isBuiltInToolEnabled(id: item.id)
-                        ) { isEnabled in
-                            model.setBuiltInTool(id: item.id, isEnabled: isEnabled)
-                        }
+                ForEach(group.tools) { tool in
+                    ToolToggleRow(
+                        title: tool.title,
+                        subtitle: tool.summary,
+                        symbolName: tool.symbolName,
+                        isEnabled: model.isBuiltInToolEnabled(id: tool.id)
+                    ) { isEnabled in
+                        model.setBuiltInTool(id: tool.id, isEnabled: isEnabled)
                     }
                 }
             }
@@ -327,6 +312,54 @@ private struct ToolRowLabel: View {
     }
 }
 
+private struct ToolSettingsGroupModel: Identifiable {
+    let descriptor: BuiltInToolGroupDescriptor
+    let tools: [ToolSettingsToolModel]
+
+    var id: String {
+        descriptor.id
+    }
+
+    var toolIDs: [String] {
+        tools.map(\.id)
+    }
+
+    var title: String {
+        descriptor.title
+    }
+
+    var sectionTitle: String {
+        descriptor.sectionTitle
+    }
+
+    var listTitle: String {
+        descriptor.listTitle
+    }
+
+    var detailText: String {
+        descriptor.detailText
+    }
+
+    var symbolName: String {
+        descriptor.symbolName
+    }
+
+    var listSymbolName: String {
+        descriptor.listSymbolName
+    }
+
+    var approvalSkipDetail: String {
+        descriptor.approvalSkipDetail
+    }
+}
+
+private struct ToolSettingsToolModel: Identifiable {
+    let id: String
+    let title: String
+    let summary: String
+    let symbolName: String
+}
+
 @MainActor
 private final class ToolsSettingsRouter {
     weak var hostViewController: UIViewController?
@@ -359,7 +392,7 @@ private final class ToolsSettingsRouter {
         )
     }
 
-    func showToolGroup(_ group: ToolsSettingsGroup, model: ToolsSettingsModel) {
+    func showToolGroup(_ group: ToolSettingsGroupModel, model: ToolsSettingsModel) {
         let controller = UIHostingController(
             rootView: ToolGroupSettingsForm(group: group, model: model)
         )
@@ -377,8 +410,7 @@ private final class ToolsSettingsModel {
 
     var isToolsEnabled = false
     var systemTools: [ToolDefinition] = []
-    var calendarTools: [ToolDefinition] = []
-    var memoryToolItems: [MemoryToolUserFacingItem] = []
+    var toolGroups: [ToolSettingsGroupModel] = []
     var servers: [MCPServerRecord] = []
     var enabledBuiltInToolIDs: Set<String> = []
     var approvalSkippedToolIDs: Set<String> = []
@@ -401,17 +433,29 @@ private final class ToolsSettingsModel {
     func refreshContent() {
         let builtInTools = dependencies.toolSettingsManager.registeredBuiltInTools()
         let builtInToolsByID = Dictionary(uniqueKeysWithValues: builtInTools.map { ($0.id, $0) })
+        let groupedToolIDs = Set(BuiltInToolCatalog.toolGroups.flatMap(\.toolIDs))
         systemTools = builtInTools.filter {
-            !CalendarToolCatalog.containsTool(id: $0.id)
-                && !MemoryToolCatalog.containsTool(id: $0.id)
+            !groupedToolIDs.contains($0.id)
         }
-        calendarTools = CalendarToolCatalog.toolIDs.compactMap {
-            builtInToolsByID[$0]
-        }
+        toolGroups = BuiltInToolCatalog.toolGroups.compactMap { descriptor in
+            let tools = descriptor.toolIDs.compactMap { toolID -> ToolSettingsToolModel? in
+                guard let definition = builtInToolsByID[toolID] else {
+                    return nil
+                }
 
-        let registeredToolIDs = Set(builtInTools.map(\.id))
-        memoryToolItems = MemoryToolCatalog.userFacingItems.filter {
-            registeredToolIDs.contains($0.id)
+                let override = descriptor.presentationOverride(forToolID: toolID)
+                return ToolSettingsToolModel(
+                    id: toolID,
+                    title: override?.title ?? definition.presentationName,
+                    summary: definition.summary,
+                    symbolName: override?.symbolName ?? definition.symbolName ?? descriptor.symbolName
+                )
+            }
+            guard !tools.isEmpty else {
+                return nil
+            }
+
+            return ToolSettingsGroupModel(descriptor: descriptor, tools: tools)
         }
 
         refreshToolSettings()
@@ -432,42 +476,32 @@ private final class ToolsSettingsModel {
         refreshToolSettings()
     }
 
-    func isApprovalSkipped(for group: ToolsSettingsGroup) -> Bool {
-        let ids = toolIDs(for: group)
-        return !ids.isEmpty && ids.allSatisfy { approvalSkippedToolIDs.contains($0) }
+    func isApprovalSkipped(for group: ToolSettingsGroupModel) -> Bool {
+        !group.toolIDs.isEmpty && group.toolIDs.allSatisfy { approvalSkippedToolIDs.contains($0) }
     }
 
-    func setApprovalSkipped(_ isSkipped: Bool, for group: ToolsSettingsGroup) {
-        dependencies.toolSettingsManager.setApprovalSkipped(isSkipped, forToolIDs: toolIDs(for: group))
+    func setApprovalSkipped(_ isSkipped: Bool, for group: ToolSettingsGroupModel) {
+        dependencies.toolSettingsManager.setApprovalSkipped(isSkipped, forToolIDs: group.toolIDs)
         refreshToolSettings()
     }
 
-    func isToolGroupAvailable(_ group: ToolsSettingsGroup) -> Bool {
-        !toolIDs(for: group).isEmpty
-    }
-
-    func isToolGroupEnabled(_ group: ToolsSettingsGroup) -> Bool {
+    func isToolGroupEnabled(_ group: ToolSettingsGroupModel) -> Bool {
         enabledToolCount(for: group) > 0
     }
 
-    func enabledCountSummary(for group: ToolsSettingsGroup) -> String {
-        let ids = toolIDs(for: group)
+    func enabledCountSummary(for group: ToolSettingsGroupModel) -> String {
         return enabledCountSummary(
             enabledCount: enabledToolCount(for: group),
-            totalCount: ids.count
+            totalCount: group.toolIDs.count
         )
     }
 
-    func setToolGroup(_ group: ToolsSettingsGroup, isEnabled: Bool) {
+    func setToolGroup(_ group: ToolSettingsGroupModel, isEnabled: Bool) {
         dependencies.toolSettingsManager.setBuiltInTools(
-            ids: toolIDs(for: group),
+            ids: group.toolIDs,
             isEnabled: isEnabled
         )
         refreshToolSettings()
-    }
-
-    func summaryForBuiltInTool(id: String) -> String? {
-        allBuiltInTools.first { $0.id == id }?.summary
     }
 
     func deleteServers(at offsets: IndexSet) {
@@ -523,9 +557,9 @@ private final class ToolsSettingsModel {
     private func refreshToolSettings() {
         isToolsEnabled = dependencies.toolSettingsManager.isToolsEnabled
         enabledBuiltInToolIDs = Set(
-            allBuiltInTools
-                .filter { dependencies.toolSettingsManager.isBuiltInToolEnabled(id: $0.id) }
-                .map(\.id)
+            allBuiltInToolIDs.filter {
+                dependencies.toolSettingsManager.isBuiltInToolEnabled(id: $0)
+            }
         )
         approvalSkippedToolIDs = dependencies.toolSettingsManager.approvalSkippedToolIDs()
     }
@@ -534,26 +568,12 @@ private final class ToolsSettingsModel {
         servers = dependencies.mcpServerManager.configuredServers()
     }
 
-    private var allBuiltInTools: [ToolDefinition] {
-        systemTools + calendarTools
-            + memoryToolItems.compactMap { item in
-                dependencies.toolSettingsManager.registeredBuiltInTools().first {
-                    $0.id == item.id
-                }
-            }
+    private var allBuiltInToolIDs: [String] {
+        systemTools.map(\.id) + toolGroups.flatMap(\.toolIDs)
     }
 
-    private func toolIDs(for group: ToolsSettingsGroup) -> [String] {
-        switch group {
-        case .calendar:
-            calendarTools.map(\.id)
-        case .memory:
-            memoryToolItems.map(\.id)
-        }
-    }
-
-    private func enabledToolCount(for group: ToolsSettingsGroup) -> Int {
-        toolIDs(for: group).filter {
+    private func enabledToolCount(for group: ToolSettingsGroupModel) -> Int {
+        group.toolIDs.filter {
             enabledBuiltInToolIDs.contains($0)
         }.count
     }
@@ -584,74 +604,6 @@ private final class ToolsSettingsModel {
             )
             let movedServer = workingServers.remove(at: currentIndex)
             workingServers.insert(movedServer, at: targetIndex)
-        }
-    }
-}
-
-private enum ToolsSettingsGroup {
-    case calendar
-    case memory
-
-    var title: String {
-        switch self {
-        case .calendar:
-            return String(localized: "tools.calendar_tools")
-        case .memory:
-            return String(localized: "tools.memory_tools")
-        }
-    }
-
-    var sectionTitle: String {
-        switch self {
-        case .calendar:
-            return String(localized: "tools.section.calendar")
-        case .memory:
-            return String(localized: .toolsSectionMemory)
-        }
-    }
-
-    var listTitle: String {
-        switch self {
-        case .calendar:
-            return String(localized: "tools.calendar_tools.list")
-        case .memory:
-            return String(localized: "tools.memory_tools.list")
-        }
-    }
-
-    var detailText: String {
-        switch self {
-        case .calendar:
-            return String(localized: "tools.calendar_tools.detail")
-        case .memory:
-            return String(localized: "tools.memory_tools.detail")
-        }
-    }
-
-    var symbolName: String {
-        switch self {
-        case .calendar:
-            return "calendar"
-        case .memory:
-            return "brain.head.profile"
-        }
-    }
-
-    var listSymbolName: String {
-        switch self {
-        case .calendar:
-            return "calendar.badge.clock"
-        case .memory:
-            return "brain.head.profile"
-        }
-    }
-
-    var approvalSkipDetail: String {
-        switch self {
-        case .calendar:
-            return String(localized: "tools.approval.calendar_skip_detail")
-        case .memory:
-            return String(localized: "tools.approval.memory_skip_detail")
         }
     }
 }

@@ -88,6 +88,39 @@ final class ToolSettingsStoreTests: UserDefaultsBackedTestCase {
 
         XCTAssertEqual(manager.enabledBuiltInToolCount(ids: ["memory_add", "memory_delete"]), 2)
     }
+
+    func testToolSettingsManagerFiltersApprovalSkippedToolIDs() {
+        let settingsStore = UserDefaultsToolSettingsStore(
+            defaults: defaults,
+            storageKey: "approvalSkipManagerSettings",
+            legacyMCPStorageKey: "missingLegacyMCPSettings"
+        )
+        let registry = ToolRegistry(tools: [
+            SettingsTool(name: "memory_add"),
+            SettingsTool(name: "current_datetime")
+        ])
+        let manager = ToolSettingsManager(
+            registry: registry,
+            store: settingsStore,
+            approvalSkippableToolIDs: ["memory_add"]
+        )
+
+        manager.setApprovalSkipped(true, forToolIDs: ["memory_add", "current_datetime", "missing_tool"])
+
+        XCTAssertEqual(settingsStore.loadApprovalSkippedToolIDs(), ["memory_add"])
+        XCTAssertEqual(manager.approvalSkippedToolIDs(), ["memory_add"])
+        XCTAssertTrue(manager.isApprovalSkipped(forToolID: "memory_add"))
+        XCTAssertFalse(manager.isApprovalSkipped(forToolID: "current_datetime"))
+        XCTAssertFalse(manager.isApprovalSkipped(forToolID: "missing_tool"))
+
+        settingsStore.saveApprovalSkippedToolIDs(["memory_add", "current_datetime"])
+
+        XCTAssertEqual(manager.approvalSkippedToolIDs(), ["memory_add"])
+
+        manager.setApprovalSkipped(false, forToolID: "memory_add")
+
+        XCTAssertFalse(manager.isApprovalSkipped(forToolID: "memory_add"))
+    }
 }
 
 private struct SettingsTool: Tool {

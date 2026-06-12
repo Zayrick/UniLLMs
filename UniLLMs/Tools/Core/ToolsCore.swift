@@ -205,11 +205,15 @@ final class ToolManager {
         }
 
         if let approvalManager {
-            switch await approvalManager.requestApprovalIfNeeded(call: call, definition: tool.definition) {
+            switch try await approvalManager.requestApprovalIfNeeded(call: call, definition: tool.definition) {
             case .approved:
                 break
-            case let .rejected(message):
-                return ToolResult(callID: call.id, content: message, status: .error)
+            case .rejected:
+                return ToolResult(
+                    callID: call.id,
+                    content: String(localized: "tools.approval.rejected"),
+                    status: .error
+                )
             }
         }
 
