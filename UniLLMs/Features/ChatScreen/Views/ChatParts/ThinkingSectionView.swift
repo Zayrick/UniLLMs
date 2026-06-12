@@ -155,6 +155,14 @@ final class ThinkingSectionView: UIView {
         func applyIconStyle(_ style: TimelineIconStyle) {
             icon.apply(style)
         }
+
+        func setIconVisible(_ isVisible: Bool) {
+            let shouldHide = !isVisible
+            guard icon.isHidden != shouldHide else {
+                return
+            }
+            icon.isHidden = shouldHide
+        }
     }
 
     private final class CollapsibleStackBodyView: UIView {
@@ -311,6 +319,11 @@ final class ThinkingSectionView: UIView {
 
         let contentView = makeReasoningContentView()
         let row = makeRow(iconStyle: Self.reasoningIconStyle, hosted: contentView)
+        row.setIconVisible(false)
+        contentView.onRenderedNonEmptyContent = { [weak self, weak row] in
+            row?.setIconVisible(true)
+            self?.setNeedsConnectorLineUpdate()
+        }
         addRow(row)
         reasoningStepCount += 1
         updateHeaderAfterTimelineChange()

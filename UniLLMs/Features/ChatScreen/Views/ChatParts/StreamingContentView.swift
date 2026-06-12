@@ -34,6 +34,8 @@ final class StreamingContentView: UIView {
     }
 
     fileprivate var onContentHeightChanged: (() -> Void)?
+    fileprivate var onRenderedNonEmptyContent: (() -> Void)?
+    fileprivate var hasRenderedNonEmptyContent = false
     var content: String {
         bufferedContent
     }
@@ -210,14 +212,22 @@ final class StreamingContentView: UIView {
 
     private func applyHeight(_ height: CGFloat) {
         let newHeight = ceil(max(0.0, height))
-        guard abs(newHeight - contentHeight) > 0.5 else {
+        let didRenderNonEmptyContent = !hasRenderedNonEmptyContent && !bufferedContent.isEmpty
+
+        guard abs(newHeight - contentHeight) > 0.5 || didRenderNonEmptyContent else {
             return
         }
 
         contentHeight = newHeight
+        if didRenderNonEmptyContent {
+            hasRenderedNonEmptyContent = true
+        }
         invalidateIntrinsicContentSize()
         setNeedsLayout()
         onContentHeightChanged?()
+        if didRenderNonEmptyContent {
+            onRenderedNonEmptyContent?()
+        }
     }
 
     private func loadRenderer() {
@@ -279,6 +289,13 @@ final class StreamingContentHostView: UIView {
     private var lastMeasuredWidth: CGFloat = 0.0
 
     var onLayoutInvalidated: (() -> Void)?
+    var onRenderedNonEmptyContent: (() -> Void)? {
+        didSet {
+            if contentView.hasRenderedNonEmptyContent {
+                onRenderedNonEmptyContent?()
+            }
+        }
+    }
 
     var content: String {
         contentView.content
@@ -365,6 +382,9 @@ final class StreamingContentHostView: UIView {
         contentView.translatesAutoresizingMaskIntoConstraints = false
         contentView.onContentHeightChanged = { [weak self] in
             self?.updateContentHeight()
+        }
+        contentView.onRenderedNonEmptyContent = { [weak self] in
+            self?.onRenderedNonEmptyContent?()
         }
         addSubview(contentView)
 
