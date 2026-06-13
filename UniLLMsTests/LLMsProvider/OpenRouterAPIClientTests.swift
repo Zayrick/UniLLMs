@@ -186,6 +186,32 @@ final class OpenRouterAPIClientTests: XCTestCase {
         )
     }
 
+    func testOpenRouterProviderSendsReasoningEffortWhenRequested() async throws {
+        let capture = RequestCapture { request in
+            try Self.doneStreamResponse(for: request)
+        }
+        let session = makeCapturingSession(capture: capture)
+        let provider = OpenRouterProvider(apiClient: OpenRouterAPIClient(session: session))
+        defer {
+            capture.invalidate()
+        }
+
+        for try await _ in provider.streamChat(
+            request: ChatRequest(
+                modelID: "openai/gpt-5.2",
+                messages: [ChatMessage(role: .user, content: "Think carefully.")],
+                context: ChatContext(),
+                reasoningEffort: "high"
+            ),
+            configuration: provider.defaultConfiguration
+        ) {}
+
+        let request = try XCTUnwrap(capture.requests.first)
+        let payload = try Self.chatRequestPayload(from: request)
+        let reasoning = try XCTUnwrap(payload["reasoning"] as? [String: Any])
+        XCTAssertEqual(reasoning["effort"] as? String, "high")
+    }
+
     func testOpenAICompatibleProviderRendersContextInstructionsAsSystemMessage() async throws {
         let capture = RequestCapture { request in
             try Self.doneStreamResponse(for: request)
@@ -509,6 +535,56 @@ final class OpenRouterAPIClientTests: XCTestCase {
         XCTAssertEqual(capture.requests.count, 1)
         XCTAssertEqual(models, [
             LLMsProviderModel(id: "openai/gpt-4", name: "GPT-4", contextLength: 8192)
+        ])
+    }
+
+    func testOpenRouterClientFetchModelsMapsReasoningSupportedParameterToEfforts() async throws {
+        let capture = RequestCapture { request in
+            let url = try XCTUnwrap(request.url)
+            let response = try XCTUnwrap(
+                HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )
+            )
+            let data = try XCTUnwrap(
+                """
+                {
+                    "data": [
+                        {
+                            "id": "openai/gpt-5.2",
+                            "name": "GPT-5.2",
+                            "context_length": 400000,
+                            "supported_parameters": ["temperature", "reasoning"]
+                        }
+                    ]
+                }
+                """
+                .data(using: .utf8)
+            )
+            return (response, data)
+        }
+        let session = makeCapturingSession(capture: capture)
+        let client = OpenRouterAPIClient(session: session)
+        defer {
+            capture.invalidate()
+        }
+
+        let models = try await client.fetchModels(
+            apiBase: "https://openrouter.ai/api/v1",
+            apiKey: "sk-or-test"
+        )
+
+        XCTAssertEqual(capture.requests.count, 1)
+        XCTAssertEqual(models, [
+            LLMsProviderModel(
+                id: "openai/gpt-5.2",
+                name: "GPT-5.2",
+                contextLength: 400_000,
+                reasoningEfforts: ["none", "minimal", "low", "medium", "high", "xhigh"]
+            )
         ])
     }
 

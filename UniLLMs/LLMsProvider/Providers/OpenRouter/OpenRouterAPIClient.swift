@@ -20,6 +20,7 @@ nonisolated struct OpenRouterAPIClient {
 
     nonisolated private static let defaultServiceName = "OpenRouter"
     nonisolated private static let defaultAPIBaseValue = "https://openrouter.ai/api/v1"
+    nonisolated private static let reasoningEfforts = ["none", "minimal", "low", "medium", "high", "xhigh"]
 
     private var client: OpenAICompatibleAPIClient
 
@@ -68,7 +69,8 @@ nonisolated struct OpenRouterAPIClient {
         model: String,
         messages: [OpenRouterChatMessage],
         tools: [OpenRouterChatTool] = [],
-        sessionID: String? = nil
+        sessionID: String? = nil,
+        reasoningEffort: String? = nil
     ) -> AsyncThrowingStream<OpenRouterChatStreamDelta, Error> {
         client.streamChatCompletion(
             apiBase: apiBase,
@@ -82,6 +84,7 @@ nonisolated struct OpenRouterAPIClient {
             sessionID: sessionID,
             authorizationPolicy: .omitWhenBlank,
             includesReasoningDetails: true,
+            reasoningEffort: reasoningEffort,
             fallbackToolCallIDPrefix: "tool_call_"
         )
     }
@@ -94,6 +97,7 @@ nonisolated struct OpenRouterAPIClient {
             apiBase: apiBase,
             apiKey: apiKey,
             includeModelMetadata: true,
+            reasoningEffortsForReasoningSupport: Self.reasoningEfforts,
             authorizationPolicy: .omitWhenBlank
         )
     }

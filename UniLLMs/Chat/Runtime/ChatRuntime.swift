@@ -179,7 +179,8 @@ final class ChatRuntime {
         prompt: String,
         attachments: [ChatAttachment] = [],
         userMessageID: UUID = UUID(),
-        replacingUserMessageID: UUID? = nil
+        replacingUserMessageID: UUID? = nil,
+        reasoningEffort: String? = nil
     ) throws -> AsyncThrowingStream<ChatResponseDelta, Error> {
         guard activeTurnID == nil else {
             throw ChatRuntimeError.turnAlreadyInProgress
@@ -255,7 +256,8 @@ final class ChatRuntime {
                     let stream = self.turnRunner.streamResponse(
                         provider: provider,
                         modelID: selection.modelID,
-                        context: context
+                        context: context,
+                        reasoningEffort: reasoningEffort
                     )
 
                     for try await event in stream {

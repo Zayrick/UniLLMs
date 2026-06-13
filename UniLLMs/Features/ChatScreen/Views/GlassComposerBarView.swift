@@ -12,6 +12,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     struct SendTransition {
         let text: String
         let backgroundGlobalFrame: CGRect
+        let reasoningEffort: String?
     }
 
     struct PendingAttachmentDisplay: Equatable {
@@ -83,6 +84,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     private var isStreamingResponse = false
     private var pendingAttachments: [PendingAttachmentDisplay] = []
     private var selectedSystemPrompt: SelectedSystemPromptDisplay?
+    private var reasoningEfforts: [String] = []
     private var traitChangeRegistration: (any UITraitChangeRegistration)?
 
     var onSend: ((SendTransition) -> Void)?
@@ -183,6 +185,19 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         systemPromptContainerView.isHidden = item == nil
         updateCapsulePreviewLayout()
         onLayoutChange?()
+    }
+
+    func setReasoningEfforts(_ efforts: [String]) {
+        var seen = Set<String>()
+        reasoningEfforts = efforts.compactMap { effort in
+            let trimmed = effort.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  seen.insert(trimmed).inserted else {
+                return nil
+            }
+            return trimmed
+        }
+        updateSendReasoningMenu()
     }
 
     private func configure() {
@@ -536,7 +551,9 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         configuration.contentInsets = .zero
         sendButton.configuration = configuration
         sendButton.accessibilityLabel = String(localized: .generalSend)
+        sendButton.showsMenuAsPrimaryAction = false
         sendButton.addTarget(self, action: #selector(sendButtonPressed), for: .touchUpInside)
+        updateSendReasoningMenu()
     }
 
     @objc private func waveformButtonPressed() {
@@ -558,6 +575,10 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     }
 
     @objc private func sendButtonPressed() {
+        sendMessage(reasoningEffort: nil)
+    }
+
+    private func sendMessage(reasoningEffort: String?) {
         guard isSendingEnabled else {
             return
         }
@@ -571,7 +592,8 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
 
         let transition = SendTransition(
             text: messageText,
-            backgroundGlobalFrame: capsuleGlassView.convert(capsuleGlassView.bounds, to: nil)
+            backgroundGlobalFrame: capsuleGlassView.convert(capsuleGlassView.bounds, to: nil),
+            reasoningEffort: reasoningEffort
         )
 
         textView.text = ""
@@ -581,6 +603,70 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
 
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         onSend?(transition)
+    }
+
+    private func updateSendReasoningMenu() {
+        guard reasoningEfforts.count > 1 else {
+            sendButton.menu = nil
+            sendButton.accessibilityHint = nil
+            return
+        }
+
+        let actions = reasoningEfforts.map { effort in
+            UIAction(
+                title: reasoningEffortTitle(effort),
+                image: reasoningEffortImage(effort)
+            ) { [weak self] _ in
+                self?.sendMessage(reasoningEffort: effort)
+            }
+        }
+        sendButton.menu = UIMenu(
+            title: String(localized: .composerReasoningEffortMenuTitle),
+            children: actions
+        )
+        sendButton.accessibilityHint = String(localized: .composerReasoningEffortHint)
+    }
+
+    private func reasoningEffortTitle(_ effort: String) -> String {
+        switch effort.lowercased() {
+        case "none":
+            return String(localized: .composerReasoningEffortNone)
+        case "minimal":
+            return String(localized: .composerReasoningEffortMinimal)
+        case "low":
+            return String(localized: .composerReasoningEffortLow)
+        case "medium":
+            return String(localized: .composerReasoningEffortMedium)
+        case "high":
+            return String(localized: .composerReasoningEffortHigh)
+        case "xhigh":
+            return String(localized: .composerReasoningEffortXhigh)
+        case "max":
+            return String(localized: .composerReasoningEffortMax)
+        case "auto":
+            return String(localized: .composerReasoningEffortAuto)
+        case "default":
+            return String(localized: .composerReasoningEffortDefault)
+        default:
+            return effort
+        }
+    }
+
+    private func reasoningEffortImage(_ effort: String) -> UIImage? {
+        switch effort.lowercased() {
+        case "none":
+            return UIImage(systemName: "slash.circle")
+        case "minimal", "low":
+            return UIImage(systemName: "brain")
+        case "medium":
+            return UIImage(systemName: "brain.head.profile")
+        case "high", "xhigh", "max":
+            return UIImage(systemName: "sparkles")
+        case "auto", "default":
+            return UIImage(systemName: "wand.and.stars")
+        default:
+            return UIImage(systemName: "brain.head.profile")
+        }
     }
 
     private func updateInputMode(animated: Bool) {

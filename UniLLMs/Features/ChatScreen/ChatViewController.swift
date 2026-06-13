@@ -1320,6 +1320,7 @@ final class ChatViewController: UIViewController {
             for: transition.text,
             attachments: attachmentsForTurn,
             userMessageID: messageID,
+            reasoningEffort: transition.reasoningEffort,
             responseView: responseView
         )
         animateExistingMessages(from: existingMessageFrames)
@@ -1460,6 +1461,7 @@ final class ChatViewController: UIViewController {
         for prompt: String,
         attachments: [ChatAttachment] = [],
         userMessageID: UUID = UUID(),
+        reasoningEffort: String? = nil,
         responseView: AssistantResponseTextView
     ) {
         guard activeResponseTask == nil else {
@@ -1482,7 +1484,8 @@ final class ChatViewController: UIViewController {
             responseStream = try chatRuntime.startTurn(
                 prompt: prompt,
                 attachments: attachments,
-                userMessageID: userMessageID
+                userMessageID: userMessageID,
+                reasoningEffort: reasoningEffort
             )
         } catch {
             continuationTask?.finish(success: false)
@@ -1832,16 +1835,27 @@ final class ChatViewController: UIViewController {
         let selection = providerManager.fetchSelectedModelSelection()
         let currentTitle = selectedModelSelection?.displayName ?? HeaderLayout.defaultModuleSelectionTitle
         let updatedTitle = selection?.displayName ?? HeaderLayout.defaultModuleSelectionTitle
-        guard selection != selectedModelSelection else {
-            return
-        }
+        let isSelectionChanged = selection != selectedModelSelection
 
         selectedModelSelection = selection
-        guard currentTitle != updatedTitle else {
+        updateComposerReasoningEfforts()
+        guard isSelectionChanged,
+              currentTitle != updatedTitle else {
             return
         }
 
         updateModuleSelectionTitle(animated: animated)
+    }
+
+    private func updateComposerReasoningEfforts() {
+        guard let selection = selectedModelSelection,
+              let provider = providerStore.fetchProvider(id: selection.providerID),
+              let model = provider.models.first(where: { $0.id == selection.modelID }) else {
+            composerView.setReasoningEfforts([])
+            return
+        }
+
+        composerView.setReasoningEfforts(model.reasoningEfforts)
     }
 
     private func updateModuleSelectionTitle(animated: Bool) {

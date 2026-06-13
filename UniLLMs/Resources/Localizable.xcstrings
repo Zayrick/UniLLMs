@@ -1071,6 +1071,204 @@
         }
       }
     },
+    "composer.reasoning_effort.auto" : {
+      "comment" : "Reasoning effort menu item for automatic provider/model behavior.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动"
+          }
+        }
+      }
+    },
+    "composer.reasoning_effort.default" : {
+      "comment" : "Reasoning effort menu item for default provider/model behavior.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Default"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "默认"
+          }
+        }
+      }
+    },
+    "composer.reasoning_effort.high" : {
+      "comment" : "Reasoning effort menu item for high effort.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高"
+          }
+        }
+      }
+    },
+    "composer.reasoning_effort.hint" : {
+      "comment" : "Accessibility hint for choosing a reasoning effort from the send button.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Touch and hold to choose a reasoning level for this message."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "长按可为本条消息选择思考层级。"
+          }
+        }
+      }
+    },
+    "composer.reasoning_effort.low" : {
+      "comment" : "Reasoning effort menu item for low effort.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Low"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "低"
+          }
+        }
+      }
+    },
+    "composer.reasoning_effort.max" : {
+      "comment" : "Reasoning effort menu item for maximum effort.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Max"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最高"
+          }
+        }
+      }
+    },
+    "composer.reasoning_effort.medium" : {
+      "comment" : "Reasoning effort menu item for medium effort.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Medium"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "中"
+          }
+        }
+      }
+    },
+    "composer.reasoning_effort.menu_title" : {
+      "comment" : "Title for the send button reasoning effort menu.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send with reasoning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择思考层级"
+          }
+        }
+      }
+    },
+    "composer.reasoning_effort.minimal" : {
+      "comment" : "Reasoning effort menu item for minimal effort.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Minimal"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最少"
+          }
+        }
+      }
+    },
+    "composer.reasoning_effort.none" : {
+      "comment" : "Reasoning effort menu item for disabling reasoning.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "None"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭"
+          }
+        }
+      }
+    },
+    "composer.reasoning_effort.xhigh" : {
+      "comment" : "Reasoning effort menu item for extra high effort.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Extra High"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "极高"
+          }
+        }
+      }
+    },
     "composer.remove_attachment" : {
       "comment" : "Accessibility label for removing an attachment.",
       "extractionState" : "manual",

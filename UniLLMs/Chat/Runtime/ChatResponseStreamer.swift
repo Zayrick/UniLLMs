@@ -19,13 +19,15 @@ final class ChatResponseStreamer {
         provider: LLMsProviderRecord,
         modelID: String,
         messages: [ChatMessage],
-        context: ChatContext
+        context: ChatContext,
+        reasoningEffort: String? = nil
     ) throws -> AsyncThrowingStream<ChatResponseDelta, Error> {
         try providerManager.streamChat(
             provider: provider,
             modelID: modelID,
             messages: messages,
-            context: context
+            context: context,
+            reasoningEffort: reasoningEffort
         )
     }
 }

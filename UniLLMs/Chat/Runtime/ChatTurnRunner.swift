@@ -29,7 +29,8 @@ final class ChatTurnRunner {
     func streamResponse(
         provider: LLMsProviderRecord,
         modelID: String,
-        context: ChatContext
+        context: ChatContext,
+        reasoningEffort: String? = nil
     ) -> AsyncThrowingStream<ChatTurnEvent, Error> {
         let allowsTools = !context.availableTools.isEmpty
 
@@ -45,6 +46,7 @@ final class ChatTurnRunner {
                             modelID: modelID,
                             messages: requestMessages,
                             context: context,
+                            reasoningEffort: reasoningEffort,
                             into: continuation
                         )
 
@@ -96,13 +98,15 @@ final class ChatTurnRunner {
         modelID: String,
         messages: [ChatMessage],
         context: ChatContext,
+        reasoningEffort: String?,
         into continuation: AsyncThrowingStream<ChatTurnEvent, Error>.Continuation
     ) async throws -> SingleAssistantResponse {
         let stream = try responseStreamer.streamResponse(
             provider: provider,
             modelID: modelID,
             messages: messages,
-            context: context
+            context: context,
+            reasoningEffort: reasoningEffort
         )
         var assistantResponse = SingleAssistantResponse()
 

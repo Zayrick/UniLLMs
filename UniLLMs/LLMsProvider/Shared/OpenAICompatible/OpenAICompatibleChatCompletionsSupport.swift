@@ -354,6 +354,10 @@ nonisolated struct OpenAICompatibleChatProviderPreferences: Encodable, Equatable
     }
 }
 
+nonisolated struct OpenAICompatibleReasoningOptions: Encodable, Equatable {
+    var effort: String
+}
+
 nonisolated enum OpenAICompatibleAuthorizationPolicy: Equatable {
     case omitWhenBlank
     case includeBearerEvenWhenBlank
@@ -405,11 +409,13 @@ nonisolated struct OpenAICompatibleAPIClient {
         var id: String
         var name: String?
         var contextLength: Int?
+        var supportedParameters: [String]?
 
         nonisolated private enum CodingKeys: String, CodingKey {
             case id
             case name
             case contextLength = "context_length"
+            case supportedParameters = "supported_parameters"
         }
     }
 
@@ -420,6 +426,7 @@ nonisolated struct OpenAICompatibleAPIClient {
         var tools: [OpenAICompatibleChatTool]?
         var provider: OpenAICompatibleChatProviderPreferences?
         var sessionID: String?
+        var reasoning: OpenAICompatibleReasoningOptions?
 
         nonisolated private enum CodingKeys: String, CodingKey {
             case model
@@ -428,6 +435,7 @@ nonisolated struct OpenAICompatibleAPIClient {
             case tools
             case provider
             case sessionID = "session_id"
+            case reasoning
         }
     }
 
@@ -495,6 +503,7 @@ nonisolated struct OpenAICompatibleAPIClient {
         apiBase: String,
         apiKey: String,
         includeModelMetadata: Bool = false,
+        reasoningEffortsForReasoningSupport: [String] = [],
         authorizationPolicy: OpenAICompatibleAuthorizationPolicy = .omitWhenBlank
     ) async throws -> [LLMsProviderModel] {
         var request = URLRequest(url: try normalizedAPIBaseURL(apiBase: apiBase).appendingPathComponent("models"))
@@ -520,7 +529,13 @@ nonisolated struct OpenAICompatibleAPIClient {
             LLMsProviderModel(
                 id: $0.id,
                 name: includeModelMetadata ? $0.name : nil,
-                contextLength: includeModelMetadata ? $0.contextLength : nil
+                contextLength: includeModelMetadata ? $0.contextLength : nil,
+                reasoningEfforts: includeModelMetadata
+                    ? Self.reasoningEfforts(
+                        fromSupportedParameters: $0.supportedParameters,
+                        configuredEfforts: reasoningEffortsForReasoningSupport
+                    )
+                    : []
             )
         }
     }
@@ -535,6 +550,7 @@ nonisolated struct OpenAICompatibleAPIClient {
         sessionID: String? = nil,
         authorizationPolicy: OpenAICompatibleAuthorizationPolicy = .omitWhenBlank,
         includesReasoningDetails: Bool = false,
+        reasoningEffort: String? = nil,
         fallbackToolCallIDPrefix: String = "openai_compatible_tool_call_"
     ) -> AsyncThrowingStream<OpenAICompatibleChatStreamDelta, Error> {
         AsyncThrowingStream { continuation in
@@ -548,6 +564,7 @@ nonisolated struct OpenAICompatibleAPIClient {
                         tools: tools,
                         providerPreferences: providerPreferences,
                         sessionID: sessionID,
+                        reasoningEffort: reasoningEffort,
                         authorizationPolicy: authorizationPolicy
                     )
                     let (bytes, response) = try await session.bytes(for: request)
@@ -660,6 +677,7 @@ nonisolated struct OpenAICompatibleAPIClient {
         tools: [OpenAICompatibleChatTool],
         providerPreferences: OpenAICompatibleChatProviderPreferences?,
         sessionID: String?,
+        reasoningEffort: String?,
         authorizationPolicy: OpenAICompatibleAuthorizationPolicy
     ) throws -> URLRequest {
         var request = URLRequest(url: try normalizedAPIBaseURL(apiBase: apiBase).appendingPathComponent("chat").appendingPathComponent("completions"))
@@ -679,10 +697,43 @@ nonisolated struct OpenAICompatibleAPIClient {
                 stream: true,
                 tools: tools.isEmpty ? nil : tools,
                 provider: providerPreferences,
-                sessionID: sessionID
+                sessionID: sessionID,
+                reasoning: Self.reasoningOptions(from: reasoningEffort)
             )
         )
         return request
+    }
+
+    private static func reasoningEfforts(
+        fromSupportedParameters supportedParameters: [String]?,
+        configuredEfforts: [String]
+    ) -> [String] {
+        guard let supportedParameters,
+              supportedParameters.contains(where: { parameter in
+                  let normalizedParameter = parameter.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                  return normalizedParameter == "reasoning" || normalizedParameter == "reasoning_effort"
+              }) else {
+            return []
+        }
+
+        var seen = Set<String>()
+        return configuredEfforts.compactMap { effort in
+            let trimmed = effort.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  seen.insert(trimmed).inserted else {
+                return nil
+            }
+            return trimmed
+        }
+    }
+
+    private static func reasoningOptions(from reasoningEffort: String?) -> OpenAICompatibleReasoningOptions? {
+        guard let effort = reasoningEffort?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !effort.isEmpty else {
+            return nil
+        }
+
+        return OpenAICompatibleReasoningOptions(effort: effort)
     }
 
     private func responseBodyString(from bytes: URLSession.AsyncBytes) async throws -> String {

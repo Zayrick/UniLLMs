@@ -130,7 +130,8 @@ struct OpenRouterProvider: LLMsProviderAdapter {
                         model: request.modelID,
                         messages: messages,
                         tools: tools,
-                        sessionID: request.providerContext.sessionIdentifier?.value(maxLength: 256)
+                        sessionID: request.providerContext.sessionIdentifier?.value(maxLength: 256),
+                        reasoningEffort: request.reasoningEffort
                     )
                     for try await delta in stream {
                         continuation.yield(

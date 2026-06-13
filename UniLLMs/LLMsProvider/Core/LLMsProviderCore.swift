@@ -34,11 +34,47 @@ nonisolated struct LLMsProviderModel: Codable, Equatable, Hashable {
     var id: String
     var name: String?
     var contextLength: Int?
+    var reasoningEfforts: [String]
 
-    init(id: String, name: String? = nil, contextLength: Int? = nil) {
+    init(
+        id: String,
+        name: String? = nil,
+        contextLength: Int? = nil,
+        reasoningEfforts: [String] = []
+    ) {
         self.id = id
         self.name = name
         self.contextLength = contextLength
+        self.reasoningEfforts = Self.normalizedReasoningEfforts(reasoningEfforts)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case contextLength
+        case reasoningEfforts
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        contextLength = try container.decodeIfPresent(Int.self, forKey: .contextLength)
+        reasoningEfforts = Self.normalizedReasoningEfforts(
+            try container.decodeIfPresent([String].self, forKey: .reasoningEfforts) ?? []
+        )
+    }
+
+    private static func normalizedReasoningEfforts(_ efforts: [String]) -> [String] {
+        var seen = Set<String>()
+        return efforts.compactMap { effort in
+            let trimmed = effort.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  seen.insert(trimmed).inserted else {
+                return nil
+            }
+            return trimmed
+        }
     }
 }
 
@@ -410,12 +446,18 @@ final class LLMsProviderManager {
         provider: LLMsProviderRecord,
         modelID: String,
         messages: [ChatMessage],
-        context: ChatContext
+        context: ChatContext,
+        reasoningEffort: String? = nil
     ) throws -> AsyncThrowingStream<ChatResponseDelta, Error> {
         let adapter = try requireAdapter(for: provider.kind)
         try adapter.validateChatConfiguration(provider.configuration)
         return adapter.streamChat(
-            request: ChatRequest(modelID: modelID, messages: messages, context: context),
+            request: ChatRequest(
+                modelID: modelID,
+                messages: messages,
+                context: context,
+                reasoningEffort: reasoningEffort
+            ),
             configuration: provider.configuration
         )
     }

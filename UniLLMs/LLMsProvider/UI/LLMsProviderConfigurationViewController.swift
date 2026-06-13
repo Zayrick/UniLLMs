@@ -510,7 +510,8 @@ private final class LLMsProviderConfigurationModel {
             return LLMsProviderModel(
                 id: trimmedID,
                 name: normalizedModelName(model.name),
-                contextLength: model.contextLength
+                contextLength: model.contextLength,
+                reasoningEfforts: model.reasoningEfforts
             )
         }
         return normalizedRecord

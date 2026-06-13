@@ -336,17 +336,20 @@ nonisolated struct ChatRequest: Equatable {
     /// Provider-neutral metadata adapters can map onto their own session,
     /// conversation, routing, or observability primitives.
     var providerContext: ChatProviderRequestContext
+    var reasoningEffort: String?
 
     init(
         modelID: String,
         messages: [ChatMessage],
         context: ChatContext,
-        providerContext: ChatProviderRequestContext? = nil
+        providerContext: ChatProviderRequestContext? = nil,
+        reasoningEffort: String? = nil
     ) {
         self.modelID = modelID
         self.messages = messages
         self.context = context
         self.providerContext = providerContext ?? ChatProviderRequestContext(session: context.session)
+        self.reasoningEffort = reasoningEffort
     }
 }
 
