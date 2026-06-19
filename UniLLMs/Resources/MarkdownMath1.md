@@ -1,6 +1,6 @@
 # Markdown Math Rendering Torture Fixture
 
-> Purpose: verify Markdown + MathJax rendering for inline math, display math, physics notation, chemistry via mhchem, tables, lists, quotes, code fences, escaping, and streaming chunk boundaries.
+> Purpose: verify Markdown + KaTeX rendering for inline math, display math, physics notation, chemistry via mhchem, tables, lists, quotes, code fences, escaping, and streaming chunk boundaries.
 
 ---
 
