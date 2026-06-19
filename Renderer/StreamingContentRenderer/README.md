@@ -44,6 +44,8 @@ window.streamingRenderer.setTimeline(items, options)
 window.streamingRenderer.requestHeightUpdate()
 ```
 
+`configure` accepts UIKit-derived colors, type size, color scheme, and `language`.
+
 Height updates are posted to:
 
 ```ts

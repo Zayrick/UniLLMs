@@ -101,6 +101,7 @@ function App() {
       api: {
         configure(configuration) {
           applyRendererConfiguration(configuration)
+          syncRendererLanguage(configuration.language, i18n, scheduleHeightUpdate)
           scheduleHeightUpdate()
         },
         setTimeline(items, options) {
@@ -126,7 +127,7 @@ function App() {
       window.removeEventListener('resize', scheduleHeightUpdate)
       requestHeightUpdateRef.current = () => {}
     }
-  }, [])
+  }, [i18n])
 
   useLayoutEffect(() => {
     requestHeightUpdate()
@@ -575,3 +576,16 @@ function toolTitle(
 }
 
 export default App
+
+function syncRendererLanguage(
+  language: string | undefined,
+  i18n: ReturnType<typeof useTranslation>['i18n'],
+  requestHeightUpdate: () => void,
+) {
+  const nextLanguage = language?.trim()
+  if (!nextLanguage || i18n.language === nextLanguage || i18n.resolvedLanguage === nextLanguage) {
+    return
+  }
+
+  void i18n.changeLanguage(nextLanguage).then(requestHeightUpdate).catch(requestHeightUpdate)
+}

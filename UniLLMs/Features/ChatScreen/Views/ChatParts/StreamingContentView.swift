@@ -343,7 +343,8 @@ final class StreamingContentView: UIView {
             successColor: \(Self.javaScriptStringLiteral(UIColor.systemGreen.cssString(resolvedWith: traitCollection))),
             errorColor: \(Self.javaScriptStringLiteral(UIColor.systemRed.cssString(resolvedWith: traitCollection))),
             colorScheme: \(Self.javaScriptStringLiteral(traitCollection.userInterfaceStyle == .dark ? "dark" : "light")),
-            fontSize: \(font.pointSize * 0.96)
+            fontSize: \(font.pointSize * 0.96),
+            language: \(Self.javaScriptStringLiteral(Self.rendererLanguageIdentifier))
         }
         """
     }
@@ -352,6 +353,16 @@ final class StreamingContentView: UIView {
         Bundle.main.url(forResource: "index", withExtension: "html")
     }
 
+    private static var rendererLanguageIdentifier: String {
+        let appPreferredLocalizations = Bundle.main.preferredLocalizations.filter { $0 != "Base" }
+        let preferences = appPreferredLocalizations.isEmpty ? Locale.preferredLanguages : appPreferredLocalizations
+        return Bundle.preferredLocalizations(
+            from: supportedRendererLanguageIdentifiers,
+            forPreferences: preferences
+        ).first ?? "en"
+    }
+
+    private static let supportedRendererLanguageIdentifiers = ["en", "zh-Hans"]
     private static let heightMessageHandlerName = "heightUpdate"
 
     private static func javaScriptStringLiteral(_ string: String) -> String {

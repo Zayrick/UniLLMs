@@ -22,6 +22,7 @@ declare global {
     color?: string
     colorScheme?: 'dark' | 'light' | string
     fontSize?: number
+    language?: string
     linkColor?: string
     secondaryColor?: string
     separatorColor?: string
