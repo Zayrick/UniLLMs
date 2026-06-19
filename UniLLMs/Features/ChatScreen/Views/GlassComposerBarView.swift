@@ -622,8 +622,6 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         let hasContent = hasText || !pendingAttachments.isEmpty
         let shouldShowStopControl = isStreamingResponse
         let shouldShowActionControl = hasContent || shouldShowStopControl
-        let wasShowingActionControl = isShowingActionControl
-        let wasShowingStopControl = isShowingStopControl
         let stateChanged = shouldShowActionControl != isShowingActionControl
             || shouldShowStopControl != isShowingStopControl
         isShowingActionControl = shouldShowActionControl
@@ -632,6 +630,9 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         guard stateChanged || !animated else {
             return
         }
+
+        updateSendButtonStyle()
+        updateSendControlAvailability()
 
         let applyTargetState = { [self] in
             self.capsuleContentLeadingConstraint.constant = Metrics.inputTextLeadingInset
@@ -644,45 +645,16 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         }
 
         if animated {
-            let shouldDeferStyleUpdateUntilHidden = wasShowingStopControl
-                && !shouldShowStopControl
-                && !shouldShowActionControl
-
-            sendButton.isHidden = false
-            if !shouldDeferStyleUpdateUntilHidden {
-                updateSendButtonStyle()
-            }
-            updateSendControlAvailability()
-            if shouldShowActionControl && !wasShowingActionControl {
-                sendButton.alpha = 0.0
-            }
-
-            containerGlassEffect?.spacing = Metrics.fusionSpacing
             UIView.animate(
                 withDuration: Metrics.transitionDuration,
                 delay: 0.0,
                 options: [.beginFromCurrentState, .curveEaseOut],
                 animations: {
                     applyTargetState()
-                },
-                completion: { _ in
-                    guard self.isShowingActionControl == shouldShowActionControl,
-                          self.isShowingStopControl == shouldShowStopControl else {
-                        return
-                    }
-
-                    self.containerGlassEffect?.spacing = Metrics.spacing
-                    self.sendButton.isHidden = !shouldShowActionControl
-                    self.updateSendButtonStyle()
-                    self.updateSendControlAvailability()
                 }
             )
         } else {
-            containerGlassEffect?.spacing = Metrics.spacing
-            updateSendButtonStyle()
             applyTargetState()
-            sendButton.isHidden = !shouldShowActionControl
-            updateSendControlAvailability()
         }
     }
 
