@@ -55,12 +55,10 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     private let stackView = UIStackView()
     private let plusGlassView = UIVisualEffectView(effect: GlassComposerBarView.makeGlassEffect())
     private let capsuleGlassView = UIVisualEffectView(effect: GlassComposerBarView.makeGlassEffect())
-    private let waveformGlassView = UIVisualEffectView(effect: GlassComposerBarView.makeGlassEffect())
     private let capsuleLayoutStackView = UIStackView()
     private let inputRowContainerView = UIView()
     private let capsuleContentStackView = UIStackView()
     private let plusButton = UIButton(type: .system)
-    private let waveformButton = UIButton(type: .system)
     private let textView = UITextView()
     private let placeholderLabel = UILabel()
     private let sendButton = UIButton(type: .system)
@@ -75,11 +73,10 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     private var capsuleLayoutTopConstraint: NSLayoutConstraint!
     private var capsuleContentLeadingConstraint: NSLayoutConstraint!
     private var capsuleContentTrailingConstraint: NSLayoutConstraint!
-    private var waveformWidthConstraint: NSLayoutConstraint!
     private var textHeightConstraint: NSLayoutConstraint!
     private var attachmentPreviewHeightConstraint: NSLayoutConstraint!
     private var lastMeasuredTextWidth: CGFloat = 0.0
-    private var isShowingSendControl = false
+    private var isShowingActionControl = false
     private var isShowingStopControl = false
     private var isStreamingResponse = false
     private var pendingAttachments: [PendingAttachmentDisplay] = []
@@ -143,7 +140,6 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         }
 
         isStreamingResponse = isActive
-        updateWaveformButtonStyle()
         updateInputMode(animated: animated)
     }
 
@@ -206,7 +202,6 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
 
         configureStackView()
         configurePlusButton()
-        configureWaveformButton()
         configureCapsule()
         configureTraitObservation()
         updateInputMode(animated: false)
@@ -238,7 +233,6 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
 
         stackView.addArrangedSubview(plusGlassView)
         stackView.addArrangedSubview(capsuleGlassView)
-        stackView.addArrangedSubview(waveformGlassView)
 
         plusGlassView.translatesAutoresizingMaskIntoConstraints = false
         plusGlassView.cornerConfiguration = .capsule()
@@ -252,18 +246,10 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         capsuleGlassView.setContentHuggingPriority(.defaultLow, for: .horizontal)
         capsuleGlassView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        waveformGlassView.translatesAutoresizingMaskIntoConstraints = false
-        waveformGlassView.cornerConfiguration = .capsule()
-        waveformGlassView.setContentHuggingPriority(.required, for: .horizontal)
-        waveformGlassView.setContentCompressionResistancePriority(.required, for: .horizontal)
-        waveformWidthConstraint = waveformGlassView.widthAnchor.constraint(equalToConstant: Metrics.controlHeight)
-
         NSLayoutConstraint.activate([
             plusGlassView.widthAnchor.constraint(equalToConstant: Metrics.controlHeight),
             plusGlassView.heightAnchor.constraint(equalToConstant: Metrics.controlHeight),
-            capsuleGlassView.heightAnchor.constraint(greaterThanOrEqualToConstant: Metrics.controlHeight),
-            waveformWidthConstraint,
-            waveformGlassView.heightAnchor.constraint(equalToConstant: Metrics.controlHeight)
+            capsuleGlassView.heightAnchor.constraint(greaterThanOrEqualToConstant: Metrics.controlHeight)
         ])
     }
 
@@ -286,28 +272,6 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
             plusButton.leadingAnchor.constraint(equalTo: plusGlassView.contentView.leadingAnchor),
             plusButton.trailingAnchor.constraint(equalTo: plusGlassView.contentView.trailingAnchor),
             plusButton.bottomAnchor.constraint(equalTo: plusGlassView.contentView.bottomAnchor)
-        ])
-    }
-
-    private func configureWaveformButton() {
-        waveformButton.tintColor = .label
-        waveformButton.setImage(
-            UIImage(
-                systemName: "waveform",
-                withConfiguration: UIImage.SymbolConfiguration(pointSize: Metrics.iconPointSize, weight: .semibold)
-            ),
-            for: .normal
-        )
-        waveformButton.accessibilityLabel = String(localized: .composerWaveform)
-        waveformButton.translatesAutoresizingMaskIntoConstraints = false
-        waveformButton.addTarget(self, action: #selector(waveformButtonPressed), for: .touchUpInside)
-        waveformGlassView.contentView.addSubview(waveformButton)
-
-        NSLayoutConstraint.activate([
-            waveformButton.topAnchor.constraint(equalTo: waveformGlassView.contentView.topAnchor),
-            waveformButton.leadingAnchor.constraint(equalTo: waveformGlassView.contentView.leadingAnchor),
-            waveformButton.trailingAnchor.constraint(equalTo: waveformGlassView.contentView.trailingAnchor),
-            waveformButton.bottomAnchor.constraint(equalTo: waveformGlassView.contentView.bottomAnchor)
         ])
     }
 
@@ -540,28 +504,9 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     }
 
     private func configureSendButton() {
-        var configuration = UIButton.Configuration.prominentClearGlass()
-        configuration.image = UIImage(
-            systemName: "arrow.up",
-            withConfiguration: UIImage.SymbolConfiguration(pointSize: 15.0, weight: .bold)
-        )
-        configuration.baseBackgroundColor = .systemBlue
-        configuration.baseForegroundColor = .white
-        configuration.cornerStyle = .capsule
-        configuration.contentInsets = .zero
-        sendButton.configuration = configuration
-        sendButton.accessibilityLabel = String(localized: .generalSend)
         sendButton.showsMenuAsPrimaryAction = false
         sendButton.addTarget(self, action: #selector(sendButtonPressed), for: .touchUpInside)
-        updateSendReasoningMenu()
-    }
-
-    @objc private func waveformButtonPressed() {
-        guard isStreamingResponse else {
-            return
-        }
-
-        onStop?()
+        updateSendButtonStyle()
     }
 
     @objc private func plusButtonPressed() {
@@ -575,6 +520,11 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     }
 
     @objc private func sendButtonPressed() {
+        guard !isShowingStopControl else {
+            onStop?()
+            return
+        }
+
         sendMessage(reasoningEffort: nil)
     }
 
@@ -606,7 +556,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     }
 
     private func updateSendReasoningMenu() {
-        guard reasoningEfforts.count > 1 else {
+        guard !isShowingStopControl, reasoningEfforts.count > 1 else {
             sendButton.menu = nil
             sendButton.accessibilityHint = nil
             return
@@ -673,11 +623,12 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         let hasText = !textView.text.isEmpty
         let hasContent = hasText || !pendingAttachments.isEmpty
         let shouldShowStopControl = isStreamingResponse
-        let shouldShowSendControl = hasContent && !shouldShowStopControl
-        let shouldShowWaveformControl = shouldShowStopControl
-        let stateChanged = shouldShowSendControl != isShowingSendControl
+        let shouldShowActionControl = hasContent || shouldShowStopControl
+        let wasShowingActionControl = isShowingActionControl
+        let wasShowingStopControl = isShowingStopControl
+        let stateChanged = shouldShowActionControl != isShowingActionControl
             || shouldShowStopControl != isShowingStopControl
-        isShowingSendControl = shouldShowSendControl
+        isShowingActionControl = shouldShowActionControl
         isShowingStopControl = shouldShowStopControl
 
         guard stateChanged || !animated else {
@@ -686,24 +637,25 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
 
         let applyTargetState = { [self] in
             self.capsuleContentLeadingConstraint.constant = Metrics.inputTextLeadingInset
-            self.capsuleContentTrailingConstraint.constant = shouldShowSendControl
+            self.capsuleContentTrailingConstraint.constant = shouldShowActionControl
                 ? -(Metrics.sendButtonSize + Metrics.capsuleContentSpacing)
                 : 0.0
-            self.waveformWidthConstraint.constant = shouldShowWaveformControl ? Metrics.controlHeight : 0.0
-            self.stackView.setCustomSpacing(shouldShowWaveformControl ? Metrics.spacing : 0.0, after: self.capsuleGlassView)
-            self.sendButton.alpha = shouldShowSendControl ? 1.0 : 0.0
-            self.waveformGlassView.alpha = shouldShowWaveformControl ? 1.0 : 0.0
+            self.sendButton.alpha = shouldShowActionControl ? 1.0 : 0.0
             self.superview?.layoutIfNeeded()
             self.layoutIfNeeded()
         }
 
         if animated {
+            let shouldDeferStyleUpdateUntilHidden = wasShowingStopControl
+                && !shouldShowStopControl
+                && !shouldShowActionControl
+
             sendButton.isHidden = false
-            waveformGlassView.isHidden = false
-            updateWaveformButtonStyle()
+            if !shouldDeferStyleUpdateUntilHidden {
+                updateSendButtonStyle()
+            }
             updateSendControlAvailability()
-            updateWaveformControlAvailability()
-            if shouldShowSendControl {
+            if shouldShowActionControl && !wasShowingActionControl {
                 sendButton.alpha = 0.0
             }
 
@@ -716,64 +668,47 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
                     applyTargetState()
                 },
                 completion: { _ in
-                    guard self.isShowingSendControl == shouldShowSendControl,
+                    guard self.isShowingActionControl == shouldShowActionControl,
                           self.isShowingStopControl == shouldShowStopControl else {
                         return
                     }
 
                     self.containerGlassEffect?.spacing = Metrics.spacing
-                    self.sendButton.isHidden = !shouldShowSendControl
-                    self.waveformGlassView.isHidden = !shouldShowWaveformControl
+                    self.sendButton.isHidden = !shouldShowActionControl
+                    self.updateSendButtonStyle()
                     self.updateSendControlAvailability()
-                    self.updateWaveformControlAvailability()
                 }
             )
         } else {
             containerGlassEffect?.spacing = Metrics.spacing
-            updateWaveformButtonStyle()
+            updateSendButtonStyle()
             applyTargetState()
-            sendButton.isHidden = !shouldShowSendControl
+            sendButton.isHidden = !shouldShowActionControl
             updateSendControlAvailability()
-            waveformGlassView.isHidden = !shouldShowWaveformControl
-            updateWaveformControlAvailability()
         }
     }
 
     private func updateSendControlAvailability() {
-        sendButton.isEnabled = isSendingEnabled
-        sendButton.isUserInteractionEnabled = isShowingSendControl && isSendingEnabled
+        let canUseActionControl = isShowingStopControl || isSendingEnabled
+        sendButton.isEnabled = canUseActionControl
+        sendButton.isUserInteractionEnabled = isShowingActionControl && canUseActionControl
     }
 
-    private func updateWaveformControlAvailability() {
-        waveformButton.isUserInteractionEnabled = isShowingStopControl
-    }
-
-    private func updateWaveformButtonStyle() {
-        if isStreamingResponse {
-            waveformButton.configuration = nil
-            waveformGlassView.effect = GlassComposerBarView.makeGlassEffect(tintColor: .systemRed)
-            waveformButton.tintColor = .white
-            waveformButton.setImage(
-                UIImage(
-                    systemName: "stop.fill",
-                    withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.0, weight: .bold)
-                ),
-                for: .normal
-            )
-            waveformButton.accessibilityLabel = String(localized: .composerStopGenerating)
-        } else {
-            waveformButton.configuration = nil
-            waveformGlassView.effect = GlassComposerBarView.makeGlassEffect()
-            waveformButton.tintColor = .label
-            waveformButton.setImage(
-                UIImage(
-                    systemName: "waveform",
-                    withConfiguration: UIImage.SymbolConfiguration(pointSize: Metrics.iconPointSize, weight: .semibold)
-                ),
-                for: .normal
-            )
-            waveformButton.accessibilityLabel = String(localized: .composerWaveform)
-        }
+    private func updateSendButtonStyle() {
+        var configuration = sendButton.configuration ?? UIButton.Configuration.prominentClearGlass()
+        configuration.image = UIImage(
+            systemName: isShowingStopControl ? "stop.fill" : "arrow.up",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 15.0, weight: .bold)
+        )
+        configuration.baseBackgroundColor = isShowingStopControl ? .systemRed : .systemBlue
+        configuration.baseForegroundColor = .white
+        configuration.cornerStyle = .capsule
+        configuration.contentInsets = .zero
+        sendButton.configuration = configuration
+        sendButton.accessibilityLabel = isShowingStopControl
+            ? String(localized: .composerStopGenerating)
+            : String(localized: .generalSend)
+        updateSendReasoningMenu()
     }
 
     private func updateFontsForCurrentContentSize() {
@@ -805,10 +740,9 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         return effect
     }
 
-    private static func makeGlassEffect(tintColor: UIColor? = nil) -> UIGlassEffect {
+    private static func makeGlassEffect() -> UIGlassEffect {
         let effect = UIGlassEffect(style: .regular)
         effect.isInteractive = true
-        effect.tintColor = tintColor
         return effect
     }
 
