@@ -232,7 +232,7 @@ final class StreamingContentView: UIView {
 
     private func loadRenderer() {
         guard let rendererURL = Self.rendererURL else {
-            assertionFailure("Missing StreamingContentRenderer.html")
+            assertionFailure("Missing streaming renderer HTML")
             return
         }
 
@@ -255,20 +255,7 @@ final class StreamingContentView: UIView {
     }
 
     private static var rendererURL: URL? {
-        let subdirectories = [
-            "StreamingContentRenderer",
-            "Resources/StreamingContentRenderer"
-        ]
-        for subdirectory in subdirectories {
-            if let url = Bundle.main.url(
-                forResource: "StreamingContentRenderer",
-                withExtension: "html",
-                subdirectory: subdirectory
-            ) {
-                return url
-            }
-        }
-        return Bundle.main.url(forResource: "StreamingContentRenderer", withExtension: "html")
+        Bundle.main.url(forResource: "index", withExtension: "html")
     }
 
     private static let heightMessageHandlerName = "heightUpdate"

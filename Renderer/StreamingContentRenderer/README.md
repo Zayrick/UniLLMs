@@ -1,75 +1,53 @@
-# React + TypeScript + Vite
+# Streaming Content Renderer
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React/Vite source for the assistant response renderer loaded by `StreamingContentView`.
 
-Currently, two official plugins are available:
+## Workflow
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Install dependencies through npm:
 
-## React Compiler
-
-The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
-
-Note: This will impact Vite dev & build performances.
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Build the app-bundled renderer:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run build
 ```
+
+The build writes directly to:
+
+```text
+../../UniLLMs/Resources/StreamingContentRenderer/
+```
+
+`index.html` is the Vite HTML entry and the primary file loaded by Swift.
+
+## Bundle Layout
+
+Vite emits `index.html` and bundled JS/CSS into `StreamingContentRendererAssets.bundle`.
+
+Math rendering uses KaTeX through normal npm imports. KaTeX CSS and fonts are resolved by Vite as build assets, so there is no renderer-specific static math runtime directory.
+
+The `.bundle` suffix is intentional. Xcode preserves `.bundle` directories when copying app resources; ordinary resource folders can be flattened, which would break relative paths from the HTML file.
+
+The production HTML is adjusted by `vite.config.ts` to load the bundled renderer as a deferred classic script. `StreamingContentView` loads this file through `WKWebView.loadFileURL`, and module scripts do not run reliably from `file://` URLs.
+
+## Runtime Contract
+
+The renderer must expose:
+
+```ts
+window.streamingRenderer.configure(configuration)
+window.streamingRenderer.setContent(markdown)
+window.streamingRenderer.requestHeightUpdate()
+```
+
+Height updates are posted to:
+
+```ts
+window.webkit.messageHandlers.heightUpdate.postMessage(height)
+```
+
+Keep this bridge compatible with `StreamingContentView.swift`.

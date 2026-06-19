@@ -1,3 +1,7 @@
+@import "katex/dist/katex.min.css";
+@import "highlight.js/styles/github.css";
+@import "highlight.js/styles/github-dark.css" (prefers-color-scheme: dark);
+
 html {
     color-scheme: light dark;
     --streaming-text-color: CanvasText;
@@ -22,8 +26,12 @@ body {
     line-height: 1.6;
 }
 
+#root,
 #content {
     width: 100%;
+}
+
+#content {
     overflow-wrap: anywhere;
     word-break: break-word;
     -webkit-user-select: text;
@@ -210,13 +218,26 @@ table > tr:not(:last-child) td {
     border-bottom: 0.8px solid rgba(120, 120, 128, 0.15);
 }
 
-mjx-container {
+.math-block {
     max-width: 100%;
-    color: var(--streaming-text-color);
-}
-
-mjx-container[display="true"] {
     overflow-x: auto;
     overflow-y: hidden;
     padding: 0.1em 0;
+}
+
+.math-block > .katex-display {
+    margin: 0;
+}
+
+.katex {
+    max-width: 100%;
+    color: var(--streaming-text-color);
+    font-size: 1em;
+    overflow-wrap: normal;
+    word-break: normal;
+}
+
+.katex-display {
+    overflow-x: auto;
+    overflow-y: hidden;
 }
