@@ -6,6 +6,11 @@ html {
     color-scheme: light dark;
     --streaming-text-color: CanvasText;
     --streaming-link-color: LinkText;
+    --streaming-secondary-color: rgba(120, 120, 128, 0.95);
+    --streaming-tertiary-color: rgba(120, 120, 128, 0.7);
+    --streaming-separator-color: rgba(120, 120, 128, 0.32);
+    --streaming-success-color: rgb(52, 199, 89);
+    --streaming-error-color: rgb(255, 59, 48);
     --streaming-font-size: 16px;
 }
 
@@ -31,23 +36,220 @@ body {
     width: 100%;
 }
 
-#content {
+#content,
+.markdown-content {
     overflow-wrap: anywhere;
     word-break: break-word;
     -webkit-user-select: text;
     user-select: text;
 }
 
-#content.plain-text {
-    white-space: pre-wrap;
-}
-
-#content > :first-child {
+#content > :first-child,
+.markdown-content > :first-child {
     margin-top: 0;
 }
 
-#content > :last-child {
+#content > :last-child,
+.markdown-content > :last-child {
     margin-bottom: 0;
+}
+
+button {
+    font: inherit;
+}
+
+.assistant-timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.thought-section {
+    color: var(--streaming-secondary-color);
+}
+
+.thought-toggle,
+.tool-toggle {
+    appearance: none;
+    display: flex;
+    width: 100%;
+    align-items: center;
+    border: 0;
+    margin: 0;
+    padding: 6px 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+}
+
+.thought-toggle {
+    min-height: 28px;
+}
+
+.tool-toggle {
+    justify-content: space-between;
+    min-height: 24px;
+    gap: 8px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+}
+
+.thought-toggle,
+.tool-toggle.has-detail {
+    cursor: pointer;
+}
+
+.collapse-chevron {
+    width: 14px;
+    height: 14px;
+    flex: 0 0 14px;
+    color: var(--streaming-tertiary-color);
+    transform: rotate(-90deg);
+    transition: transform 0.18s ease;
+}
+
+.thought-toggle .collapse-chevron {
+    margin-right: 6px;
+}
+
+.thought-toggle[aria-expanded="true"] .collapse-chevron,
+.tool-toggle[aria-expanded="true"] .collapse-chevron {
+    transform: rotate(0deg);
+}
+
+.thought-title,
+.tool-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.thought-title {
+    font-size: 0.88em;
+}
+
+.thought-body {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 2px;
+}
+
+.thought-body::before {
+    content: "";
+    position: absolute;
+    top: 14px;
+    bottom: 14px;
+    left: 7.5px;
+    width: 1px;
+    background: var(--streaming-separator-color);
+}
+
+.timeline-row {
+    --timeline-icon-offset: 0px;
+    position: relative;
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr);
+    column-gap: 8px;
+    align-items: start;
+}
+
+.timeline-icon {
+    z-index: 1;
+    display: inline-flex;
+    width: 16px;
+    height: 16px;
+    align-items: center;
+    justify-content: center;
+    margin-top: var(--timeline-icon-offset);
+    border-radius: 50%;
+    background: var(--streaming-secondary-color);
+    color: Canvas;
+}
+
+.timeline-icon svg {
+    width: 11px;
+    height: 11px;
+    stroke-width: 2.4;
+}
+
+.tool-row.is-running .timeline-icon {
+    background: var(--streaming-secondary-color);
+}
+
+.tool-row.is-completed .timeline-icon {
+    background: var(--streaming-success-color);
+}
+
+.tool-row.is-failed .timeline-icon {
+    background: var(--streaming-error-color);
+}
+
+.timeline-reasoning {
+    padding: 2px 0 5px;
+    color: var(--streaming-secondary-color);
+    font-size: 0.82em;
+    line-height: 1.45;
+}
+
+.tool-content {
+    min-width: 0;
+}
+
+.tool-title {
+    color: var(--streaming-text-color);
+    font-size: 0.82em;
+    line-height: 1.35;
+}
+
+.tool-row.is-running .tool-title {
+    color: var(--streaming-secondary-color);
+}
+
+.tool-row.is-failed .tool-title {
+    color: var(--streaming-error-color);
+}
+
+.tool-detail {
+    margin: 0 0 6px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: rgba(120, 120, 128, 0.12);
+    color: var(--streaming-secondary-color);
+    font-size: 0.78em;
+    line-height: 1.42;
+    white-space: pre-wrap;
+}
+
+.assistant-raw-text {
+    color: var(--streaming-text-color);
+}
+
+.is-shimmering {
+    animation: shimmer 1.35s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+    0%,
+    100% {
+        opacity: 0.52;
+    }
+
+    50% {
+        opacity: 1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .collapse-chevron {
+        transition: none;
+    }
+
+    .is-shimmering {
+        animation: none;
+        opacity: 1;
+    }
 }
 
 p,

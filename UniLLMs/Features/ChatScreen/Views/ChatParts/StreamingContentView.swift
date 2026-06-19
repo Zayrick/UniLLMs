@@ -10,58 +10,56 @@ import UIKit
 import WebKit
 
 final class StreamingContentView: UIView {
-    enum Style {
-        case response
-        case thinking
+    private struct TimelineOptions: Encodable {
+        var isStreaming: Bool
+    }
 
-        var textStyle: UIFont.TextStyle {
-            switch self {
-            case .response:
-                return .body
-            case .thinking:
-                return .footnote
-            }
+    private struct TimelineItem: Encodable {
+        enum Kind: String, Encodable {
+            case reasoning
+            case rawText
+            case tool
         }
 
-        var textColor: UIColor {
-            switch self {
-            case .response:
-                return .label
-            case .thinking:
-                return .secondaryLabel
-            }
+        enum ToolState: String, Encodable {
+            case running
+            case completed
+            case failed
         }
+
+        var id: String
+        var kind: Kind
+        var text: String?
+        var callID: String?
+        var displayName: String?
+        var state: ToolState?
+        var detail: String?
     }
 
     fileprivate var onContentHeightChanged: (() -> Void)?
-    fileprivate var onRenderedNonEmptyContent: (() -> Void)?
-    fileprivate var hasRenderedNonEmptyContent = false
-    var content: String {
-        bufferedContent
-    }
 
-    private let style: Style
     private let webView: WKWebView
-    private var bufferedContent = ""
+    private var timelineItems: [TimelineItem] = []
+    private var timelineItemSerial = 0
+    private var isTimelineStreaming = false
+    private var hasPreparedTimeline = false
     private var isLoaded = false
     private var isRenderScheduled = false
     private var contentHeight: CGFloat = 0.0
     private var lastMeasuredWidth: CGFloat = 0.0
     private var traitChangeRegistration: (any UITraitChangeRegistration)?
 
-    init(style: Style = .response) {
-        self.style = style
+    override init(frame: CGRect) {
         let userContentController = WKUserContentController()
         let configuration = WKWebViewConfiguration()
         configuration.userContentController = userContentController
         webView = WKWebView(frame: .zero, configuration: configuration)
-        super.init(frame: .zero)
+        super.init(frame: frame)
         userContentController.add(WeakScriptMessageHandler(target: self), name: Self.heightMessageHandlerName)
         configure()
     }
 
     required init?(coder: NSCoder) {
-        style = .response
         let userContentController = WKUserContentController()
         let configuration = WKWebViewConfiguration()
         configuration.userContentController = userContentController
@@ -102,21 +100,101 @@ final class StreamingContentView: UIView {
         CGSize(width: size.width, height: contentHeight)
     }
 
-    func appendContent(_ contentDelta: String) {
-        guard !contentDelta.isEmpty else {
-            return
-        }
-
-        bufferedContent += contentDelta
+    func prepareTimelineRendering() {
+        timelineItems = []
+        timelineItemSerial = 0
+        isTimelineStreaming = true
+        hasPreparedTimeline = true
         scheduleRender()
     }
 
-    func setFinishedContent(_ content: String) {
-        bufferedContent = content
-        renderNow()
+    func appendTimelineReasoning(_ text: String) {
+        guard !text.isEmpty else {
+            return
+        }
+
+        ensureTimelineRendering()
+        if timelineItems.last?.kind == .reasoning {
+            timelineItems[timelineItems.count - 1].text = (timelineItems.last?.text ?? "") + text
+        } else {
+            timelineItems.append(
+                TimelineItem(
+                    id: nextTimelineItemID(prefix: "reasoning"),
+                    kind: .reasoning,
+                    text: text
+                )
+            )
+        }
+        scheduleRender()
     }
 
-    func finishStreamingContent() {
+    func appendTimelineRawText(_ text: String) {
+        guard !text.isEmpty else {
+            return
+        }
+
+        ensureTimelineRendering()
+        if timelineItems.last?.kind == .rawText {
+            timelineItems[timelineItems.count - 1].text = (timelineItems.last?.text ?? "") + text
+        } else {
+            timelineItems.append(
+                TimelineItem(
+                    id: nextTimelineItemID(prefix: "raw"),
+                    kind: .rawText,
+                    text: text
+                )
+            )
+        }
+        scheduleRender()
+    }
+
+    func appendTimelineToolEvent(_ event: ChatToolEvent) {
+        ensureTimelineRendering()
+
+        let toolCall: ChatToolCall
+        let state: TimelineItem.ToolState
+        let detail: String
+
+        switch event {
+        case let .started(startedToolCall):
+            toolCall = startedToolCall
+            state = .running
+            detail = startedToolCall.serializedArguments
+        case let .completed(completedToolCall, result):
+            toolCall = completedToolCall
+            state = .completed
+            detail = result
+        case let .failed(failedToolCall, message):
+            toolCall = failedToolCall
+            state = .failed
+            detail = message
+        }
+
+        if let existingIndex = timelineItems.firstIndex(where: { $0.callID == toolCall.id }) {
+            timelineItems[existingIndex].displayName = toolCall.presentationName
+            timelineItems[existingIndex].state = state
+            timelineItems[existingIndex].detail = detail
+        } else {
+            timelineItems.append(
+                TimelineItem(
+                    id: "tool-\(toolCall.id)",
+                    kind: .tool,
+                    callID: toolCall.id,
+                    displayName: toolCall.presentationName,
+                    state: state,
+                    detail: detail
+                )
+            )
+        }
+        scheduleRender()
+    }
+
+    func finishTimelineRendering() {
+        guard hasPreparedTimeline else {
+            return
+        }
+
+        isTimelineStreaming = false
         renderNow()
         requestHeightUpdate()
     }
@@ -130,6 +208,19 @@ final class StreamingContentView: UIView {
         webView.layoutIfNeeded()
         webView.scrollView.layoutIfNeeded()
         requestHeightUpdate()
+    }
+
+    private func ensureTimelineRendering() {
+        guard !hasPreparedTimeline else {
+            return
+        }
+
+        prepareTimelineRendering()
+    }
+
+    private func nextTimelineItemID(prefix: String) -> String {
+        timelineItemSerial += 1
+        return "\(prefix)-\(timelineItemSerial)"
     }
 
     private func configure() {
@@ -186,7 +277,12 @@ final class StreamingContentView: UIView {
 
         isRenderScheduled = false
         webView.evaluateJavaScript(
-            "window.streamingRenderer.setContent(\(Self.javaScriptStringLiteral(bufferedContent)));",
+            """
+            window.streamingRenderer.setTimeline(
+                \(Self.javaScriptValueLiteral(timelineItems)),
+                \(Self.javaScriptValueLiteral(TimelineOptions(isStreaming: isTimelineStreaming)))
+            );
+            """,
             completionHandler: nil
         )
     }
@@ -212,22 +308,15 @@ final class StreamingContentView: UIView {
 
     private func applyHeight(_ height: CGFloat) {
         let newHeight = ceil(max(0.0, height))
-        let didRenderNonEmptyContent = !hasRenderedNonEmptyContent && !bufferedContent.isEmpty
 
-        guard abs(newHeight - contentHeight) > 0.5 || didRenderNonEmptyContent else {
+        guard abs(newHeight - contentHeight) > 0.5 else {
             return
         }
 
         contentHeight = newHeight
-        if didRenderNonEmptyContent {
-            hasRenderedNonEmptyContent = true
-        }
         invalidateIntrinsicContentSize()
         setNeedsLayout()
         onContentHeightChanged?()
-        if didRenderNonEmptyContent {
-            onRenderedNonEmptyContent?()
-        }
     }
 
     private func loadRenderer() {
@@ -243,11 +332,16 @@ final class StreamingContentView: UIView {
     }
 
     private var styleConfigurationJavaScriptObject: String {
-        let font = UIFont.preferredFont(forTextStyle: style.textStyle)
+        let font = UIFont.preferredFont(forTextStyle: .body)
         return """
         {
-            color: \(Self.javaScriptStringLiteral(style.textColor.cssString(resolvedWith: traitCollection))),
+            color: \(Self.javaScriptStringLiteral(UIColor.label.cssString(resolvedWith: traitCollection))),
             linkColor: \(Self.javaScriptStringLiteral(UIColor.link.cssString(resolvedWith: traitCollection))),
+            secondaryColor: \(Self.javaScriptStringLiteral(UIColor.secondaryLabel.cssString(resolvedWith: traitCollection))),
+            tertiaryColor: \(Self.javaScriptStringLiteral(UIColor.tertiaryLabel.cssString(resolvedWith: traitCollection))),
+            separatorColor: \(Self.javaScriptStringLiteral(UIColor.separator.cssString(resolvedWith: traitCollection))),
+            successColor: \(Self.javaScriptStringLiteral(UIColor.systemGreen.cssString(resolvedWith: traitCollection))),
+            errorColor: \(Self.javaScriptStringLiteral(UIColor.systemRed.cssString(resolvedWith: traitCollection))),
             colorScheme: \(Self.javaScriptStringLiteral(traitCollection.userInterfaceStyle == .dark ? "dark" : "light")),
             fontSize: \(font.pointSize * 0.96)
         }
@@ -261,55 +355,38 @@ final class StreamingContentView: UIView {
     private static let heightMessageHandlerName = "heightUpdate"
 
     private static func javaScriptStringLiteral(_ string: String) -> String {
-        guard let data = try? JSONEncoder().encode(string),
+        let encoded = javaScriptValueLiteral(string)
+        return encoded == "null" ? "\"\"" : encoded
+    }
+
+    private static func javaScriptValueLiteral<T: Encodable>(_ value: T) -> String {
+        guard let data = try? JSONEncoder().encode(value),
               let encoded = String(data: data, encoding: .utf8) else {
-            return "\"\""
+            return "null"
         }
         return encoded
     }
 }
 
 final class StreamingContentHostView: UIView {
-    private let contentView: StreamingContentView
-    private let contentInsets: UIEdgeInsets
+    private let contentView = StreamingContentView()
     private var contentHeightConstraint: NSLayoutConstraint!
     private var lastMeasuredWidth: CGFloat = 0.0
 
     var onLayoutInvalidated: (() -> Void)?
-    var onRenderedNonEmptyContent: (() -> Void)? {
-        didSet {
-            if contentView.hasRenderedNonEmptyContent {
-                onRenderedNonEmptyContent?()
-            }
-        }
-    }
 
-    var content: String {
-        contentView.content
-    }
-
-    init(
-        style: StreamingContentView.Style = .response,
-        contentInsets: UIEdgeInsets = .zero
-    ) {
-        self.contentInsets = contentInsets
-        contentView = StreamingContentView(style: style)
-        super.init(frame: .zero)
+    override init(frame: CGRect) {
+        super.init(frame: frame)
         configure()
     }
 
     required init?(coder: NSCoder) {
-        contentInsets = .zero
-        contentView = StreamingContentView()
         super.init(coder: coder)
         configure()
     }
 
     override var intrinsicContentSize: CGSize {
-        CGSize(
-            width: UIView.noIntrinsicMetric,
-            height: ceil(contentHeightConstraint.constant + contentInsets.top + contentInsets.bottom)
-        )
+        CGSize(width: UIView.noIntrinsicMetric, height: ceil(contentHeightConstraint.constant))
     }
 
     override func layoutSubviews() {
@@ -320,14 +397,11 @@ final class StreamingContentHostView: UIView {
     override func sizeThatFits(_ size: CGSize) -> CGSize {
         let fittingSize = contentView.sizeThatFits(
             CGSize(
-                width: max(1.0, size.width - contentInsets.left - contentInsets.right),
+                width: max(1.0, size.width),
                 height: CGFloat.greatestFiniteMagnitude
             )
         )
-        return CGSize(
-            width: size.width,
-            height: ceil(fittingSize.height + contentInsets.top + contentInsets.bottom)
-        )
+        return CGSize(width: size.width, height: ceil(fittingSize.height))
     }
 
     override func systemLayoutSizeFitting(
@@ -338,18 +412,28 @@ final class StreamingContentHostView: UIView {
         sizeThatFits(targetSize)
     }
 
-    func appendContent(_ contentDelta: String) {
-        contentView.appendContent(contentDelta)
+    func prepareTimelineRendering() {
+        contentView.prepareTimelineRendering()
         updateContentHeight()
     }
 
-    func setFinishedContent(_ content: String) {
-        contentView.setFinishedContent(content)
+    func appendTimelineReasoning(_ text: String) {
+        contentView.appendTimelineReasoning(text)
         updateContentHeight()
     }
 
-    func finishStreamingContent() {
-        contentView.finishStreamingContent()
+    func appendTimelineRawText(_ text: String) {
+        contentView.appendTimelineRawText(text)
+        updateContentHeight()
+    }
+
+    func appendTimelineToolEvent(_ event: ChatToolEvent) {
+        contentView.appendTimelineToolEvent(event)
+        updateContentHeight()
+    }
+
+    func finishTimelineRendering() {
+        contentView.finishTimelineRendering()
         updateContentHeight()
     }
 
@@ -370,17 +454,14 @@ final class StreamingContentHostView: UIView {
         contentView.onContentHeightChanged = { [weak self] in
             self?.updateContentHeight()
         }
-        contentView.onRenderedNonEmptyContent = { [weak self] in
-            self?.onRenderedNonEmptyContent?()
-        }
         addSubview(contentView)
 
         contentHeightConstraint = contentView.heightAnchor.constraint(equalToConstant: 0.0)
         NSLayoutConstraint.activate([
-            contentView.topAnchor.constraint(equalTo: topAnchor, constant: contentInsets.top),
-            contentView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: contentInsets.left),
-            contentView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -contentInsets.right),
-            contentView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -contentInsets.bottom),
+            contentView.topAnchor.constraint(equalTo: topAnchor),
+            contentView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            contentView.bottomAnchor.constraint(equalTo: bottomAnchor),
             contentHeightConstraint
         ])
     }
@@ -417,8 +498,8 @@ final class StreamingContentHostView: UIView {
 
     private var contentMeasurementWidth: CGFloat {
         max(
-            bounds.width - contentInsets.left - contentInsets.right,
-            (superview?.bounds.width ?? 0.0) - contentInsets.left - contentInsets.right,
+            bounds.width,
+            superview?.bounds.width ?? 0.0,
             1.0
         )
     }

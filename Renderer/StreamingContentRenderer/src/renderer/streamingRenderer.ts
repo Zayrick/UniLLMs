@@ -3,18 +3,11 @@ import hljs from 'highlight.js/lib/common'
 import katex from 'katex'
 import 'katex/contrib/mhchem'
 import { Marked, type RendererObject, type TokenizerAndRendererExtension, type Tokens } from 'marked'
-import morphdom from 'morphdom'
 
-type Translate = (key: string, defaultValue: string) => string
-
-interface StreamingRendererDependencies {
-  translate: Translate
-}
+export type Translate = (key: string, defaultValue: string) => string
 
 export interface StreamingRendererController {
-  api: Window['streamingRenderer'] & {}
-  dispose: () => void
-  refreshTranslations: () => void
+  api: StreamingRendererAPI
 }
 
 interface MathToken extends Tokens.Generic {
@@ -28,201 +21,85 @@ const sanitizeOptions: Config = {
   FORBID_ATTR: ['style'],
   ALLOW_DATA_ATTR: false,
   ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel):)/i,
-  RETURN_DOM_FRAGMENT: true,
+  RETURN_DOM_FRAGMENT: false,
 }
 
-const renderInterval = 1000 / 8
+export function applyRendererConfiguration(configuration: StreamingRendererConfiguration) {
+  const colorScheme = configuration.colorScheme === 'dark' ? 'dark' : 'light'
+  document.documentElement.style.colorScheme = colorScheme
+  if (configuration.color) {
+    document.documentElement.style.setProperty('--streaming-text-color', configuration.color)
+  }
+  if (configuration.linkColor) {
+    document.documentElement.style.setProperty('--streaming-link-color', configuration.linkColor)
+  }
+  if (configuration.secondaryColor) {
+    document.documentElement.style.setProperty('--streaming-secondary-color', configuration.secondaryColor)
+  }
+  if (configuration.tertiaryColor) {
+    document.documentElement.style.setProperty('--streaming-tertiary-color', configuration.tertiaryColor)
+  }
+  if (configuration.separatorColor) {
+    document.documentElement.style.setProperty('--streaming-separator-color', configuration.separatorColor)
+  }
+  if (configuration.successColor) {
+    document.documentElement.style.setProperty('--streaming-success-color', configuration.successColor)
+  }
+  if (configuration.errorColor) {
+    document.documentElement.style.setProperty('--streaming-error-color', configuration.errorColor)
+  }
+  if (typeof configuration.fontSize === 'number') {
+    document.documentElement.style.setProperty('--streaming-font-size', `${configuration.fontSize}px`)
+  }
+}
 
-export function createStreamingRenderer(
-  contentElement: HTMLElement,
-  dependencies: StreamingRendererDependencies,
-): StreamingRendererController {
-  let pendingContent = ''
-  let renderScheduled = false
-  let heightScheduled = false
-  let lastRenderTime = 0
-  let lastRenderedContent: string | null = null
-  let lastRenderUsedMarkdown = false
-  let mathTokenIndex = 0
+export function renderMarkdownHTML(content: string, translate: Translate) {
+  try {
+    let mathTokenIndex = 0
+    const markdown = createMarkdownRenderer(translate, () => {
+      mathTokenIndex += 1
+      return mathTokenIndex
+    })
+    const dirtyHTML = markdown.parse(content || '')
+    return DOMPurify.sanitize(String(dirtyHTML), sanitizeOptions) as string
+  } catch {
+    return escapeHTML(content || '')
+  }
+}
 
-  const markdown = createMarkdownRenderer(dependencies.translate, () => {
-    mathTokenIndex += 1
-    return mathTokenIndex
+export function enhanceRenderedMarkdown(
+  rootElement: HTMLElement,
+  requestHeightUpdate: () => void = () => {},
+) {
+  rootElement.querySelectorAll('pre code').forEach((codeElement) => {
+    try {
+      hljs.highlightElement(codeElement as HTMLElement)
+    } catch {
+      // Keep rendering content even if a language grammar throws.
+    }
   })
 
-  function postHeight() {
-    heightScheduled = false
-    const height = Math.ceil(contentElement.getBoundingClientRect().height)
-    window.webkit?.messageHandlers?.heightUpdate?.postMessage(height)
-  }
+  const mathElements = Array.from(rootElement.querySelectorAll<HTMLElement>('.math-pending'))
+  mathElements.forEach((element) => {
+    const source = element.textContent || ''
+    const displayMode = element.classList.contains('math-block')
 
-  function requestHeightUpdate() {
-    if (heightScheduled) {
-      return
-    }
-
-    heightScheduled = true
-    requestAnimationFrame(postHeight)
-  }
-
-  function renderPlainText(content: string) {
-    contentElement.classList.add('plain-text')
-    if (contentElement.textContent !== content || contentElement.childNodes.length !== 1) {
-      contentElement.textContent = content
-    }
-  }
-
-  function highlightCodeBlocks() {
-    contentElement.querySelectorAll('pre code').forEach((codeElement) => {
-      try {
-        hljs.highlightElement(codeElement as HTMLElement)
-      } catch {
-        // Keep rendering content even if a language grammar throws.
-      }
-    })
-  }
-
-  function renderMathElements() {
-    const mathElements = Array.from(contentElement.querySelectorAll<HTMLElement>('.math-pending'))
-    mathElements.forEach((element) => {
-      const source = element.textContent || ''
-      const displayMode = element.classList.contains('math-block')
-
-      try {
-        katex.render(source, element, {
-          displayMode,
-          throwOnError: false,
-          strict: false,
-          trust: false,
-        })
-        element.classList.remove('math-pending')
-        element.classList.add('math-rendered')
-      } catch {
-        element.textContent = source
-      }
-    })
-
-    if (mathElements.length) {
-      requestHeightUpdate()
-    }
-  }
-
-  function renderMarkdown(content: string) {
     try {
-      mathTokenIndex = 0
-      const dirtyHTML = markdown.parse(content)
-      const cleanFragment = DOMPurify.sanitize(String(dirtyHTML), sanitizeOptions) as unknown as DocumentFragment
-      const targetElement = document.createElement('div')
-      targetElement.append(cleanFragment)
-
-      contentElement.classList.remove('plain-text')
-      morphdom(contentElement, targetElement, {
-        childrenOnly: true,
-        onBeforeElUpdated(fromElement, toElement) {
-          if (isSameMathElement(fromElement, toElement)) {
-            return false
-          }
-
-          if (fromElement.tagName === 'DETAILS') {
-            const sourceDetails = fromElement as HTMLDetailsElement
-            const targetDetails = toElement as HTMLDetailsElement
-            targetDetails.open = sourceDetails.open
-          }
-
-          return !fromElement.isEqualNode(toElement)
-        },
+      katex.render(source, element, {
+        displayMode,
+        throwOnError: false,
+        strict: false,
+        trust: false,
       })
-
-      highlightCodeBlocks()
-      renderMathElements()
+      element.classList.remove('math-pending')
+      element.classList.add('math-rendered')
     } catch {
-      renderPlainText(content)
+      element.textContent = source
     }
-  }
+  })
 
-  function isMathElement(element: Element) {
-    return element.classList.contains('math-block')
-      || element.classList.contains('math-inline')
-  }
-
-  function isSameMathElement(fromElement: Element, toElement: Element) {
-    return isMathElement(fromElement)
-      && isMathElement(toElement)
-      && fromElement.id === toElement.id
-      && fromElement.id.length > 0
-  }
-
-  function scheduleRender() {
-    if (renderScheduled) {
-      return
-    }
-
-    renderScheduled = true
-    requestAnimationFrame(renderContent)
-  }
-
-  function renderContent(timestamp: DOMHighResTimeStamp) {
-    if (lastRenderTime > 0 && timestamp - lastRenderTime < renderInterval) {
-      requestAnimationFrame(renderContent)
-      return
-    }
-
-    renderScheduled = false
-    lastRenderTime = timestamp
-    const shouldUseMarkdown = true
-    const contentChanged = lastRenderedContent !== pendingContent || lastRenderUsedMarkdown !== shouldUseMarkdown
-
-    if (contentChanged) {
-      renderMarkdown(pendingContent)
-      lastRenderedContent = pendingContent
-      lastRenderUsedMarkdown = shouldUseMarkdown
-    }
+  if (mathElements.length) {
     requestHeightUpdate()
-  }
-
-  function handleResize() {
-    requestHeightUpdate()
-  }
-
-  window.addEventListener('resize', handleResize)
-  document.fonts?.ready.then(() => {
-    requestHeightUpdate()
-  }).catch(() => {})
-  requestHeightUpdate()
-
-  const api = {
-    configure(configuration) {
-      const colorScheme = configuration.colorScheme === 'dark' ? 'dark' : 'light'
-      document.documentElement.style.colorScheme = colorScheme
-      if (configuration.color) {
-        document.documentElement.style.setProperty('--streaming-text-color', configuration.color)
-      }
-      if (configuration.linkColor) {
-        document.documentElement.style.setProperty('--streaming-link-color', configuration.linkColor)
-      }
-      if (typeof configuration.fontSize === 'number') {
-        document.documentElement.style.setProperty('--streaming-font-size', `${configuration.fontSize}px`)
-      }
-      requestHeightUpdate()
-    },
-
-    setContent(nextContent) {
-      pendingContent = nextContent || ''
-      scheduleRender()
-    },
-
-    requestHeightUpdate,
-  } satisfies Window['streamingRenderer'] & {}
-
-  return {
-    api,
-    dispose() {
-      window.removeEventListener('resize', handleResize)
-    },
-    refreshTranslations() {
-      lastRenderedContent = null
-      scheduleRender()
-    },
   }
 }
 

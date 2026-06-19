@@ -1,5 +1,14 @@
 {
   "codeBlock": {
     "defaultLanguage": "文本"
+  },
+  "timeline": {
+    "processing": "处理中",
+    "reasoningStepSingular": "{{count}} 个思考步骤",
+    "reasoningStepPlural": "{{count}} 个思考步骤",
+    "toolCallSingular": "{{count}} 次工具调用",
+    "toolCallPlural": "{{count}} 次工具调用",
+    "usingTool": "正在使用 {{name}}",
+    "toolFailed": "{{name}} 失败"
   }
 }

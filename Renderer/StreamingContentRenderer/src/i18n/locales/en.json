@@ -1,5 +1,14 @@
 {
   "codeBlock": {
     "defaultLanguage": "text"
+  },
+  "timeline": {
+    "processing": "Processing",
+    "reasoningStepSingular": "{{count}} reasoning step",
+    "reasoningStepPlural": "{{count}} reasoning steps",
+    "toolCallSingular": "{{count}} tool call",
+    "toolCallPlural": "{{count}} tool calls",
+    "usingTool": "Using {{name}}",
+    "toolFailed": "Failed {{name}}"
   }
 }

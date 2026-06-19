@@ -243,150 +243,6 @@
         }
       }
     },
-    "assistant.processing" : {
-      "comment" : "Header shown while reasoning or tools are active.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Processing"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "处理中"
-          }
-        }
-      }
-    },
-    "assistant.reasoning_step.plural" : {
-      "comment" : "Plural label in reasoning summary.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "reasoning steps"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "步推理"
-          }
-        }
-      }
-    },
-    "assistant.reasoning_step.singular" : {
-      "comment" : "Singular label in reasoning summary.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "reasoning step"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "步推理"
-          }
-        }
-      }
-    },
-    "assistant.tool_call.plural" : {
-      "comment" : "Plural label in tool summary.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "tool calls"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "次工具调用"
-          }
-        }
-      }
-    },
-    "assistant.tool_call.singular" : {
-      "comment" : "Singular label in tool summary.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "tool call"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "次工具调用"
-          }
-        }
-      }
-    },
-    "assistant.tool.failed_format" : {
-      "comment" : "Tool invocation title after a tool fails.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ failed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 执行失败"
-          }
-        }
-      }
-    },
-    "assistant.tool.shows_details" : {
-      "comment" : "Accessibility hint for expandable tool details.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Shows tool details"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "显示工具详情"
-          }
-        }
-      }
-    },
-    "assistant.tool.using_format" : {
-      "comment" : "Tool invocation title while a tool is running.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Using %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在调用 %@"
-          }
-        }
-      }
-    },
     "background_runtime.error.registration_failed_format" : {
       "comment" : "Error shown when the app cannot register a continued processing task. The placeholder is the task identifier.",
       "extractionState" : "manual",
@@ -1413,24 +1269,6 @@
         }
       }
     },
-    "general.collapsed" : {
-      "comment" : "Accessibility value for collapsed disclosure content.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Collapsed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已折叠"
-          }
-        }
-      }
-    },
     "general.copied" : {
       "comment" : "Accessibility label after a copy action succeeds.",
       "extractionState" : "manual",
@@ -1463,24 +1301,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "删除"
-          }
-        }
-      }
-    },
-    "general.expanded" : {
-      "comment" : "Accessibility value for expanded disclosure content.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Expanded"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已展开"
           }
         }
       }

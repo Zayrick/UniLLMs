@@ -4,8 +4,9 @@ type StreamingRendererAPI = NonNullable<Window['streamingRenderer']>
 
 let activeController: StreamingRendererController | null = null
 let pendingConfiguration: Parameters<StreamingRendererAPI['configure']>[0] | null = null
-let pendingContent = ''
-let hasPendingContent = false
+let pendingTimeline: AssistantTimelineItem[] = []
+let pendingTimelineOptions: AssistantTimelineOptions = {}
+let hasPendingTimeline = false
 let hasPendingHeightRequest = false
 
 const bridgeAPI: StreamingRendererAPI = {
@@ -14,10 +15,11 @@ const bridgeAPI: StreamingRendererAPI = {
     activeController?.api.configure(configuration)
   },
 
-  setContent(nextContent) {
-    pendingContent = nextContent || ''
-    hasPendingContent = true
-    activeController?.api.setContent(pendingContent)
+  setTimeline(items, options) {
+    pendingTimeline = Array.isArray(items) ? items : []
+    pendingTimelineOptions = options || {}
+    hasPendingTimeline = true
+    activeController?.api.setTimeline(pendingTimeline, pendingTimelineOptions)
   },
 
   requestHeightUpdate() {
@@ -41,8 +43,8 @@ export function attachStreamingRendererController(controller: StreamingRendererC
     controller.api.configure(pendingConfiguration)
   }
 
-  if (hasPendingContent) {
-    controller.api.setContent(pendingContent)
+  if (hasPendingTimeline) {
+    controller.api.setTimeline(pendingTimeline, pendingTimelineOptions)
   }
 
   if (hasPendingHeightRequest) {

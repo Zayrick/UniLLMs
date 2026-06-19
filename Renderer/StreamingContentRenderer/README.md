@@ -40,7 +40,7 @@ The renderer must expose:
 
 ```ts
 window.streamingRenderer.configure(configuration)
-window.streamingRenderer.setContent(markdown)
+window.streamingRenderer.setTimeline(items, options)
 window.streamingRenderer.requestHeightUpdate()
 ```
 
