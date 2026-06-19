@@ -410,12 +410,39 @@ nonisolated struct OpenAICompatibleAPIClient {
         var name: String?
         var contextLength: Int?
         var supportedParameters: [String]?
+        var reasoning: Reasoning?
 
         nonisolated private enum CodingKeys: String, CodingKey {
             case id
             case name
             case contextLength = "context_length"
             case supportedParameters = "supported_parameters"
+            case reasoning
+        }
+
+        nonisolated struct Reasoning: Decodable {
+            var supportedEfforts: [String]?
+            var acceptsAllSupportedEfforts: Bool
+            var mandatory: Bool?
+
+            nonisolated private enum CodingKeys: String, CodingKey {
+                case supportedEfforts = "supported_efforts"
+                case mandatory
+            }
+
+            init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                if container.contains(.supportedEfforts) {
+                    acceptsAllSupportedEfforts = try container.decodeNil(forKey: .supportedEfforts)
+                    supportedEfforts = acceptsAllSupportedEfforts
+                        ? nil
+                        : try container.decode([String].self, forKey: .supportedEfforts)
+                } else {
+                    acceptsAllSupportedEfforts = false
+                    supportedEfforts = nil
+                }
+                mandatory = try container.decodeIfPresent(Bool.self, forKey: .mandatory)
+            }
         }
     }
 
@@ -533,9 +560,13 @@ nonisolated struct OpenAICompatibleAPIClient {
                 reasoningEfforts: includeModelMetadata
                     ? Self.reasoningEfforts(
                         fromSupportedParameters: $0.supportedParameters,
+                        supportedEfforts: $0.reasoning?.supportedEfforts,
+                        acceptsAllSupportedEfforts: $0.reasoning?.acceptsAllSupportedEfforts == true,
+                        hasReasoningMetadata: $0.reasoning != nil,
                         configuredEfforts: reasoningEffortsForReasoningSupport
                     )
-                    : []
+                    : [],
+                isReasoningMandatory: includeModelMetadata && $0.reasoning?.mandatory == true
             )
         }
     }
@@ -706,21 +737,39 @@ nonisolated struct OpenAICompatibleAPIClient {
 
     private static func reasoningEfforts(
         fromSupportedParameters supportedParameters: [String]?,
+        supportedEfforts: [String]?,
+        acceptsAllSupportedEfforts: Bool,
+        hasReasoningMetadata: Bool,
         configuredEfforts: [String]
     ) -> [String] {
-        guard let supportedParameters,
-              supportedParameters.contains(where: { parameter in
-                  let normalizedParameter = parameter.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                  return normalizedParameter == "reasoning" || normalizedParameter == "reasoning_effort"
-              }) else {
+        if let supportedEfforts {
+            return normalizedReasoningEfforts(supportedEfforts)
+        }
+
+        if acceptsAllSupportedEfforts {
+            return normalizedReasoningEfforts(configuredEfforts)
+        }
+
+        guard !hasReasoningMetadata else {
             return []
         }
 
+        guard supportedParameters?.contains(where: { parameter in
+            let normalizedParameter = parameter.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return normalizedParameter == "reasoning" || normalizedParameter == "reasoning_effort"
+        }) == true else {
+            return []
+        }
+
+        return normalizedReasoningEfforts(configuredEfforts)
+    }
+
+    private static func normalizedReasoningEfforts(_ efforts: [String]) -> [String] {
         var seen = Set<String>()
-        return configuredEfforts.compactMap { effort in
+        return efforts.compactMap { effort in
             let trimmed = effort.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty,
-                  seen.insert(trimmed).inserted else {
+                  seen.insert(trimmed.lowercased()).inserted else {
                 return nil
             }
             return trimmed

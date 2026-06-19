@@ -20,6 +20,7 @@ protocol AppSettingsStore: AnyObject {
     var isBackgroundRuntimeEnabled: Bool { get set }
     var colorMode: AppColorMode { get set }
     var keepsScreenAwakeDuringAIOutput: Bool { get set }
+    var reasoningEffortConfigurationValue: Int { get set }
 }
 
 final class UserDefaultsAppSettingsStore: AppSettingsStore {
@@ -29,6 +30,7 @@ final class UserDefaultsAppSettingsStore: AppSettingsStore {
         static let backgroundRuntimeEnabled = "appSettings.backgroundRuntimeEnabled"
         static let colorMode = "appSettings.colorMode"
         static let keepsScreenAwakeDuringAIOutput = "appSettings.keepsScreenAwakeDuringAIOutput"
+        static let reasoningEffortConfigurationValue = "appSettings.reasoningEffortConfigurationValue"
     }
 
     private let defaults: UserDefaults
@@ -66,6 +68,19 @@ final class UserDefaultsAppSettingsStore: AppSettingsStore {
         }
         set {
             defaults.set(newValue, forKey: Key.keepsScreenAwakeDuringAIOutput)
+        }
+    }
+
+    var reasoningEffortConfigurationValue: Int {
+        get {
+            guard defaults.object(forKey: Key.reasoningEffortConfigurationValue) != nil else {
+                return ReasoningEffortConfiguration.omitValue
+            }
+
+            return defaults.integer(forKey: Key.reasoningEffortConfigurationValue)
+        }
+        set {
+            defaults.set(newValue, forKey: Key.reasoningEffortConfigurationValue)
         }
     }
 }

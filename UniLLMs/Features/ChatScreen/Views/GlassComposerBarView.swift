@@ -12,7 +12,6 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     struct SendTransition {
         let text: String
         let backgroundGlobalFrame: CGRect
-        let reasoningEffort: String?
     }
 
     struct PendingAttachmentDisplay: Equatable {
@@ -25,6 +24,25 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     struct SelectedSystemPromptDisplay: Equatable {
         let id: UUID
         let title: String
+    }
+
+    struct ReasoningConfigurationItem: Equatable {
+        let value: Int
+        let title: String
+    }
+
+    struct ReasoningConfigurationDisplay: Equatable {
+        static let empty = ReasoningConfigurationDisplay(
+            items: [],
+            resolvedValue: ReasoningEffortConfiguration.omitValue,
+            positiveLevelCount: 0,
+            activePositiveLevelCount: 0
+        )
+
+        let items: [ReasoningConfigurationItem]
+        let resolvedValue: Int
+        let positiveLevelCount: Int
+        let activePositiveLevelCount: Int
     }
 
     private enum Metrics {
@@ -81,7 +99,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     private var isStreamingResponse = false
     private var pendingAttachments: [PendingAttachmentDisplay] = []
     private var selectedSystemPrompt: SelectedSystemPromptDisplay?
-    private var reasoningEfforts: [String] = []
+    private var reasoningConfiguration = ReasoningConfigurationDisplay.empty
     private var traitChangeRegistration: (any UITraitChangeRegistration)?
 
     var onSend: ((SendTransition) -> Void)?
@@ -91,6 +109,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     var onRemoveAttachment: ((UUID) -> Void)?
     var onPreviewAttachment: ((UUID) -> Void)?
     var onRemoveSystemPrompt: (() -> Void)?
+    var onReasoningConfigurationChange: ((Int) -> Void)?
     var isSendingEnabled = true {
         didSet {
             updateSendControlAvailability()
@@ -183,17 +202,9 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         onLayoutChange?()
     }
 
-    func setReasoningEfforts(_ efforts: [String]) {
-        var seen = Set<String>()
-        reasoningEfforts = efforts.compactMap { effort in
-            let trimmed = effort.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty,
-                  seen.insert(trimmed).inserted else {
-                return nil
-            }
-            return trimmed
-        }
-        updateSendReasoningMenu()
+    func setReasoningConfiguration(_ configuration: ReasoningConfigurationDisplay) {
+        reasoningConfiguration = configuration
+        updateSendButtonStyle()
     }
 
     private func configure() {
@@ -525,10 +536,10 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
             return
         }
 
-        sendMessage(reasoningEffort: nil)
+        sendMessage()
     }
 
-    private func sendMessage(reasoningEffort: String?) {
+    private func sendMessage() {
         guard isSendingEnabled else {
             return
         }
@@ -542,8 +553,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
 
         let transition = SendTransition(
             text: messageText,
-            backgroundGlobalFrame: capsuleGlassView.convert(capsuleGlassView.bounds, to: nil),
-            reasoningEffort: reasoningEffort
+            backgroundGlobalFrame: capsuleGlassView.convert(capsuleGlassView.bounds, to: nil)
         )
 
         textView.text = ""
@@ -556,67 +566,55 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     }
 
     private func updateSendReasoningMenu() {
-        guard !isShowingStopControl, reasoningEfforts.count > 1 else {
+        guard !isShowingStopControl, reasoningConfiguration.items.count > 1 else {
             sendButton.menu = nil
             sendButton.accessibilityHint = nil
             return
         }
 
-        let actions = reasoningEfforts.map { effort in
-            UIAction(
-                title: reasoningEffortTitle(effort),
-                image: reasoningEffortImage(effort)
-            ) { [weak self] _ in
-                self?.sendMessage(reasoningEffort: effort)
+        let selectedValue = reasoningConfiguration.resolvedValue
+        let groupedItems = [
+            reasoningConfiguration.items.filter { $0.value <= ReasoningEffortConfiguration.omitValue },
+            reasoningConfiguration.items.filter { $0.value == ReasoningEffortConfiguration.disabledValue },
+            reasoningConfiguration.items.filter { $0.value > ReasoningEffortConfiguration.disabledValue }
+        ]
+        let sections = groupedItems.compactMap { items -> UIMenu? in
+            guard !items.isEmpty else {
+                return nil
             }
+            let actions = items.map { item in
+                UIAction(
+                    title: item.title,
+                    image: reasoningConfigurationImage(for: item.value),
+                    state: item.value == selectedValue ? .on : .off
+                ) { [weak self] _ in
+                    self?.onReasoningConfigurationChange?(item.value)
+                }
+            }
+            return UIMenu(options: [.displayInline, .singleSelection], children: actions)
         }
+
         sendButton.menu = UIMenu(
             title: String(localized: .composerReasoningEffortMenuTitle),
-            children: actions
+            children: sections
         )
         sendButton.accessibilityHint = String(localized: .composerReasoningEffortHint)
     }
 
-    private func reasoningEffortTitle(_ effort: String) -> String {
-        switch effort.lowercased() {
-        case "none":
-            return String(localized: .composerReasoningEffortNone)
-        case "minimal":
-            return String(localized: .composerReasoningEffortMinimal)
-        case "low":
-            return String(localized: .composerReasoningEffortLow)
-        case "medium":
-            return String(localized: .composerReasoningEffortMedium)
-        case "high":
-            return String(localized: .composerReasoningEffortHigh)
-        case "xhigh":
-            return String(localized: .composerReasoningEffortXhigh)
-        case "max":
-            return String(localized: .composerReasoningEffortMax)
-        case "auto":
-            return String(localized: .composerReasoningEffortAuto)
-        case "default":
-            return String(localized: .composerReasoningEffortDefault)
-        default:
-            return effort
+    private func reasoningConfigurationImage(for value: Int) -> UIImage? {
+        if value <= ReasoningEffortConfiguration.omitValue {
+            return UIImage(systemName: "arrow.up.circle")
         }
-    }
-
-    private func reasoningEffortImage(_ effort: String) -> UIImage? {
-        switch effort.lowercased() {
-        case "none":
+        if value == ReasoningEffortConfiguration.disabledValue {
             return UIImage(systemName: "slash.circle")
-        case "minimal", "low":
+        }
+        if value <= 2 {
             return UIImage(systemName: "brain")
-        case "medium":
-            return UIImage(systemName: "brain.head.profile")
-        case "high", "xhigh", "max":
-            return UIImage(systemName: "sparkles")
-        case "auto", "default":
-            return UIImage(systemName: "wand.and.stars")
-        default:
+        }
+        if value == 3 {
             return UIImage(systemName: "brain.head.profile")
         }
+        return UIImage(systemName: "sparkles")
     }
 
     private func updateInputMode(animated: Bool) {
@@ -696,9 +694,11 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
 
     private func updateSendButtonStyle() {
         var configuration = sendButton.configuration ?? UIButton.Configuration.prominentClearGlass()
-        configuration.image = UIImage(
+        configuration.image = Self.makeSendButtonIconImage(
             systemName: isShowingStopControl ? "stop.fill" : "arrow.up",
-            withConfiguration: UIImage.SymbolConfiguration(pointSize: 15.0, weight: .bold)
+            activeSegments: isShowingStopControl ? 0 : reasoningConfiguration.activePositiveLevelCount,
+            totalSegments: isShowingStopControl ? 0 : reasoningConfiguration.positiveLevelCount,
+            displayScale: traitCollection.displayScale
         )
         configuration.baseBackgroundColor = isShowingStopControl ? .systemRed : .systemBlue
         configuration.baseForegroundColor = .white
@@ -744,6 +744,80 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         let effect = UIGlassEffect(style: .regular)
         effect.isInteractive = true
         return effect
+    }
+
+    private static func makeSendButtonIconImage(
+        systemName: String,
+        activeSegments: Int,
+        totalSegments: Int,
+        displayScale: CGFloat
+    ) -> UIImage? {
+        let imageSize = CGSize(width: 25.0, height: 25.0)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = displayScale > 0.0 ? displayScale : 1.0
+        format.opaque = false
+
+        return UIGraphicsImageRenderer(size: imageSize, format: format).image { context in
+            let bounds = CGRect(origin: .zero, size: imageSize)
+            let litSegments = max(0, min(activeSegments, totalSegments))
+            let showsReasoningRing = activeSegments >= ReasoningEffortConfiguration.disabledValue
+                && totalSegments > 0
+            if showsReasoningRing {
+                drawReasoningRing(
+                    in: bounds,
+                    activeSegments: litSegments,
+                    totalSegments: totalSegments,
+                    context: context.cgContext
+                )
+            }
+
+            let symbolPointSize: CGFloat = showsReasoningRing ? 14.0 : 17.0
+            let symbolConfiguration = UIImage.SymbolConfiguration(pointSize: symbolPointSize, weight: .bold)
+            guard let symbol = UIImage(
+                systemName: systemName,
+                withConfiguration: symbolConfiguration
+            )?.withTintColor(.white, renderingMode: .alwaysOriginal) else {
+                return
+            }
+
+            let symbolSize = symbol.size
+            symbol.draw(
+                at: CGPoint(
+                    x: bounds.midX - symbolSize.width * 0.5,
+                    y: bounds.midY - symbolSize.height * 0.5
+                )
+            )
+        }
+    }
+
+    private static func drawReasoningRing(
+        in bounds: CGRect,
+        activeSegments: Int,
+        totalSegments: Int,
+        context: CGContext
+    ) {
+        let center = CGPoint(x: bounds.midX, y: bounds.midY)
+        let radius = min(bounds.width, bounds.height) * 0.5 - 1.4
+        let segmentAngle = CGFloat.pi * 2.0 / CGFloat(totalSegments)
+        let gapAngle = totalSegments == 1 ? CGFloat(0.0) : min(CGFloat(0.22), segmentAngle * 0.28)
+        let startAngle = -CGFloat.pi * 0.5
+
+        context.setLineWidth(2.0)
+        context.setLineCap(.round)
+
+        for index in 0..<totalSegments {
+            let segmentStart = startAngle + CGFloat(index) * segmentAngle + gapAngle * 0.5
+            let segmentEnd = startAngle + CGFloat(index + 1) * segmentAngle - gapAngle * 0.5
+            context.setStrokeColor(UIColor.white.withAlphaComponent(index < activeSegments ? 0.95 : 0.24).cgColor)
+            context.addArc(
+                center: center,
+                radius: radius,
+                startAngle: segmentStart,
+                endAngle: segmentEnd,
+                clockwise: false
+            )
+            context.strokePath()
+        }
     }
 
     private func updateCapsulePreviewLayout() {

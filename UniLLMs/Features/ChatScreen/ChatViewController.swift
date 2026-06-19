@@ -74,6 +74,9 @@ final class ChatViewController: UIViewController {
     private var chatHistoryStore: UserDefaultsChatStore {
         dependencies.chatHistoryStore
     }
+    private var appSettingsStore: any AppSettingsStore {
+        dependencies.appSettingsStore
+    }
     private let sideMenuView = SideMenuView()
     private let sideMenuDismissControl = UIControl()
     private let mainPageContainerView = UIView()
@@ -395,6 +398,9 @@ final class ChatViewController: UIViewController {
         }
         composerView.onRemoveSystemPrompt = { [weak self] in
             self?.clearSelectedSystemPrompt()
+        }
+        composerView.onReasoningConfigurationChange = { [weak self] value in
+            self?.setReasoningEffortConfigurationValue(value)
         }
         mainPageView.addSubview(composerView)
 
@@ -1159,7 +1165,8 @@ final class ChatViewController: UIViewController {
                 prompt: text,
                 attachments: attachments,
                 userMessageID: messageID,
-                replacingUserMessageID: messageID
+                replacingUserMessageID: messageID,
+                reasoningEffort: resolvedReasoningEffortForCurrentModel()
             )
         } catch {
             continuationTask?.finish(success: false)
@@ -1320,7 +1327,6 @@ final class ChatViewController: UIViewController {
             for: transition.text,
             attachments: attachmentsForTurn,
             userMessageID: messageID,
-            reasoningEffort: transition.reasoningEffort,
             responseView: responseView
         )
         animateExistingMessages(from: existingMessageFrames)
@@ -1461,7 +1467,6 @@ final class ChatViewController: UIViewController {
         for prompt: String,
         attachments: [ChatAttachment] = [],
         userMessageID: UUID = UUID(),
-        reasoningEffort: String? = nil,
         responseView: AssistantResponseTextView
     ) {
         guard activeResponseTask == nil else {
@@ -1485,7 +1490,7 @@ final class ChatViewController: UIViewController {
                 prompt: prompt,
                 attachments: attachments,
                 userMessageID: userMessageID,
-                reasoningEffort: reasoningEffort
+                reasoningEffort: resolvedReasoningEffortForCurrentModel()
             )
         } catch {
             continuationTask?.finish(success: false)
@@ -1838,7 +1843,7 @@ final class ChatViewController: UIViewController {
         let isSelectionChanged = selection != selectedModelSelection
 
         selectedModelSelection = selection
-        updateComposerReasoningEfforts()
+        updateComposerReasoningConfiguration()
         guard isSelectionChanged,
               currentTitle != updatedTitle else {
             return
@@ -1847,15 +1852,61 @@ final class ChatViewController: UIViewController {
         updateModuleSelectionTitle(animated: animated)
     }
 
-    private func updateComposerReasoningEfforts() {
+    private func updateComposerReasoningConfiguration() {
+        let storedValue = appSettingsStore.reasoningEffortConfigurationValue
         guard let selection = selectedModelSelection,
               let provider = providerStore.fetchProvider(id: selection.providerID),
               let model = provider.models.first(where: { $0.id == selection.modelID }) else {
-            composerView.setReasoningEfforts([])
+            composerView.setReasoningConfiguration(
+                GlassComposerBarView.ReasoningConfigurationDisplay(
+                    items: [
+                        GlassComposerBarView.ReasoningConfigurationItem(
+                            value: ReasoningEffortConfiguration.omitValue,
+                            title: String(localized: .composerReasoningEffortOmit)
+                        )
+                    ],
+                    resolvedValue: ReasoningEffortConfiguration.omitValue,
+                    positiveLevelCount: 0,
+                    activePositiveLevelCount: 0
+                )
+            )
             return
         }
 
-        composerView.setReasoningEfforts(model.reasoningEfforts)
+        let options = providerManager.reasoningEffortOptions(for: provider, model: model)
+        let resolution = options.resolution(forStoredValue: storedValue)
+        let items = [GlassComposerBarView.ReasoningConfigurationItem(
+            value: ReasoningEffortConfiguration.omitValue,
+            title: String(localized: .composerReasoningEffortOmit)
+        )] + options.levels.map {
+            GlassComposerBarView.ReasoningConfigurationItem(value: $0.value, title: $0.title)
+        }
+        composerView.setReasoningConfiguration(
+            GlassComposerBarView.ReasoningConfigurationDisplay(
+                items: items,
+                resolvedValue: resolution.resolvedValue,
+                positiveLevelCount: resolution.positiveLevelCount,
+                activePositiveLevelCount: resolution.activePositiveLevelCount
+            )
+        )
+    }
+
+    private func setReasoningEffortConfigurationValue(_ value: Int) {
+        appSettingsStore.reasoningEffortConfigurationValue = value
+        updateComposerReasoningConfiguration()
+    }
+
+    private func resolvedReasoningEffortForCurrentModel() -> String? {
+        guard let selection = selectedModelSelection,
+              let provider = providerStore.fetchProvider(id: selection.providerID),
+              let model = provider.models.first(where: { $0.id == selection.modelID }) else {
+            return nil
+        }
+
+        let options = providerManager.reasoningEffortOptions(for: provider, model: model)
+        return options
+            .resolution(forStoredValue: appSettingsStore.reasoningEffortConfigurationValue)
+            .providerValue
     }
 
     private func updateModuleSelectionTitle(animated: Bool) {

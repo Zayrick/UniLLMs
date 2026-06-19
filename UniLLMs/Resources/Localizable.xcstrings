@@ -982,19 +982,37 @@
       }
     },
     "composer.reasoning_effort.hint" : {
-      "comment" : "Accessibility hint for choosing a reasoning effort from the send button.",
+      "comment" : "Accessibility hint for configuring the default reasoning effort from the send button.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Touch and hold to choose a reasoning level for this message."
+            "value" : "Touch and hold to configure the default reasoning level."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "长按可为本条消息选择思考层级。"
+            "value" : "长按可配置默认思考层级。"
+          }
+        }
+      }
+    },
+    "composer.reasoning_effort.level_format" : {
+      "comment" : "Fallback reasoning effort menu item for a numbered reasoning level. The argument is the level number.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Level %ld"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "第 %ld 档"
           }
         }
       }
@@ -1054,19 +1072,19 @@
       }
     },
     "composer.reasoning_effort.menu_title" : {
-      "comment" : "Title for the send button reasoning effort menu.",
+      "comment" : "Title for the send button reasoning effort configuration menu.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Send with reasoning"
+            "value" : "Reasoning level"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "选择思考层级"
+            "value" : "思考层级"
           }
         }
       }
@@ -1103,6 +1121,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "关闭"
+          }
+        }
+      }
+    },
+    "composer.reasoning_effort.omit" : {
+      "comment" : "Reasoning effort menu item that omits the reasoning parameter from requests.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Do Not Send"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不发送"
           }
         }
       }

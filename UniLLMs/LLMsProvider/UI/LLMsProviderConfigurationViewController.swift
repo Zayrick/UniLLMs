@@ -55,6 +55,32 @@ final class LLMsProviderConfigurationViewController: UIHostingController<LLMsPro
 
 typealias ProviderConfigurationViewController = LLMsProviderConfigurationViewController
 
+nonisolated enum LLMsProviderConfigurationNormalizer {
+    static func normalizedProvider(_ provider: LLMsProviderRecord) -> LLMsProviderRecord {
+        var normalizedRecord = provider
+        normalizedRecord.models = provider.models.compactMap { model in
+            let trimmedID = model.id.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedID.isEmpty else {
+                return nil
+            }
+
+            return LLMsProviderModel(
+                id: trimmedID,
+                name: normalizedModelName(model.name),
+                contextLength: model.contextLength,
+                reasoningEfforts: model.reasoningEfforts,
+                isReasoningMandatory: model.isReasoningMandatory
+            )
+        }
+        return normalizedRecord
+    }
+
+    static func normalizedModelName(_ name: String?) -> String? {
+        let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmedName.isEmpty ? nil : trimmedName
+    }
+}
+
 struct LLMsProviderConfigurationForm: View {
     private let model: LLMsProviderConfigurationModel
     private let router: LLMsProviderConfigurationRouter
@@ -393,7 +419,9 @@ private final class LLMsProviderConfigurationModel {
         }
 
         provider.models[index].id = text
-        provider.models[index].name = normalizedModelName(provider.models[index].name)
+        provider.models[index].name = LLMsProviderConfigurationNormalizer.normalizedModelName(
+            provider.models[index].name
+        )
     }
 
     func appendManualModel() {
@@ -411,11 +439,11 @@ private final class LLMsProviderConfigurationModel {
     }
 
     func title(for model: LLMsProviderModel) -> String {
-        normalizedModelName(model.name) ?? model.id
+        LLMsProviderConfigurationNormalizer.normalizedModelName(model.name) ?? model.id
     }
 
     func subtitle(for model: LLMsProviderModel) -> String? {
-        normalizedModelName(model.name) == nil ? nil : model.id
+        LLMsProviderConfigurationNormalizer.normalizedModelName(model.name) == nil ? nil : model.id
     }
 
     func startInitialModelLoadIfNeeded() {
@@ -490,7 +518,7 @@ private final class LLMsProviderConfigurationModel {
     }
 
     private var providerForSaving: LLMsProviderRecord {
-        var normalizedRecord = normalizedProvider(provider)
+        var normalizedRecord = LLMsProviderConfigurationNormalizer.normalizedProvider(provider)
         guard hasManualModelListChanges else {
             return normalizedRecord
         }
@@ -499,28 +527,12 @@ private final class LLMsProviderConfigurationModel {
         return normalizedRecord
     }
 
-    private func normalizedProvider(_ provider: LLMsProviderRecord) -> LLMsProviderRecord {
-        var normalizedRecord = provider
-        normalizedRecord.models = provider.models.compactMap { model in
-            let trimmedID = model.id.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmedID.isEmpty else {
-                return nil
-            }
-
-            return LLMsProviderModel(
-                id: trimmedID,
-                name: normalizedModelName(model.name),
-                contextLength: model.contextLength,
-                reasoningEfforts: model.reasoningEfforts
-            )
-        }
-        return normalizedRecord
-    }
-
     private func providerForComparison(_ provider: LLMsProviderRecord) -> LLMsProviderRecord {
-        var normalizedRecord = normalizedProvider(provider)
+        var normalizedRecord = LLMsProviderConfigurationNormalizer.normalizedProvider(provider)
         if modelSource == .manual {
-            normalizedRecord.modelsUpdatedAt = normalizedProvider(savedProvider).modelsUpdatedAt
+            normalizedRecord.modelsUpdatedAt = LLMsProviderConfigurationNormalizer
+                .normalizedProvider(savedProvider)
+                .modelsUpdatedAt
         }
         return normalizedRecord
     }
@@ -530,11 +542,7 @@ private final class LLMsProviderConfigurationModel {
             return false
         }
 
-        return normalizedProvider(provider).models != normalizedProvider(savedProvider).models
-    }
-
-    private func normalizedModelName(_ name: String?) -> String? {
-        let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmedName.isEmpty ? nil : trimmedName
+        return LLMsProviderConfigurationNormalizer.normalizedProvider(provider).models
+            != LLMsProviderConfigurationNormalizer.normalizedProvider(savedProvider).models
     }
 }

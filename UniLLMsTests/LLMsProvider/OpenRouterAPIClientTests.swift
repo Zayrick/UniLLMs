@@ -588,6 +588,166 @@ final class OpenRouterAPIClientTests: XCTestCase {
         ])
     }
 
+    func testOpenRouterClientFetchModelsUsesReasoningSupportedEffortsMetadata() async throws {
+        let capture = RequestCapture { request in
+            let url = try XCTUnwrap(request.url)
+            let response = try XCTUnwrap(
+                HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )
+            )
+            let data = try XCTUnwrap(
+                """
+                {
+                    "data": [
+                        {
+                            "id": "openai/gpt-5.2",
+                            "name": "GPT-5.2",
+                            "reasoning": {
+                                "supported_efforts": ["high", "minimal"],
+                                "mandatory": true
+                            }
+                        }
+                    ]
+                }
+                """
+                .data(using: .utf8)
+            )
+            return (response, data)
+        }
+        let session = makeCapturingSession(capture: capture)
+        let client = OpenRouterAPIClient(session: session)
+        defer {
+            capture.invalidate()
+        }
+
+        let models = try await client.fetchModels(
+            apiBase: "https://openrouter.ai/api/v1",
+            apiKey: "sk-or-test"
+        )
+
+        XCTAssertEqual(models.first?.reasoningEfforts, ["high", "minimal"])
+        XCTAssertEqual(models.first?.isReasoningMandatory, true)
+    }
+
+    func testOpenRouterClientFetchModelsDistinguishesMissingNullAndEmptySupportedEfforts() async throws {
+        let capture = RequestCapture { request in
+            let url = try XCTUnwrap(request.url)
+            let response = try XCTUnwrap(
+                HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )
+            )
+            let data = try XCTUnwrap(
+                """
+                {
+                    "data": [
+                        {
+                            "id": "missing-efforts",
+                            "reasoning": {
+                                "default_enabled": true
+                            }
+                        },
+                        {
+                            "id": "null-efforts",
+                            "reasoning": {
+                                "supported_efforts": null
+                            }
+                        },
+                        {
+                            "id": "empty-efforts",
+                            "reasoning": {
+                                "supported_efforts": []
+                            }
+                        }
+                    ]
+                }
+                """
+                .data(using: .utf8)
+            )
+            return (response, data)
+        }
+        let session = makeCapturingSession(capture: capture)
+        let client = OpenRouterAPIClient(session: session)
+        defer {
+            capture.invalidate()
+        }
+
+        let models = try await client.fetchModels(
+            apiBase: "https://openrouter.ai/api/v1",
+            apiKey: "sk-or-test"
+        )
+
+        XCTAssertEqual(models.first { $0.id == "missing-efforts" }?.reasoningEfforts, [])
+        XCTAssertEqual(
+            models.first { $0.id == "null-efforts" }?.reasoningEfforts,
+            ["none", "minimal", "low", "medium", "high", "xhigh"]
+        )
+        XCTAssertEqual(models.first { $0.id == "empty-efforts" }?.reasoningEfforts, [])
+    }
+
+    func testOpenRouterProviderMapsReasoningEffortsToIntegerLevelsOutsideCore() {
+        let provider = OpenRouterProvider()
+        let model = LLMsProviderModel(
+            id: "openai/gpt-5.2",
+            reasoningEfforts: ["high", "none", "minimal", "low"]
+        )
+
+        let options = provider.reasoningEffortOptions(for: model)
+
+        XCTAssertEqual(options.levels.map(\.value), [0, 1, 2, 4])
+        XCTAssertEqual(options.levels.map(\.providerValue), ["none", "minimal", "low", "high"])
+        XCTAssertEqual(options.resolution(forStoredValue: 8).providerValue, "high")
+        XCTAssertEqual(options.resolution(forStoredValue: 0).providerValue, "none")
+    }
+
+    func testOpenRouterProviderKeepsKnownReasoningEffortValuesStableAcrossModels() throws {
+        let provider = OpenRouterProvider()
+        let sparseModel = LLMsProviderModel(
+            id: "sparse",
+            reasoningEfforts: ["minimal", "high"]
+        )
+        let completeModel = LLMsProviderModel(
+            id: "complete",
+            reasoningEfforts: ["none", "minimal", "low", "medium", "high", "xhigh"]
+        )
+
+        let storedHighValue = provider
+            .reasoningEffortOptions(for: sparseModel)
+            .levels
+            .first { $0.providerValue == "high" }?
+            .value
+
+        XCTAssertEqual(storedHighValue, 4)
+        XCTAssertEqual(
+            provider.reasoningEffortOptions(for: completeModel)
+                .resolution(forStoredValue: try XCTUnwrap(storedHighValue))
+                .providerValue,
+            "high"
+        )
+    }
+
+    func testOpenRouterProviderOmitsDisabledLevelForMandatoryReasoningModels() {
+        let provider = OpenRouterProvider()
+        let model = LLMsProviderModel(
+            id: "openai/gpt-5.2",
+            reasoningEfforts: ["none", "minimal", "high"],
+            isReasoningMandatory: true
+        )
+
+        let options = provider.reasoningEffortOptions(for: model)
+
+        XCTAssertEqual(options.levels.map(\.value), [1, 4])
+        XCTAssertEqual(options.levels.map(\.providerValue), ["minimal", "high"])
+        XCTAssertNil(options.resolution(forStoredValue: 0).providerValue)
+    }
+
     func testOpenRouterClientFetchModelsPropagatesServerStatusBody() async throws {
         let capture = RequestCapture { request in
             let url = try XCTUnwrap(request.url)

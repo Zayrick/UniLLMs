@@ -18,6 +18,16 @@ struct OpenRouterProvider: LLMsProviderAdapter {
         static let defaultAPIBase = "https://openrouter.ai/api/v1"
     }
 
+    private enum ReasoningEffortValue {
+        static let minimal = 1
+        static let low = 2
+        static let medium = 3
+        static let high = 4
+        static let xhigh = 5
+        static let max = 6
+        static let unknownStart = 100
+    }
+
     enum ConfigurationKey {
         static let apiKey = "apiKey"
         static let apiBase = "apiBase"
@@ -98,6 +108,13 @@ struct OpenRouterProvider: LLMsProviderAdapter {
         )
     }
 
+    func reasoningEffortOptions(for model: LLMsProviderModel) -> LLMsProviderReasoningEffortOptions {
+        Self.reasoningEffortOptions(
+            from: model.reasoningEfforts,
+            allowsDisabledReasoning: !model.isReasoningMandatory
+        )
+    }
+
     func validateChatConfiguration(_ configuration: LLMsProviderConfiguration) throws {
         guard !configuration[ConfigurationKey.apiKey].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw OpenRouterProviderError.missingAPIKey(displayName)
@@ -153,6 +170,107 @@ struct OpenRouterProvider: LLMsProviderAdapter {
             continuation.onTermination = { _ in
                 task.cancel()
             }
+        }
+    }
+
+    private static func reasoningEffortOptions(
+        from efforts: [String],
+        allowsDisabledReasoning: Bool
+    ) -> LLMsProviderReasoningEffortOptions {
+        var seen = Set<String>()
+        var positiveTitleLevel = 1
+        let levels = sortedReasoningEfforts(efforts).compactMap { effort -> LLMsProviderReasoningEffort? in
+            let trimmed = effort.trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = trimmed.lowercased()
+            guard !trimmed.isEmpty,
+                  seen.insert(key).inserted else {
+                return nil
+            }
+
+            if key == "none" {
+                guard allowsDisabledReasoning else {
+                    return nil
+                }
+
+                return LLMsProviderReasoningEffort(
+                    value: ReasoningEffortConfiguration.disabledValue,
+                    providerValue: trimmed,
+                    title: String(localized: .composerReasoningEffortNone)
+                )
+            }
+
+            let fallbackTitleLevel = positiveTitleLevel
+            let value = reasoningEffortConfigurationValue(for: key, fallbackLevel: fallbackTitleLevel)
+            defer {
+                positiveTitleLevel += 1
+            }
+            return LLMsProviderReasoningEffort(
+                value: value,
+                providerValue: trimmed,
+                title: localizedReasoningEffortTitle(trimmed, fallbackValue: fallbackTitleLevel)
+            )
+        }
+        return LLMsProviderReasoningEffortOptions(levels: levels)
+    }
+
+    private static func sortedReasoningEfforts(_ efforts: [String]) -> [String] {
+        let order = ["none", "minimal", "low", "medium", "high", "xhigh", "max"]
+        let orderByEffort = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($0.element, $0.offset) })
+        return efforts.enumerated().sorted { lhs, rhs in
+            let lhsKey = lhs.element.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let rhsKey = rhs.element.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            switch (orderByEffort[lhsKey], orderByEffort[rhsKey]) {
+            case let (lhsOrder?, rhsOrder?):
+                return lhsOrder == rhsOrder ? lhs.offset < rhs.offset : lhsOrder < rhsOrder
+            case (.some, nil):
+                return true
+            case (nil, .some):
+                return false
+            case (nil, nil):
+                return lhs.offset < rhs.offset
+            }
+        }.map(\.element)
+    }
+
+    private static func reasoningEffortConfigurationValue(for key: String, fallbackLevel: Int) -> Int {
+        switch key {
+        case "minimal":
+            return ReasoningEffortValue.minimal
+        case "low":
+            return ReasoningEffortValue.low
+        case "medium":
+            return ReasoningEffortValue.medium
+        case "high":
+            return ReasoningEffortValue.high
+        case "xhigh":
+            return ReasoningEffortValue.xhigh
+        case "max":
+            return ReasoningEffortValue.max
+        default:
+            return ReasoningEffortValue.unknownStart + fallbackLevel
+        }
+    }
+
+    private static func localizedReasoningEffortTitle(_ effort: String, fallbackValue: Int) -> String {
+        switch effort.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "minimal":
+            return String(localized: .composerReasoningEffortMinimal)
+        case "low":
+            return String(localized: .composerReasoningEffortLow)
+        case "medium":
+            return String(localized: .composerReasoningEffortMedium)
+        case "high":
+            return String(localized: .composerReasoningEffortHigh)
+        case "xhigh":
+            return String(localized: .composerReasoningEffortXhigh)
+        case "max":
+            return String(localized: .composerReasoningEffortMax)
+        case "auto":
+            return String(localized: .composerReasoningEffortAuto)
+        case "default":
+            return String(localized: .composerReasoningEffortDefault)
+        default:
+            return String(localized: .composerReasoningEffortLevelFormat(fallbackValue))
         }
     }
 }

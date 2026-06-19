@@ -30,22 +30,123 @@ nonisolated struct LLMsProviderKind: RawRepresentable, Codable, Hashable, Equata
     }
 }
 
+nonisolated enum ReasoningEffortConfiguration {
+    static let omitValue = -1
+    static let disabledValue = 0
+}
+
+nonisolated struct LLMsProviderReasoningEffort: Equatable, Hashable {
+    var value: Int
+    var providerValue: String
+    var title: String
+}
+
+nonisolated struct LLMsProviderReasoningEffortResolution: Equatable {
+    var storedValue: Int
+    var resolvedValue: Int
+    var providerValue: String?
+    var positiveLevelCount: Int
+    var activePositiveLevelCount: Int
+}
+
+nonisolated struct LLMsProviderReasoningEffortOptions: Equatable {
+    var levels: [LLMsProviderReasoningEffort]
+
+    init(levels: [LLMsProviderReasoningEffort] = []) {
+        var seenValues = Set<Int>()
+        self.levels = levels
+            .sorted { $0.value < $1.value }
+            .compactMap { level in
+                guard level.value >= ReasoningEffortConfiguration.disabledValue,
+                      !level.providerValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                      seenValues.insert(level.value).inserted else {
+                    return nil
+                }
+                return level
+            }
+    }
+
+    var positiveLevelCount: Int {
+        positiveLevels.count
+    }
+
+    func resolution(forStoredValue storedValue: Int) -> LLMsProviderReasoningEffortResolution {
+        let resolvedValue: Int
+        if storedValue <= ReasoningEffortConfiguration.omitValue {
+            resolvedValue = ReasoningEffortConfiguration.omitValue
+        } else if storedValue == ReasoningEffortConfiguration.disabledValue {
+            resolvedValue = level(forValue: ReasoningEffortConfiguration.disabledValue) == nil
+                ? ReasoningEffortConfiguration.omitValue
+                : ReasoningEffortConfiguration.disabledValue
+        } else {
+            resolvedValue = resolvedPositiveValue(for: storedValue)
+        }
+
+        let resolvedLevel = level(forValue: resolvedValue)
+        return LLMsProviderReasoningEffortResolution(
+            storedValue: storedValue,
+            resolvedValue: resolvedLevel?.value ?? ReasoningEffortConfiguration.omitValue,
+            providerValue: resolvedLevel?.providerValue,
+            positiveLevelCount: positiveLevelCount,
+            activePositiveLevelCount: activePositiveLevelCount(for: resolvedLevel)
+        )
+    }
+
+    private var positiveLevels: [LLMsProviderReasoningEffort] {
+        levels
+            .filter { $0.value > ReasoningEffortConfiguration.disabledValue }
+            .sorted { $0.value < $1.value }
+    }
+
+    private var positiveValues: [Int] {
+        positiveLevels.map(\.value)
+    }
+
+    private func resolvedPositiveValue(for storedValue: Int) -> Int {
+        let values = positiveValues
+        guard !values.isEmpty else {
+            return ReasoningEffortConfiguration.omitValue
+        }
+        if let nearestLowerOrEqual = values.last(where: { $0 <= storedValue }) {
+            return nearestLowerOrEqual
+        }
+        return values[0]
+    }
+
+    private func level(forValue value: Int) -> LLMsProviderReasoningEffort? {
+        levels.first { $0.value == value }
+    }
+
+    private func activePositiveLevelCount(for level: LLMsProviderReasoningEffort?) -> Int {
+        guard let level,
+              level.value > ReasoningEffortConfiguration.disabledValue,
+              let index = positiveLevels.firstIndex(where: { $0.value == level.value }) else {
+            return 0
+        }
+
+        return index + 1
+    }
+}
+
 nonisolated struct LLMsProviderModel: Codable, Equatable, Hashable {
     var id: String
     var name: String?
     var contextLength: Int?
     var reasoningEfforts: [String]
+    var isReasoningMandatory: Bool
 
     init(
         id: String,
         name: String? = nil,
         contextLength: Int? = nil,
-        reasoningEfforts: [String] = []
+        reasoningEfforts: [String] = [],
+        isReasoningMandatory: Bool = false
     ) {
         self.id = id
         self.name = name
         self.contextLength = contextLength
         self.reasoningEfforts = Self.normalizedReasoningEfforts(reasoningEfforts)
+        self.isReasoningMandatory = isReasoningMandatory
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -53,6 +154,7 @@ nonisolated struct LLMsProviderModel: Codable, Equatable, Hashable {
         case name
         case contextLength
         case reasoningEfforts
+        case isReasoningMandatory
     }
 
     init(from decoder: Decoder) throws {
@@ -63,6 +165,7 @@ nonisolated struct LLMsProviderModel: Codable, Equatable, Hashable {
         reasoningEfforts = Self.normalizedReasoningEfforts(
             try container.decodeIfPresent([String].self, forKey: .reasoningEfforts) ?? []
         )
+        isReasoningMandatory = try container.decodeIfPresent(Bool.self, forKey: .isReasoningMandatory) ?? false
     }
 
     private static func normalizedReasoningEfforts(_ efforts: [String]) -> [String] {
@@ -70,7 +173,7 @@ nonisolated struct LLMsProviderModel: Codable, Equatable, Hashable {
         return efforts.compactMap { effort in
             let trimmed = effort.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty,
-                  seen.insert(trimmed).inserted else {
+                  seen.insert(trimmed.lowercased()).inserted else {
                 return nil
             }
             return trimmed
@@ -280,6 +383,7 @@ protocol LLMsProviderAdapter {
     func supports(_ capability: LLMsProviderCapability, configuration: LLMsProviderConfiguration) -> Bool
     func validateChatConfiguration(_ configuration: LLMsProviderConfiguration) throws
     func fetchModels(configuration: LLMsProviderConfiguration) async throws -> [LLMsProviderModel]
+    func reasoningEffortOptions(for model: LLMsProviderModel) -> LLMsProviderReasoningEffortOptions
     func streamChat(
         request: ChatRequest,
         configuration: LLMsProviderConfiguration
@@ -303,6 +407,10 @@ extension LLMsProviderAdapter {
 
     func fetchModels(configuration: LLMsProviderConfiguration) async throws -> [LLMsProviderModel] {
         []
+    }
+
+    func reasoningEffortOptions(for model: LLMsProviderModel) -> LLMsProviderReasoningEffortOptions {
+        LLMsProviderReasoningEffortOptions()
     }
 }
 
@@ -440,6 +548,14 @@ final class LLMsProviderManager {
         }
 
         return try await adapter.fetchModels(configuration: provider.configuration)
+    }
+
+    func reasoningEffortOptions(
+        for provider: LLMsProviderRecord,
+        model: LLMsProviderModel
+    ) -> LLMsProviderReasoningEffortOptions {
+        registry.adapter(for: provider.kind)?.reasoningEffortOptions(for: model)
+            ?? LLMsProviderReasoningEffortOptions()
     }
 
     func streamChat(
