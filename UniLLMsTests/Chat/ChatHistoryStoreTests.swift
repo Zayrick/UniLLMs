@@ -138,6 +138,36 @@ final class ChatHistoryStoreTests: XCTestCase {
         XCTAssertEqual(secondEvents, [otherEvent])
     }
 
+    func testSaveEventsPersistsUserMessageSystemPromptTitle() async throws {
+        let session = ChatSession(title: "Prompted")
+        let event = ChatTimelineEvent(
+            kind: .userMessage(text: "Translate this"),
+            userMessageSystemPromptTitle: "Translator"
+        )
+
+        try await store.saveSession(session)
+        try await store.saveEvent(event, sessionID: session.id)
+
+        let events = try await store.fetchEvents(sessionID: session.id)
+        let storedEvent = try XCTUnwrap(events.first)
+        XCTAssertEqual(storedEvent.userMessageSystemPromptTitle, "Translator")
+        XCTAssertEqual(ChatTimelineEvent.messages(from: events).map(\.content), ["Translate this"])
+    }
+
+    func testMessageRevisionRestoresUserMessageSystemPromptTitle() throws {
+        let userMessage = ChatTimelineEvent(
+            kind: .userMessage(text: "Hello"),
+            userMessageSystemPromptTitle: "Translator"
+        )
+        let revisionEvent = try XCTUnwrap(
+            ChatTimelineRevisionEvent(
+                event: userMessage
+            )
+        )
+
+        XCTAssertEqual(revisionEvent.timelineEvent.userMessageSystemPromptTitle, "Translator")
+    }
+
     func testToolTimelineEventsPersistArgumentsAndResults() async throws {
         let session = ChatSession(title: "Tool Call")
         let toolCall = ChatToolCall(

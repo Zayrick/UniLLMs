@@ -1159,6 +1159,7 @@ final class ChatViewController: UIViewController {
             return
         }
 
+        let systemPromptTitle = selectedSystemPromptTitleForOutgoingMessage()
         let responseStream: AsyncThrowingStream<ChatResponseDelta, Error>
         do {
             responseStream = try chatRuntime.startTurn(
@@ -1178,7 +1179,8 @@ final class ChatViewController: UIViewController {
         let (bubbleView, responseView) = appendOutgoingMessageViews(
             messageID: messageID,
             text: text,
-            attachments: attachments
+            attachments: attachments,
+            systemPromptTitle: systemPromptTitle
         )
 
         mainPageView.layoutIfNeeded()
@@ -1266,16 +1268,22 @@ final class ChatViewController: UIViewController {
         refreshComposerSystemPromptPreview()
     }
 
+    private func selectedSystemPromptTitleForOutgoingMessage() -> String? {
+        chatRuntime.selectedSystemPrompt()?.displayTitle
+    }
+
     private func appendOutgoingMessageViews(
         messageID: UUID,
         text: String,
         attachments: [ChatAttachment],
+        systemPromptTitle: String?,
         initialBubbleAlpha: CGFloat = 1.0
     ) -> (bubbleView: SentMessageBubbleView, responseView: AssistantResponseTextView) {
         let bubbleView = SentMessageBubbleView(
             messageID: messageID,
             text: text,
-            attachments: attachments
+            attachments: attachments,
+            systemPromptTitle: systemPromptTitle
         )
         configureSentMessageActions(for: bubbleView)
         bubbleView.translatesAutoresizingMaskIntoConstraints = false
@@ -1309,6 +1317,7 @@ final class ChatViewController: UIViewController {
         let messageID = UUID()
 
         let attachmentsForTurn = pendingAttachments
+        let systemPromptTitle = selectedSystemPromptTitleForOutgoingMessage()
         pendingAttachments.removeAll()
         refreshComposerAttachmentPreview()
 
@@ -1316,6 +1325,7 @@ final class ChatViewController: UIViewController {
             messageID: messageID,
             text: transition.text,
             attachments: attachmentsForTurn,
+            systemPromptTitle: systemPromptTitle,
             initialBubbleAlpha: 0.0
         )
 
@@ -1333,7 +1343,8 @@ final class ChatViewController: UIViewController {
         animateSentMessage(
             bubbleView,
             from: transition,
-            attachments: attachmentsForTurn
+            attachments: attachmentsForTurn,
+            systemPromptTitle: systemPromptTitle
         ) { [weak self, weak responseView] in
             guard let self,
                   let responseView else {
@@ -1424,6 +1435,7 @@ final class ChatViewController: UIViewController {
         _ bubbleView: SentMessageBubbleView,
         from transition: GlassComposerBarView.SendTransition,
         attachments: [ChatAttachment] = [],
+        systemPromptTitle: String? = nil,
         completion: (() -> Void)? = nil
     ) {
         guard view.window != nil,
@@ -1436,7 +1448,11 @@ final class ChatViewController: UIViewController {
         let sourceBackgroundFrame = mainPageView.convert(transition.backgroundGlobalFrame, from: nil)
         let targetBubbleFrame = bubbleView.convert(bubbleView.bounds, to: mainPageView)
 
-        let animatedBubbleView = SentMessageBubbleView(text: transition.text, attachments: attachments)
+        let animatedBubbleView = SentMessageBubbleView(
+            text: transition.text,
+            attachments: attachments,
+            systemPromptTitle: systemPromptTitle
+        )
         animatedBubbleView.frame = sourceBackgroundFrame
         animatedBubbleView.alpha = 0.0
         animatedBubbleView.isUserInteractionEnabled = false
@@ -1978,10 +1994,20 @@ final class ChatViewController: UIViewController {
             switch event.kind {
             case let .userMessage(text):
                 finishCurrentAssistantView()
-                appendStoredUserMessage(id: event.id, text: text, attachments: [])
+                appendStoredUserMessage(
+                    id: event.id,
+                    text: text,
+                    attachments: [],
+                    systemPromptTitle: event.userMessageSystemPromptTitle
+                )
             case let .userMessageWithAttachments(text, attachments):
                 finishCurrentAssistantView()
-                appendStoredUserMessage(id: event.id, text: text, attachments: attachments)
+                appendStoredUserMessage(
+                    id: event.id,
+                    text: text,
+                    attachments: attachments,
+                    systemPromptTitle: event.userMessageSystemPromptTitle
+                )
             case let .assistantReasoning(text):
                 assistantView().appendStoredReasoning(text)
             case let .assistantRawText(rawText):
@@ -2005,8 +2031,18 @@ final class ChatViewController: UIViewController {
         scrollMessagesToBottom(animated: false)
     }
 
-    private func appendStoredUserMessage(id: UUID, text: String, attachments: [ChatAttachment]) {
-        let bubbleView = SentMessageBubbleView(messageID: id, text: text, attachments: attachments)
+    private func appendStoredUserMessage(
+        id: UUID,
+        text: String,
+        attachments: [ChatAttachment],
+        systemPromptTitle: String?
+    ) {
+        let bubbleView = SentMessageBubbleView(
+            messageID: id,
+            text: text,
+            attachments: attachments,
+            systemPromptTitle: systemPromptTitle
+        )
         configureSentMessageActions(for: bubbleView)
         bubbleView.translatesAutoresizingMaskIntoConstraints = false
         bubbleView.setContentHuggingPriority(.required, for: .vertical)

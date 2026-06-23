@@ -229,7 +229,8 @@ final class ChatRuntime {
         let userEvent = ChatTimelineEvent(
             id: userMessageID,
             timestamp: sentAt,
-            kind: userEventKind
+            kind: userEventKind,
+            userMessageSystemPromptTitle: turnSystemPrompt?.displayTitle
         )
         let requestTimeline = conversationTimeline + [userEvent]
         let requestMessages = ChatTimelineEvent.messages(from: requestTimeline)

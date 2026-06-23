@@ -92,6 +92,7 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
         XCTAssertEqual(session.selectedSystemPromptID, prompt.id)
 
         let events = try await historyStore.fetchEvents(sessionID: session.id)
+        XCTAssertEqual(events.first?.userMessageSystemPromptTitle, "Translator")
         XCTAssertEqual(
             events.map(\.kind),
             [
@@ -131,6 +132,9 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
         let sessions = try await historyStore.fetchSessions()
         let session = try XCTUnwrap(sessions.first)
         XCTAssertEqual(session.selectedSystemPromptID, prompt.id)
+
+        let events = try await historyStore.fetchEvents(sessionID: session.id)
+        XCTAssertEqual(events.first?.userMessageSystemPromptTitle, "Translator")
     }
 
     func testSelectingSystemPromptDuringActiveTurnUpdatesNextTurnSelectionOnly() async throws {

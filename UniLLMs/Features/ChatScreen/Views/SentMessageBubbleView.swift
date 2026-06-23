@@ -23,6 +23,9 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
         static let fileIconPointSize: CGFloat = 22.0
         static let filenameFontSize: CGFloat = 9.0
         static let overflowFontSize: CGFloat = 13.0
+        static let systemPromptIconPointSize: CGFloat = 10.0
+        static let systemPromptIndicatorSpacing: CGFloat = 4.0
+        static let systemPromptToContentSpacing: CGFloat = 4.0
         static let historyCutoutDiameter: CGFloat = 18.0
         static let historyIndicatorCenterInset: CGFloat = 7.0
         static let historyIndicatorSize: CGFloat = 14.0
@@ -34,10 +37,12 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
     let messageID: UUID
     private let messageText: String
     private let attachments: [ChatAttachment]
+    private let systemPromptTitle: String?
     private let backgroundView = UIView()
     private let backgroundMaskLayer = CAShapeLayer()
     private let label = UILabel()
     private let historyIndicatorView = UIImageView()
+    private var systemPromptIndicatorView: SystemPromptIndicatorView?
     private var attachmentRowStackView: UIStackView?
 
     var onPreviewAttachment: ((ChatAttachment) -> Void)?
@@ -51,7 +56,7 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
     }
 
     var currentCornerRadius: CGFloat {
-        (isSingleLineLayout && attachments.isEmpty)
+        (isSingleLineLayout && attachments.isEmpty && systemPromptTitle == nil)
             ? min(bounds.width, bounds.height) * 0.5
             : Metrics.multilineCornerRadius
     }
@@ -63,11 +68,13 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
     init(
         messageID: UUID = UUID(),
         text: String,
-        attachments: [ChatAttachment]
+        attachments: [ChatAttachment],
+        systemPromptTitle: String? = nil
     ) {
         self.messageID = messageID
         messageText = text
         self.attachments = attachments
+        self.systemPromptTitle = Self.normalizedSystemPromptTitle(systemPromptTitle)
         super.init(frame: .zero)
         configure()
     }
@@ -76,6 +83,7 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
         messageID = UUID()
         messageText = ""
         attachments = []
+        systemPromptTitle = nil
         super.init(coder: coder)
         configure()
     }
@@ -114,6 +122,7 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
         label.isHidden = messageText.isEmpty
         addSubview(label)
 
+        configureSystemPromptIndicatorIfNeeded()
         configureHistoryIndicator()
 
         NSLayoutConstraint.activate([
@@ -147,13 +156,55 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
         ])
 
         configureAttachmentsRowIfNeeded()
+        configureVerticalContentLayout()
         bringSubviewToFront(historyIndicatorView)
 
-        if let attachmentRowStackView {
+        addInteraction(UIContextMenuInteraction(delegate: self))
+    }
+
+    private static func normalizedSystemPromptTitle(_ title: String?) -> String? {
+        let trimmedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmedTitle.isEmpty ? nil : trimmedTitle
+    }
+
+    private func configureSystemPromptIndicatorIfNeeded() {
+        guard let systemPromptTitle else {
+            return
+        }
+
+        let indicatorView = SystemPromptIndicatorView(title: systemPromptTitle)
+        indicatorView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(indicatorView)
+        systemPromptIndicatorView = indicatorView
+    }
+
+    private func configureVerticalContentLayout() {
+        if let systemPromptIndicatorView {
             NSLayoutConstraint.activate([
-                attachmentRowStackView.topAnchor.constraint(
+                systemPromptIndicatorView.topAnchor.constraint(
                     equalTo: topAnchor,
                     constant: Metrics.verticalInset
+                ),
+                systemPromptIndicatorView.leadingAnchor.constraint(
+                    equalTo: leadingAnchor,
+                    constant: Metrics.horizontalInset
+                ),
+                systemPromptIndicatorView.trailingAnchor.constraint(
+                    lessThanOrEqualTo: trailingAnchor,
+                    constant: -Metrics.horizontalInset
+                )
+            ])
+        }
+
+        if let attachmentRowStackView {
+            let attachmentTopAnchor = systemPromptIndicatorView?.bottomAnchor ?? topAnchor
+            let attachmentTopConstant = systemPromptIndicatorView == nil
+                ? Metrics.verticalInset
+                : Metrics.systemPromptToContentSpacing
+            NSLayoutConstraint.activate([
+                attachmentRowStackView.topAnchor.constraint(
+                    equalTo: attachmentTopAnchor,
+                    constant: attachmentTopConstant
                 ),
                 attachmentRowStackView.leadingAnchor.constraint(
                     equalTo: leadingAnchor,
@@ -162,10 +213,22 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
                 attachmentRowStackView.trailingAnchor.constraint(
                     lessThanOrEqualTo: trailingAnchor,
                     constant: -Metrics.horizontalInset
-                ),
+                )
+            ])
+        }
+
+        if let attachmentRowStackView {
+            NSLayoutConstraint.activate([
                 label.topAnchor.constraint(
                     equalTo: attachmentRowStackView.bottomAnchor,
                     constant: messageText.isEmpty ? 0.0 : Metrics.attachmentToTextSpacing
+                )
+            ])
+        } else if let systemPromptIndicatorView {
+            NSLayoutConstraint.activate([
+                label.topAnchor.constraint(
+                    equalTo: systemPromptIndicatorView.bottomAnchor,
+                    constant: Metrics.systemPromptToContentSpacing
                 )
             ])
         } else {
@@ -176,8 +239,6 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
                 )
             ])
         }
-
-        addInteraction(UIContextMenuInteraction(delegate: self))
     }
 
     private func configureHistoryIndicator() {
@@ -495,6 +556,65 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
         dismissalPreviewForItemWithIdentifier identifier: any NSCopying
     ) -> UITargetedPreview? {
         makeTargetedPreview()
+    }
+
+    private final class SystemPromptIndicatorView: UIView {
+        private let stackView = UIStackView()
+        private let iconView = UIImageView()
+        private let titleLabel = UILabel()
+
+        init(title: String) {
+            super.init(frame: .zero)
+            configure(title: title)
+        }
+
+        required init?(coder: NSCoder) {
+            super.init(coder: coder)
+            configure(title: "")
+        }
+
+        private func configure(title: String) {
+            backgroundColor = .clear
+            isAccessibilityElement = true
+            accessibilityLabel = title
+            setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+
+            iconView.image = UIImage(
+                systemName: "text.quote",
+                withConfiguration: UIImage.SymbolConfiguration(
+                    pointSize: Metrics.systemPromptIconPointSize,
+                    weight: .semibold
+                )
+            )
+            iconView.tintColor = UIColor.white.withAlphaComponent(0.9)
+            iconView.contentMode = .scaleAspectFit
+            iconView.setContentHuggingPriority(.required, for: .horizontal)
+            iconView.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+            titleLabel.text = title
+            titleLabel.font = .preferredFont(forTextStyle: .caption2)
+            titleLabel.adjustsFontForContentSizeCategory = true
+            titleLabel.textColor = UIColor.white.withAlphaComponent(0.92)
+            titleLabel.numberOfLines = 1
+            titleLabel.lineBreakMode = .byTruncatingMiddle
+            titleLabel.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+
+            stackView.axis = .horizontal
+            stackView.alignment = .center
+            stackView.spacing = Metrics.systemPromptIndicatorSpacing
+            stackView.translatesAutoresizingMaskIntoConstraints = false
+            stackView.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+            stackView.addArrangedSubview(iconView)
+            stackView.addArrangedSubview(titleLabel)
+            addSubview(stackView)
+
+            NSLayoutConstraint.activate([
+                stackView.topAnchor.constraint(equalTo: topAnchor),
+                stackView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                stackView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                stackView.bottomAnchor.constraint(equalTo: bottomAnchor)
+            ])
+        }
     }
 
     private final class AttachmentChipView: UIView {

@@ -139,6 +139,7 @@ nonisolated struct ChatTimelineRevisionEvent: Codable, Equatable, Identifiable {
     var id: UUID
     var timestamp: Date
     var kind: Kind
+    var userMessageSystemPromptTitle: String?
 
     init?(
         event: ChatTimelineEvent
@@ -164,6 +165,7 @@ nonisolated struct ChatTimelineRevisionEvent: Codable, Equatable, Identifiable {
 
         id = event.id
         timestamp = event.timestamp
+        userMessageSystemPromptTitle = event.userMessageSystemPromptTitle
     }
 
     var timelineEvent: ChatTimelineEvent {
@@ -188,7 +190,8 @@ nonisolated struct ChatTimelineRevisionEvent: Codable, Equatable, Identifiable {
         return ChatTimelineEvent(
             id: id,
             timestamp: timestamp,
-            kind: eventKind
+            kind: eventKind,
+            userMessageSystemPromptTitle: userMessageSystemPromptTitle
         )
     }
 }
@@ -326,19 +329,27 @@ nonisolated struct ChatTimelineEvent: Codable, Equatable, Identifiable {
     var id: UUID
     var timestamp: Date
     var kind: Kind
+    var userMessageSystemPromptTitle: String?
 
     init(
         id: UUID = UUID(),
         timestamp: Date = Date(),
-        kind: Kind
+        kind: Kind,
+        userMessageSystemPromptTitle: String? = nil
     ) {
         self.id = id
         self.timestamp = timestamp
         self.kind = kind
+        self.userMessageSystemPromptTitle = Self.normalizedSystemPromptTitle(userMessageSystemPromptTitle)
     }
 }
 
 nonisolated extension ChatTimelineEvent {
+    private static func normalizedSystemPromptTitle(_ title: String?) -> String? {
+        let trimmedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmedTitle.isEmpty ? nil : trimmedTitle
+    }
+
     var attachments: [ChatAttachment] {
         switch kind {
         case let .userMessageWithAttachments(_, attachments):
