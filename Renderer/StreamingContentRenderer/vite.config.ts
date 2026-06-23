@@ -1,6 +1,7 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import react, { reactCompilerPreset } from '@vitejs/plugin-react'
 import babel from '@rolldown/plugin-babel'
+import tailwindcss from '@tailwindcss/vite'
 import { fileURLToPath } from 'node:url'
 
 function webViewFileScriptPlugin() {
@@ -17,12 +18,33 @@ function webViewFileScriptPlugin() {
   }
 }
 
+function classicScriptImportMetaUrlPlugin(): Plugin {
+  const currentScriptURLExpression = '((document.currentScript&&document.currentScript.src)||location.href)'
+
+  return {
+    name: 'classic-script-import-meta-url',
+    apply: 'build',
+    enforce: 'post',
+    generateBundle(_options, bundle) {
+      Object.values(bundle).forEach((asset) => {
+        if (asset.type !== 'chunk') {
+          return
+        }
+
+        asset.code = asset.code.replaceAll('import.meta.url', currentScriptURLExpression)
+      })
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   base: './',
   plugins: [
+    tailwindcss(),
     react(),
     babel({ presets: [reactCompilerPreset()] }),
+    classicScriptImportMetaUrlPlugin(),
     webViewFileScriptPlugin(),
   ],
   build: {
@@ -30,5 +52,10 @@ export default defineConfig({
     emptyOutDir: true,
     modulePreload: false,
     assetsDir: 'StreamingContentRendererAssets.bundle',
+    rolldownOptions: {
+      output: {
+        codeSplitting: false,
+      },
+    },
   },
 })

@@ -10,15 +10,19 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "dompurify": "^3.4.11",
-    "highlight.js": "^11.11.1",
+    "@radix-ui/react-collapsible": "^1.1.14",
+    "@streamdown/cjk": "^1.0.3",
+    "@streamdown/code": "^1.1.1",
+    "@streamdown/math": "^1.0.2",
+    "@streamdown/mermaid": "^1.0.2",
+    "@tailwindcss/vite": "^4.3.1",
     "i18next": "^26.3.1",
-    "katex": "^0.17.0",
     "lucide-react": "^1.21.0",
-    "marked": "^18.0.5",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
-    "react-i18next": "^17.0.8"
+    "react-i18next": "^17.0.8",
+    "streamdown": "^2.5.0",
+    "tailwindcss": "^4.3.1"
   },
   "devDependencies": {
     "@babel/core": "^7.29.0",

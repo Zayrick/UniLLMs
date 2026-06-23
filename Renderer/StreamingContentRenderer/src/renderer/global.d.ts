@@ -60,5 +60,3 @@ declare global {
     detail?: string
   }
 }
-
-declare module 'katex/contrib/mhchem'

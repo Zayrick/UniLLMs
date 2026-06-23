@@ -1,3 +1,8 @@
+import * as Collapsible from '@radix-ui/react-collapsible'
+import { cjk } from '@streamdown/cjk'
+import { code } from '@streamdown/code'
+import { createMathPlugin } from '@streamdown/math'
+import { mermaid } from '@streamdown/mermaid'
 import { BrainCircuit, ChevronDown, ToolCase } from 'lucide-react'
 import {
   useCallback,
@@ -10,13 +15,11 @@ import {
   type ReactNode,
 } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Streamdown, type PluginConfig, type StreamdownTranslations } from 'streamdown'
 import { attachStreamingRendererController, detachStreamingRendererController } from './renderer/bridge'
 import {
   applyRendererConfiguration,
-  enhanceRenderedMarkdown,
-  renderMarkdownHTML,
   type StreamingRendererController,
-  type Translate,
 } from './renderer/streamingRenderer'
 import './styles/renderer.css'
 
@@ -36,11 +39,22 @@ interface ThoughtSegment {
 
 interface RawTextSegment {
   id: string
+  isActive: boolean
   item: AssistantTimelineRawTextItem
   kind: 'rawText'
 }
 
 type TimelineSegment = ThoughtSegment | RawTextSegment
+
+const streamdownPlugins: PluginConfig = {
+  cjk,
+  code,
+  math: createMathPlugin({
+    errorColor: 'var(--streaming-secondary-color)',
+    singleDollarTextMath: true,
+  }),
+  mermaid,
+}
 
 const emptyTimelineState: TimelineState = {
   isStreaming: false,
@@ -52,11 +66,6 @@ function App() {
   const requestHeightUpdateRef = useRef<() => void>(() => {})
   const [timelineState, setTimelineState] = useState(emptyTimelineState)
   const { i18n, t } = useTranslation()
-
-  const translate = useCallback<Translate>(
-    (key, defaultValue) => t(key, { defaultValue }),
-    [t],
-  )
 
   const requestHeightUpdate = useCallback(() => {
     requestHeightUpdateRef.current()
@@ -140,7 +149,6 @@ function App() {
         items={timelineState.items}
         requestHeightUpdate={requestHeightUpdate}
         t={t}
-        translate={translate}
       />
     </div>
   )
@@ -151,15 +159,14 @@ function AssistantTimeline({
   items,
   requestHeightUpdate,
   t,
-  translate,
 }: {
   isStreaming: boolean
   items: AssistantTimelineItem[]
   requestHeightUpdate: () => void
   t: ReturnType<typeof useTranslation>['t']
-  translate: Translate
 }) {
   const segments = useMemo(() => groupTimelineItems(items, isStreaming), [items, isStreaming])
+  const translations = useMemo(() => streamdownTranslations(t), [t])
 
   if (!segments.length) {
     return null
@@ -173,9 +180,10 @@ function AssistantTimeline({
             <MarkdownContent
               className="assistant-raw-text"
               content={segment.item.text}
+              isStreaming={segment.isActive}
               key={segment.id}
               requestHeightUpdate={requestHeightUpdate}
-              translate={translate}
+              translations={translations}
             />
           )
         }
@@ -186,7 +194,7 @@ function AssistantTimeline({
             requestHeightUpdate={requestHeightUpdate}
             segment={segment}
             t={t}
-            translate={translate}
+            translations={translations}
           />
         )
       })}
@@ -198,12 +206,12 @@ function ThoughtSection({
   requestHeightUpdate,
   segment,
   t,
-  translate,
+  translations,
 }: {
   requestHeightUpdate: () => void
   segment: ThoughtSegment
   t: ReturnType<typeof useTranslation>['t']
-  translate: Translate
+  translations: Partial<StreamdownTranslations>
 }) {
   const [isManuallyExpanded, setIsManuallyExpanded] = useState(false)
   const summary = thoughtSummary(segment.items, t)
@@ -211,9 +219,9 @@ function ThoughtSection({
     ? t('timeline.processing', { defaultValue: 'Processing' })
     : summary
   const isExpanded = segment.isActive || isManuallyExpanded
-  const toggleExpansion = () => {
+  const setExpanded = (expanded: boolean) => {
     if (!segment.isActive) {
-      setIsManuallyExpanded((expanded) => !expanded)
+      setIsManuallyExpanded(expanded)
     }
   }
 
@@ -226,45 +234,49 @@ function ThoughtSection({
   }
 
   return (
-    <section className={segment.isActive ? 'thought-section is-active' : 'thought-section'}>
-      <button
-        aria-expanded={isExpanded}
-        className="thought-toggle"
-        onClick={toggleExpansion}
-        type="button"
-      >
-        <ChevronDown aria-hidden="true" className="collapse-chevron" />
-        <span className={segment.isActive ? 'thought-title is-shimmering' : 'thought-title'}>
-          {title}
-        </span>
-      </button>
-      {isExpanded ? (
+    <Collapsible.Root
+      className={segment.isActive ? 'thought-section is-active' : 'thought-section'}
+      onOpenChange={setExpanded}
+      open={isExpanded}
+    >
+      <Collapsible.Trigger asChild disabled={segment.isActive}>
+        <button className="thought-toggle" type="button">
+          <ChevronDown aria-hidden="true" className="collapse-chevron" />
+          <span className={segment.isActive ? 'thought-title is-shimmering' : 'thought-title'}>
+            {title}
+          </span>
+        </button>
+      </Collapsible.Trigger>
+      <Collapsible.Content className="collapsible-content">
         <div className="thought-body">
           {segment.items.map((item) => (
             <TimelineRow
               item={item}
+              isStreaming={segment.isActive}
               key={item.id}
               requestHeightUpdate={requestHeightUpdate}
               t={t}
-              translate={translate}
+              translations={translations}
             />
           ))}
         </div>
-      ) : null}
-    </section>
+      </Collapsible.Content>
+    </Collapsible.Root>
   )
 }
 
 function TimelineRow({
+  isStreaming,
   item,
   requestHeightUpdate,
   t,
-  translate,
+  translations,
 }: {
+  isStreaming: boolean
   item: ThoughtTimelineItem
   requestHeightUpdate: () => void
   t: ReturnType<typeof useTranslation>['t']
-  translate: Translate
+  translations: Partial<StreamdownTranslations>
 }) {
   const rowRef = useTimelineIconAlignment(requestHeightUpdate, item)
 
@@ -282,8 +294,9 @@ function TimelineRow({
       <MarkdownContent
         className="timeline-reasoning timeline-align-target"
         content={item.text}
+        isStreaming={isStreaming}
         requestHeightUpdate={requestHeightUpdate}
-        translate={translate}
+        translations={translations}
       />
     </div>
   )
@@ -322,26 +335,27 @@ function ToolTimelineRow({
       <TimelineIcon>
         <ToolCase aria-hidden="true" />
       </TimelineIcon>
-      <div className="tool-content">
+      <Collapsible.Root
+        className="tool-content"
+        onOpenChange={setIsExpanded}
+        open={isDetailExpanded}
+      >
         {hasDetail ? (
-          <button
-            aria-expanded={isDetailExpanded}
-            className="tool-toggle has-detail"
-            onClick={() => setIsExpanded((expanded) => !expanded)}
-            type="button"
-          >
-            {title}
-            <ChevronDown aria-hidden="true" className="collapse-chevron" />
-          </button>
+          <Collapsible.Trigger asChild>
+            <button className="tool-toggle has-detail" type="button">
+              {title}
+              <ChevronDown aria-hidden="true" className="collapse-chevron" />
+            </button>
+          </Collapsible.Trigger>
         ) : (
           <div className="tool-toggle">
             {title}
           </div>
         )}
-        {isDetailExpanded ? (
+        <Collapsible.Content className="collapsible-content">
           <pre className="tool-detail">{detail}</pre>
-        ) : null}
-      </div>
+        </Collapsible.Content>
+      </Collapsible.Root>
     </div>
   )
 }
@@ -418,18 +432,7 @@ function useTimelineIconAlignment(
 }
 
 function timelineAlignmentTarget(rowElement: HTMLElement) {
-  const targetElement = rowElement.querySelector<HTMLElement>('.timeline-align-target')
-  if (!targetElement) {
-    return null
-  }
-
-  if (!targetElement.classList.contains('markdown-content')) {
-    return targetElement
-  }
-
-  return targetElement.querySelector<HTMLElement>(
-    'p, ul, ol, blockquote, pre, div.code-block, div.math-block, table, h1, h2, h3, h4, h5, h6',
-  ) ?? targetElement
+  return rowElement.querySelector<HTMLElement>('.timeline-align-target')
 }
 
 function resolvedLineHeight(element: HTMLElement) {
@@ -446,16 +449,17 @@ function resolvedLineHeight(element: HTMLElement) {
 function MarkdownContent({
   className,
   content,
+  isStreaming,
   requestHeightUpdate,
-  translate,
+  translations,
 }: {
   className?: string
   content: string
+  isStreaming: boolean
   requestHeightUpdate: () => void
-  translate: Translate
+  translations: Partial<StreamdownTranslations>
 }) {
   const contentRef = useRef<HTMLDivElement>(null)
-  const html = useMemo(() => renderMarkdownHTML(content, translate), [content, translate])
 
   useLayoutEffect(() => {
     const contentElement = contentRef.current
@@ -463,16 +467,35 @@ function MarkdownContent({
       return
     }
 
-    enhanceRenderedMarkdown(contentElement, requestHeightUpdate)
     requestHeightUpdate()
-  }, [html, requestHeightUpdate])
+    const resizeObserver = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(requestHeightUpdate)
+    resizeObserver?.observe(contentElement)
+    document.fonts?.ready.then(requestHeightUpdate).catch(() => {})
+
+    return () => {
+      resizeObserver?.disconnect()
+    }
+  }, [content, requestHeightUpdate])
 
   return (
     <div
-      className={className ? `markdown-content ${className}` : 'markdown-content'}
-      dangerouslySetInnerHTML={{ __html: html }}
+      className={className ? `streamdown-content ${className}` : 'streamdown-content'}
       ref={contentRef}
-    />
+    >
+      <Streamdown
+        controls
+        dir="auto"
+        isAnimating={isStreaming}
+        mode="streaming"
+        normalizeHtmlIndentation
+        plugins={streamdownPlugins}
+        translations={translations}
+      >
+        {content}
+      </Streamdown>
+    </div>
   )
 }
 
@@ -485,6 +508,7 @@ function groupTimelineItems(items: AssistantTimelineItem[], isStreaming: boolean
       currentThoughtSegment = null
       segments.push({
         id: item.id,
+        isActive: false,
         item,
         kind: 'rawText',
       })
@@ -504,16 +528,10 @@ function groupTimelineItems(items: AssistantTimelineItem[], isStreaming: boolean
   })
 
   const lastSegment = segments[segments.length - 1]
-  return segments.map((segment) => {
-    if (segment.kind !== 'thought') {
-      return segment
-    }
-
-    return {
-      ...segment,
-      isActive: isStreaming && segment === lastSegment,
-    }
-  })
+  return segments.map((segment) => ({
+    ...segment,
+    isActive: isStreaming && segment === lastSegment,
+  }))
 }
 
 function thoughtSummary(
@@ -572,6 +590,42 @@ function toolTitle(
   case 'completed':
   default:
     return item.displayName
+  }
+}
+
+function streamdownTranslations(
+  t: ReturnType<typeof useTranslation>['t'],
+): Partial<StreamdownTranslations> {
+  return {
+    close: t('streamdown.close', { defaultValue: 'Close' }),
+    copied: t('streamdown.copied', { defaultValue: 'Copied' }),
+    copyCode: t('streamdown.copyCode', { defaultValue: 'Copy Code' }),
+    copyLink: t('streamdown.copyLink', { defaultValue: 'Copy link' }),
+    copyTable: t('streamdown.copyTable', { defaultValue: 'Copy table' }),
+    copyTableAsCsv: t('streamdown.copyTableAsCsv', { defaultValue: 'Copy table as CSV' }),
+    copyTableAsMarkdown: t('streamdown.copyTableAsMarkdown', { defaultValue: 'Copy table as Markdown' }),
+    copyTableAsTsv: t('streamdown.copyTableAsTsv', { defaultValue: 'Copy table as TSV' }),
+    downloadDiagram: t('streamdown.downloadDiagram', { defaultValue: 'Download diagram' }),
+    downloadDiagramAsMmd: t('streamdown.downloadDiagramAsMmd', { defaultValue: 'Download diagram as MMD' }),
+    downloadDiagramAsPng: t('streamdown.downloadDiagramAsPng', { defaultValue: 'Download diagram as PNG' }),
+    downloadDiagramAsSvg: t('streamdown.downloadDiagramAsSvg', { defaultValue: 'Download diagram as SVG' }),
+    downloadFile: t('streamdown.downloadFile', { defaultValue: 'Download file' }),
+    downloadImage: t('streamdown.downloadImage', { defaultValue: 'Download image' }),
+    downloadTable: t('streamdown.downloadTable', { defaultValue: 'Download table' }),
+    downloadTableAsCsv: t('streamdown.downloadTableAsCsv', { defaultValue: 'Download table as CSV' }),
+    downloadTableAsMarkdown: t('streamdown.downloadTableAsMarkdown', { defaultValue: 'Download table as Markdown' }),
+    exitFullscreen: t('streamdown.exitFullscreen', { defaultValue: 'Exit fullscreen' }),
+    externalLinkWarning: t('streamdown.externalLinkWarning', { defaultValue: "You're about to visit an external website." }),
+    imageNotAvailable: t('streamdown.imageNotAvailable', { defaultValue: 'Image not available' }),
+    mermaidFormatMmd: t('streamdown.mermaidFormatMmd', { defaultValue: 'MMD' }),
+    mermaidFormatPng: t('streamdown.mermaidFormatPng', { defaultValue: 'PNG' }),
+    mermaidFormatSvg: t('streamdown.mermaidFormatSvg', { defaultValue: 'SVG' }),
+    openExternalLink: t('streamdown.openExternalLink', { defaultValue: 'Open external link?' }),
+    openLink: t('streamdown.openLink', { defaultValue: 'Open link' }),
+    tableFormatCsv: t('streamdown.tableFormatCsv', { defaultValue: 'CSV' }),
+    tableFormatMarkdown: t('streamdown.tableFormatMarkdown', { defaultValue: 'Markdown' }),
+    tableFormatTsv: t('streamdown.tableFormatTsv', { defaultValue: 'TSV' }),
+    viewFullscreen: t('streamdown.viewFullscreen', { defaultValue: 'View fullscreen' }),
   }
 }
 

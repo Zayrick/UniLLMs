@@ -1,6 +1,34 @@
 {
-  "codeBlock": {
-    "defaultLanguage": "文本"
+  "streamdown": {
+    "close": "关闭",
+    "copied": "已复制",
+    "copyCode": "复制代码",
+    "copyLink": "复制链接",
+    "copyTable": "复制表格",
+    "copyTableAsCsv": "复制表格为 CSV",
+    "copyTableAsMarkdown": "复制表格为 Markdown",
+    "copyTableAsTsv": "复制表格为 TSV",
+    "downloadDiagram": "下载图表",
+    "downloadDiagramAsMmd": "下载图表为 MMD",
+    "downloadDiagramAsPng": "下载图表为 PNG",
+    "downloadDiagramAsSvg": "下载图表为 SVG",
+    "downloadFile": "下载文件",
+    "downloadImage": "下载图片",
+    "downloadTable": "下载表格",
+    "downloadTableAsCsv": "下载表格为 CSV",
+    "downloadTableAsMarkdown": "下载表格为 Markdown",
+    "exitFullscreen": "退出全屏",
+    "externalLinkWarning": "你即将访问外部网站。",
+    "imageNotAvailable": "图片不可用",
+    "mermaidFormatMmd": "MMD",
+    "mermaidFormatPng": "PNG",
+    "mermaidFormatSvg": "SVG",
+    "openExternalLink": "打开外部链接？",
+    "openLink": "打开链接",
+    "tableFormatCsv": "CSV",
+    "tableFormatMarkdown": "Markdown",
+    "tableFormatTsv": "TSV",
+    "viewFullscreen": "查看全屏"
   },
   "timeline": {
     "processing": "处理中",
