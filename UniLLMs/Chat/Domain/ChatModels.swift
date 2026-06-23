@@ -238,20 +238,17 @@ nonisolated struct ChatSession: Codable, Equatable, Identifiable {
     var title: String
     var createdAt: Date
     var updatedAt: Date
-    var selectedSystemPromptID: UUID?
 
     init(
         id: UUID = UUID(),
         title: String = "",
         createdAt: Date = Date(),
-        updatedAt: Date = Date(),
-        selectedSystemPromptID: UUID? = nil
+        updatedAt: Date = Date()
     ) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
         self.updatedAt = updatedAt
-        self.selectedSystemPromptID = selectedSystemPromptID
     }
 }
 

@@ -113,6 +113,7 @@ final class AppDependencyContainer {
             providerStore: providerStore,
             providerManager: providerManager,
             systemPromptManager: systemPromptManager,
+            appSettingsStore: appSettingsStore,
             contextBuilder: contextBuilder,
             turnRunner: turnRunner,
             historyStore: chatHistoryStore

@@ -21,6 +21,7 @@ protocol AppSettingsStore: AnyObject {
     var colorMode: AppColorMode { get set }
     var keepsScreenAwakeDuringAIOutput: Bool { get set }
     var reasoningEffortConfigurationValue: Int { get set }
+    var selectedSystemPromptID: UUID? { get set }
 }
 
 final class UserDefaultsAppSettingsStore: AppSettingsStore {
@@ -31,6 +32,7 @@ final class UserDefaultsAppSettingsStore: AppSettingsStore {
         static let colorMode = "appSettings.colorMode"
         static let keepsScreenAwakeDuringAIOutput = "appSettings.keepsScreenAwakeDuringAIOutput"
         static let reasoningEffortConfigurationValue = "appSettings.reasoningEffortConfigurationValue"
+        static let selectedSystemPromptID = "appSettings.selectedSystemPromptID"
     }
 
     private let defaults: UserDefaults
@@ -81,6 +83,23 @@ final class UserDefaultsAppSettingsStore: AppSettingsStore {
         }
         set {
             defaults.set(newValue, forKey: Key.reasoningEffortConfigurationValue)
+        }
+    }
+
+    var selectedSystemPromptID: UUID? {
+        get {
+            guard let rawValue = defaults.string(forKey: Key.selectedSystemPromptID) else {
+                return nil
+            }
+
+            return UUID(uuidString: rawValue)
+        }
+        set {
+            if let newValue {
+                defaults.set(newValue.uuidString, forKey: Key.selectedSystemPromptID)
+            } else {
+                defaults.removeObject(forKey: Key.selectedSystemPromptID)
+            }
         }
     }
 }

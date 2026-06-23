@@ -65,50 +65,6 @@ final class ChatHistoryStoreTests: XCTestCase {
         XCTAssertEqual(sessions.map(\.id), [newerSession.id, olderSession.id])
     }
 
-    func testSaveSessionPersistsSelectedSystemPromptID() async throws {
-        let promptID = UUID()
-        let session = ChatSession(
-            title: "Prompted",
-            selectedSystemPromptID: promptID
-        )
-
-        try await store.saveSession(session)
-
-        let reloadedStore = UserDefaultsChatStore(
-            defaults: defaults,
-            storageKey: "chatHistory",
-            attachmentStore: attachmentStore
-        )
-        let reloadedSessions = try await reloadedStore.fetchSessions()
-        let reloadedSession = try XCTUnwrap(reloadedSessions.first { $0.id == session.id })
-        XCTAssertEqual(reloadedSession.selectedSystemPromptID, promptID)
-    }
-
-    func testFetchSessionsDecodesLegacySessionsWithoutSelectedSystemPromptID() async throws {
-        let sessionID = UUID()
-        let legacyPayload = """
-        {
-          "sessions": [
-            {
-              "id": "\(sessionID.uuidString)",
-              "title": "Legacy",
-              "createdAt": "2026-05-20T12:00:00Z",
-              "updatedAt": "2026-05-21T12:00:00Z"
-            }
-          ],
-          "eventsBySessionID": {}
-        }
-        """
-        defaults.set(try XCTUnwrap(legacyPayload.data(using: .utf8)), forKey: "chatHistory")
-
-        let sessions = try await store.fetchSessions()
-
-        let session = try XCTUnwrap(sessions.first)
-        XCTAssertEqual(session.id, sessionID)
-        XCTAssertEqual(session.title, "Legacy")
-        XCTAssertNil(session.selectedSystemPromptID)
-    }
-
     func testFetchEventsKeepsSessionsIsolatedAndChronological() async throws {
         let firstSession = ChatSession(title: "First")
         let secondSession = ChatSession(title: "Second")

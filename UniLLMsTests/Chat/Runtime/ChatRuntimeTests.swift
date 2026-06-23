@@ -69,6 +69,25 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
         XCTAssertTrue(sessions.isEmpty)
     }
 
+    func testSelectedSystemPromptPersistsGloballyAcrossRuntimeInstances() async throws {
+        let prompt = SystemPromptRecord(title: "Translator", content: "Always answer in Chinese.")
+        let promptStore = InMemorySystemPromptStore(prompts: [prompt])
+        let (runtime, _) = makeRuntime(
+            adapter: EmptyRuntimeProvider(),
+            systemPromptStore: promptStore
+        )
+
+        runtime.selectSystemPrompt(id: prompt.id)
+
+        let (reloadedRuntime, _) = makeRuntime(
+            adapter: CapturingRuntimeProvider(),
+            systemPromptStore: promptStore
+        )
+
+        XCTAssertEqual(reloadedRuntime.selectedSystemPromptID, prompt.id)
+        XCTAssertEqual(reloadedRuntime.selectedSystemPrompt(), prompt)
+    }
+
     func testFailedFirstTurnWithSystemPromptPersistsUserMessageAndError() async throws {
         let prompt = SystemPromptRecord(title: "Translator", content: "Always answer in Chinese.")
         let promptStore = InMemorySystemPromptStore(prompts: [prompt])
@@ -89,7 +108,6 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
 
         let sessions = try await historyStore.fetchSessions()
         let session = try XCTUnwrap(sessions.first)
-        XCTAssertEqual(session.selectedSystemPromptID, prompt.id)
 
         let events = try await historyStore.fetchEvents(sessionID: session.id)
         XCTAssertEqual(events.first?.userMessageSystemPromptTitle, "Translator")
@@ -131,7 +149,6 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
 
         let sessions = try await historyStore.fetchSessions()
         let session = try XCTUnwrap(sessions.first)
-        XCTAssertEqual(session.selectedSystemPromptID, prompt.id)
 
         let events = try await historyStore.fetchEvents(sessionID: session.id)
         XCTAssertEqual(events.first?.userMessageSystemPromptTitle, "Translator")
@@ -161,8 +178,7 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
         let request = try XCTUnwrap(adapter.requests.first)
         XCTAssertEqual(request.context.systemPrompt, firstPrompt)
         let sessions = try await historyStore.fetchSessions()
-        let session = try XCTUnwrap(sessions.first)
-        XCTAssertEqual(session.selectedSystemPromptID, secondPrompt.id)
+        XCTAssertNotNil(sessions.first)
     }
 
     func testEditingPriorUserMessageResendsFromThatPointOnly() async throws {
@@ -427,6 +443,7 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
             providerStore: store,
             providerManager: providerManager,
             systemPromptManager: SystemPromptManager(store: systemPromptStore),
+            appSettingsStore: UserDefaultsAppSettingsStore(defaults: defaults),
             contextBuilder: contextBuilder,
             turnRunner: turnRunner,
             historyStore: historyStore
