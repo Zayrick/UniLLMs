@@ -531,6 +531,42 @@
         }
       }
     },
+    "chat.edited" : {
+      "comment" : "Small underlined label on an edited user message bubble.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edited"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已编辑"
+          }
+        }
+      }
+    },
+    "chat.edited_history_hint" : {
+      "comment" : "Accessibility hint for the edited message label that opens revision history.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opens edit history"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开编辑历史记录"
+          }
+        }
+      }
+    },
     "chat.generating_response" : {
       "comment" : "Shown while an assistant response is streaming.",
       "extractionState" : "manual",

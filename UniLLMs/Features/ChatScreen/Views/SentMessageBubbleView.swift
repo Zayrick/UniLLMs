@@ -26,10 +26,7 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
         static let systemPromptIconPointSize: CGFloat = 10.0
         static let systemPromptIndicatorSpacing: CGFloat = 4.0
         static let systemPromptToContentSpacing: CGFloat = 4.0
-        static let historyCutoutDiameter: CGFloat = 18.0
-        static let historyIndicatorCenterInset: CGFloat = 7.0
-        static let historyIndicatorSize: CGFloat = 14.0
-        static let historyIconPointSize: CGFloat = 12.0
+        static let historyToContentSpacing: CGFloat = 2.0
     }
 
     private static let contextMenuIdentifier = "SentMessageBubbleView.message" as NSString
@@ -39,11 +36,12 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
     private let attachments: [ChatAttachment]
     private let systemPromptTitle: String?
     private let backgroundView = UIView()
-    private let backgroundMaskLayer = CAShapeLayer()
     private let label = UILabel()
-    private let historyIndicatorView = UIImageView()
+    private let historyIndicatorView = HistoryIndicatorView()
     private var systemPromptIndicatorView: SystemPromptIndicatorView?
     private var attachmentRowStackView: UIStackView?
+    private var labelBottomConstraint: NSLayoutConstraint!
+    private var labelBottomToHistoryConstraint: NSLayoutConstraint!
 
     var onPreviewAttachment: ((ChatAttachment) -> Void)?
     var onResend: ((String, [ChatAttachment]) -> Void)?
@@ -56,7 +54,7 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
     }
 
     var currentCornerRadius: CGFloat {
-        (isSingleLineLayout && attachments.isEmpty && systemPromptTitle == nil)
+        (isSingleLineLayout && attachments.isEmpty && systemPromptTitle == nil && editHistoryCount == 0)
             ? min(bounds.width, bounds.height) * 0.5
             : Metrics.multilineCornerRadius
     }
@@ -94,7 +92,6 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
         label.preferredMaxLayoutWidth = label.bounds.width
         let cornerRadius = currentCornerRadius
         updateCornerConfiguration(cornerRadius: cornerRadius)
-        updateHistoryCutoutMask(cornerRadius: cornerRadius)
     }
 
     private func configure() {
@@ -125,6 +122,15 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
         configureSystemPromptIndicatorIfNeeded()
         configureHistoryIndicator()
 
+        labelBottomConstraint = label.bottomAnchor.constraint(
+            equalTo: bottomAnchor,
+            constant: -Metrics.verticalInset
+        )
+        labelBottomToHistoryConstraint = label.bottomAnchor.constraint(
+            equalTo: historyIndicatorView.topAnchor,
+            constant: -Metrics.historyToContentSpacing
+        )
+
         NSLayoutConstraint.activate([
             backgroundView.topAnchor.constraint(equalTo: topAnchor),
             backgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -139,19 +145,18 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
                 equalTo: trailingAnchor,
                 constant: -Metrics.horizontalInset
             ),
-            label.bottomAnchor.constraint(
+            labelBottomConstraint,
+            historyIndicatorView.leadingAnchor.constraint(
+                greaterThanOrEqualTo: leadingAnchor,
+                constant: Metrics.horizontalInset
+            ),
+            historyIndicatorView.trailingAnchor.constraint(
+                equalTo: trailingAnchor,
+                constant: -Metrics.horizontalInset
+            ),
+            historyIndicatorView.bottomAnchor.constraint(
                 equalTo: bottomAnchor,
                 constant: -Metrics.verticalInset
-            ),
-            historyIndicatorView.widthAnchor.constraint(equalToConstant: Metrics.historyIndicatorSize),
-            historyIndicatorView.heightAnchor.constraint(equalToConstant: Metrics.historyIndicatorSize),
-            historyIndicatorView.centerXAnchor.constraint(
-                equalTo: trailingAnchor,
-                constant: -Metrics.historyIndicatorCenterInset
-            ),
-            historyIndicatorView.centerYAnchor.constraint(
-                equalTo: bottomAnchor,
-                constant: -Metrics.historyIndicatorCenterInset
             )
         ])
 
@@ -242,20 +247,19 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
     }
 
     private func configureHistoryIndicator() {
-        backgroundMaskLayer.fillColor = UIColor.black.cgColor
-        backgroundMaskLayer.fillRule = .evenOdd
-
-        historyIndicatorView.image = UIImage(systemName: "clock")
-        historyIndicatorView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
-            pointSize: Metrics.historyIconPointSize,
-            weight: .semibold
-        )
-        historyIndicatorView.tintColor = .systemBlue
-        historyIndicatorView.contentMode = .scaleAspectFit
         historyIndicatorView.isHidden = true
-        historyIndicatorView.isAccessibilityElement = false
+        historyIndicatorView.accessibilityHint = String(localized: .chatEditedHistoryHint)
+        historyIndicatorView.addTarget(
+            self,
+            action: #selector(historyIndicatorPressed),
+            for: .touchUpInside
+        )
         historyIndicatorView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(historyIndicatorView)
+    }
+
+    @objc private func historyIndicatorPressed() {
+        onShowHistory?()
     }
 
     private func configureAttachmentsRowIfNeeded() {
@@ -412,43 +416,9 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
     private func updateHistoryIndicatorVisibility() {
         let showsHistoryIndicator = editHistoryCount > 0
         historyIndicatorView.isHidden = !showsHistoryIndicator
-        backgroundView.layer.mask = showsHistoryIndicator ? backgroundMaskLayer : nil
+        labelBottomConstraint.isActive = !showsHistoryIndicator
+        labelBottomToHistoryConstraint.isActive = showsHistoryIndicator
         setNeedsLayout()
-    }
-
-    private func updateHistoryCutoutMask(cornerRadius: CGFloat) {
-        guard editHistoryCount > 0 else {
-            backgroundMaskLayer.path = nil
-            return
-        }
-
-        let bounds = backgroundView.bounds
-        guard !bounds.isEmpty else {
-            backgroundMaskLayer.path = nil
-            return
-        }
-
-        let path = UIBezierPath(roundedRect: bounds, cornerRadius: cornerRadius)
-        path.append(UIBezierPath(ovalIn: historyCutoutRect(in: bounds)))
-        path.usesEvenOddFillRule = true
-
-        backgroundMaskLayer.frame = bounds
-        backgroundMaskLayer.path = path.cgPath
-    }
-
-    private func historyCutoutRect(in bounds: CGRect) -> CGRect {
-        let center = CGPoint(
-            x: bounds.maxX - Metrics.historyIndicatorCenterInset,
-            y: bounds.maxY - Metrics.historyIndicatorCenterInset
-        )
-        let radius = Metrics.historyCutoutDiameter * 0.5
-
-        return CGRect(
-            x: center.x - radius,
-            y: center.y - radius,
-            width: Metrics.historyCutoutDiameter,
-            height: Metrics.historyCutoutDiameter
-        )
     }
 
     private var isSingleLineLayout: Bool {
@@ -478,17 +448,10 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
     }
 
     private func makePreviewVisiblePath() -> UIBezierPath {
-        let path = UIBezierPath(
+        UIBezierPath(
             roundedRect: bounds,
             cornerRadius: currentCornerRadius
         )
-
-        if editHistoryCount > 0 {
-            let indicatorPathRect = historyCutoutRect(in: bounds).insetBy(dx: -1.0, dy: -1.0)
-            path.append(UIBezierPath(ovalIn: indicatorPathRect))
-        }
-
-        return path
     }
 
     func contextMenuInteraction(
@@ -530,8 +493,7 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
                     ? String(localized: .generalHistory)
                     : String(localized: .chatHistoryCountFormat(editHistoryCount))
                 let historyAction = UIAction(
-                    title: historyTitle,
-                    image: UIImage(systemName: "clock")
+                    title: historyTitle
                 ) { _ in
                     self?.onShowHistory?()
                 }
@@ -614,6 +576,79 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
                 stackView.trailingAnchor.constraint(equalTo: trailingAnchor),
                 stackView.bottomAnchor.constraint(equalTo: bottomAnchor)
             ])
+        }
+    }
+
+    private final class HistoryIndicatorView: UIControl {
+        private let title = String(localized: .chatEdited)
+        private let titleLabel = UILabel()
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            configure()
+        }
+
+        required init?(coder: NSCoder) {
+            super.init(coder: coder)
+            configure()
+        }
+
+        override var isHighlighted: Bool {
+            didSet {
+                updateTitle()
+            }
+        }
+
+        override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+            super.traitCollectionDidChange(previousTraitCollection)
+
+            titleLabel.font = .preferredFont(forTextStyle: .caption2)
+            updateTitle()
+        }
+
+        override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+            let horizontalInset = max(0.0, (44.0 - bounds.width) * 0.5)
+            let verticalInset = max(0.0, (28.0 - bounds.height) * 0.5)
+            let hitBounds = bounds.insetBy(dx: -horizontalInset, dy: -verticalInset)
+            return hitBounds.contains(point)
+        }
+
+        private func configure() {
+            backgroundColor = .clear
+            isAccessibilityElement = true
+            accessibilityLabel = title
+            accessibilityTraits = .button
+            setContentHuggingPriority(.required, for: .horizontal)
+            setContentCompressionResistancePriority(.required, for: .horizontal)
+
+            titleLabel.font = .preferredFont(forTextStyle: .caption2)
+            titleLabel.adjustsFontForContentSizeCategory = true
+            titleLabel.numberOfLines = 1
+            titleLabel.lineBreakMode = .byTruncatingTail
+            titleLabel.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(titleLabel)
+
+            NSLayoutConstraint.activate([
+                titleLabel.topAnchor.constraint(equalTo: topAnchor),
+                titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
+                titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor),
+                titleLabel.bottomAnchor.constraint(equalTo: bottomAnchor)
+            ])
+
+            updateTitle()
+        }
+
+        private func updateTitle() {
+            let foregroundColor = UIColor.white.withAlphaComponent(isHighlighted ? 0.62 : 0.82)
+            titleLabel.attributedText = NSAttributedString(
+                string: title,
+                attributes: [
+                    .font: titleLabel.font as Any,
+                    .foregroundColor: foregroundColor,
+                    .underlineColor: foregroundColor,
+                    .underlineStyle: NSUnderlineStyle.single.rawValue
+                ]
+            )
         }
     }
 
