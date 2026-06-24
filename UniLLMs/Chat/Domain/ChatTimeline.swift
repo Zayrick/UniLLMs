@@ -140,6 +140,7 @@ nonisolated struct ChatTimelineRevisionEvent: Codable, Equatable, Identifiable {
     var timestamp: Date
     var kind: Kind
     var userMessageSystemPromptTitle: String?
+    var userMessageSystemPrompt: SystemPromptRecord?
 
     init?(
         event: ChatTimelineEvent
@@ -166,6 +167,7 @@ nonisolated struct ChatTimelineRevisionEvent: Codable, Equatable, Identifiable {
         id = event.id
         timestamp = event.timestamp
         userMessageSystemPromptTitle = event.userMessageSystemPromptTitle
+        userMessageSystemPrompt = event.userMessageSystemPrompt
     }
 
     var timelineEvent: ChatTimelineEvent {
@@ -191,7 +193,8 @@ nonisolated struct ChatTimelineRevisionEvent: Codable, Equatable, Identifiable {
             id: id,
             timestamp: timestamp,
             kind: eventKind,
-            userMessageSystemPromptTitle: userMessageSystemPromptTitle
+            userMessageSystemPromptTitle: userMessageSystemPromptTitle,
+            userMessageSystemPrompt: userMessageSystemPrompt
         )
     }
 }
@@ -330,17 +333,21 @@ nonisolated struct ChatTimelineEvent: Codable, Equatable, Identifiable {
     var timestamp: Date
     var kind: Kind
     var userMessageSystemPromptTitle: String?
+    var userMessageSystemPrompt: SystemPromptRecord?
 
     init(
         id: UUID = UUID(),
         timestamp: Date = Date(),
         kind: Kind,
-        userMessageSystemPromptTitle: String? = nil
+        userMessageSystemPromptTitle: String? = nil,
+        userMessageSystemPrompt: SystemPromptRecord? = nil
     ) {
         self.id = id
         self.timestamp = timestamp
         self.kind = kind
-        self.userMessageSystemPromptTitle = Self.normalizedSystemPromptTitle(userMessageSystemPromptTitle)
+        self.userMessageSystemPrompt = userMessageSystemPrompt
+        self.userMessageSystemPromptTitle = userMessageSystemPrompt.map(\.displayTitle)
+            ?? Self.normalizedSystemPromptTitle(userMessageSystemPromptTitle)
     }
 }
 

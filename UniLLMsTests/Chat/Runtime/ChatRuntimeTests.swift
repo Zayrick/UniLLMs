@@ -111,6 +111,7 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
 
         let events = try await historyStore.fetchEvents(sessionID: session.id)
         XCTAssertEqual(events.first?.userMessageSystemPromptTitle, "Translator")
+        XCTAssertEqual(events.first?.userMessageSystemPrompt, prompt)
         XCTAssertEqual(
             events.map(\.kind),
             [
@@ -152,6 +153,7 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
 
         let events = try await historyStore.fetchEvents(sessionID: session.id)
         XCTAssertEqual(events.first?.userMessageSystemPromptTitle, "Translator")
+        XCTAssertEqual(events.first?.userMessageSystemPrompt, prompt)
     }
 
     func testSelectingSystemPromptDuringActiveTurnUpdatesNextTurnSelectionOnly() async throws {
@@ -179,6 +181,82 @@ final class ChatRuntimeTests: LLMsProviderStoreTestCase {
         XCTAssertEqual(request.context.systemPrompt, firstPrompt)
         let sessions = try await historyStore.fetchSessions()
         XCTAssertNotNil(sessions.first)
+    }
+
+    func testEditingWithSystemPromptSnapshotDoesNotChangeCurrentSelection() async throws {
+        let originalPrompt = SystemPromptRecord(title: "Original", content: "Use the original prompt.")
+        let currentPrompt = SystemPromptRecord(title: "Current", content: "Use the current prompt.")
+        let promptStore = InMemorySystemPromptStore(prompts: [originalPrompt, currentPrompt])
+        let adapter = CapturingRuntimeProvider()
+        let (runtime, historyStore) = makeRuntime(
+            adapter: adapter,
+            systemPromptStore: promptStore
+        )
+        let messageID = UUID()
+
+        runtime.selectSystemPrompt(id: originalPrompt.id)
+        let firstTurn = try runtime.startTurn(
+            prompt: "Hello",
+            userMessageID: messageID
+        )
+        for try await _ in firstTurn {}
+
+        let snapshot = try XCTUnwrap(runtime.userMessageSnapshot(for: messageID))
+        XCTAssertEqual(snapshot.systemPrompt, originalPrompt)
+
+        runtime.selectSystemPrompt(id: currentPrompt.id)
+        let editedTurn = try runtime.startTurn(
+            prompt: "Edited",
+            userMessageID: messageID,
+            replacingUserMessageID: messageID,
+            systemPromptSelection: .snapshot(snapshot.systemPrompt)
+        )
+        for try await _ in editedTurn {}
+        await runtime.waitForPendingHistoryPersistence()
+
+        XCTAssertEqual(runtime.selectedSystemPromptID, currentPrompt.id)
+        let editedRequest = try XCTUnwrap(adapter.requests.last)
+        XCTAssertEqual(editedRequest.context.systemPrompt, originalPrompt)
+
+        let events = try await historyStore.fetchEvents(sessionID: runtime.currentSessionID)
+        let editedMessage = try XCTUnwrap(events.first(where: { $0.id == messageID }))
+        XCTAssertEqual(editedMessage.userMessageSystemPrompt, originalPrompt)
+        XCTAssertEqual(editedMessage.userMessageSystemPromptTitle, "Original")
+    }
+
+    func testEditingWithClearedSystemPromptSnapshotDoesNotUseCurrentSelection() async throws {
+        let currentPrompt = SystemPromptRecord(title: "Current", content: "Use the current prompt.")
+        let adapter = CapturingRuntimeProvider()
+        let (runtime, historyStore) = makeRuntime(
+            adapter: adapter,
+            systemPromptStore: InMemorySystemPromptStore(prompts: [currentPrompt])
+        )
+        let messageID = UUID()
+
+        let firstTurn = try runtime.startTurn(
+            prompt: "Hello",
+            userMessageID: messageID
+        )
+        for try await _ in firstTurn {}
+
+        runtime.selectSystemPrompt(id: currentPrompt.id)
+        let editedTurn = try runtime.startTurn(
+            prompt: "Edited",
+            userMessageID: messageID,
+            replacingUserMessageID: messageID,
+            systemPromptSelection: .snapshot(nil)
+        )
+        for try await _ in editedTurn {}
+        await runtime.waitForPendingHistoryPersistence()
+
+        XCTAssertEqual(runtime.selectedSystemPromptID, currentPrompt.id)
+        let editedRequest = try XCTUnwrap(adapter.requests.last)
+        XCTAssertNil(editedRequest.context.systemPrompt)
+
+        let events = try await historyStore.fetchEvents(sessionID: runtime.currentSessionID)
+        let editedMessage = try XCTUnwrap(events.first(where: { $0.id == messageID }))
+        XCTAssertNil(editedMessage.userMessageSystemPrompt)
+        XCTAssertNil(editedMessage.userMessageSystemPromptTitle)
     }
 
     func testEditingPriorUserMessageResendsFromThatPointOnly() async throws {

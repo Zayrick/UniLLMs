@@ -137,6 +137,40 @@ final class ChatRuntime {
         ChatTimelineEvent.messageRevisions(from: conversationTimeline)[anchorUserMessageID] ?? []
     }
 
+    func userMessageSnapshot(for userMessageID: UUID) -> ChatUserMessageSnapshot? {
+        for event in ChatTimelineEvent.sortedChronologically(conversationTimeline) {
+            guard event.id == userMessageID else {
+                continue
+            }
+
+            switch event.kind {
+            case let .userMessage(text):
+                return ChatUserMessageSnapshot(
+                    id: event.id,
+                    text: text,
+                    attachments: [],
+                    systemPrompt: event.userMessageSystemPrompt
+                )
+            case let .userMessageWithAttachments(text, attachments):
+                return ChatUserMessageSnapshot(
+                    id: event.id,
+                    text: text,
+                    attachments: attachments,
+                    systemPrompt: event.userMessageSystemPrompt
+                )
+            case .assistantReasoning,
+                 .assistantRawText,
+                 .assistantError,
+                 .assistantToolCalls,
+                 .toolEvent,
+                 .messageRevision:
+                return nil
+            }
+        }
+
+        return nil
+    }
+
     func switchToMessageRevision(
         anchorUserMessageID: UUID,
         revisionID: UUID
@@ -181,6 +215,7 @@ final class ChatRuntime {
         attachments: [ChatAttachment] = [],
         userMessageID: UUID = UUID(),
         replacingUserMessageID: UUID? = nil,
+        systemPromptSelection: ChatTurnSystemPromptSelection = .current,
         reasoningEffort: String? = nil
     ) throws -> AsyncThrowingStream<ChatResponseDelta, Error> {
         guard activeTurnID == nil else {
@@ -215,7 +250,7 @@ final class ChatRuntime {
             }
         }
 
-        let turnSystemPrompt = resolvedSystemPromptForNextTurn()
+        let turnSystemPrompt = resolvedSystemPrompt(for: systemPromptSelection)
         if ChatTimelineEvent.messages(from: conversationTimeline).isEmpty {
             currentSession.title = Self.makeSessionTitle(from: prompt, attachments: attachments)
             if replacingUserMessageID == nil {
@@ -231,7 +266,7 @@ final class ChatRuntime {
             id: userMessageID,
             timestamp: sentAt,
             kind: userEventKind,
-            userMessageSystemPromptTitle: turnSystemPrompt?.displayTitle
+            userMessageSystemPrompt: turnSystemPrompt
         )
         let requestTimeline = conversationTimeline + [userEvent]
         let requestMessages = ChatTimelineEvent.messages(from: requestTimeline)
@@ -426,8 +461,13 @@ final class ChatRuntime {
         return String(describing: error)
     }
 
-    private func resolvedSystemPromptForNextTurn() -> SystemPromptRecord? {
-        resolvedSelectedSystemPrompt()
+    private func resolvedSystemPrompt(for selection: ChatTurnSystemPromptSelection) -> SystemPromptRecord? {
+        switch selection {
+        case .current:
+            return resolvedSelectedSystemPrompt()
+        case let .snapshot(prompt):
+            return prompt
+        }
     }
 
     private func resolvedSelectedSystemPrompt() -> SystemPromptRecord? {

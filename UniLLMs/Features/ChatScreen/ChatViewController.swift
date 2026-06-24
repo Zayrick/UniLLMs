@@ -57,6 +57,29 @@ final class ChatViewController: UIViewController {
         static let shadowOffset = CGSize(width: -10.0, height: 0.0)
     }
 
+    private struct ComposerDraft {
+        var text: String
+        var attachments: [ChatAttachment]
+    }
+
+    private struct MessageEditSession {
+        let messageID: UUID
+        var attachments: [ChatAttachment]
+        var systemPrompt: SystemPromptRecord?
+        var transientAttachmentAssetIDs: Set<UUID>
+
+        init(snapshot: ChatUserMessageSnapshot) {
+            messageID = snapshot.id
+            attachments = snapshot.attachments
+            systemPrompt = snapshot.systemPrompt
+            transientAttachmentAssetIDs = []
+        }
+
+        func isTransientAttachment(_ attachment: ChatAttachment) -> Bool {
+            transientAttachmentAssetIDs.contains(attachment.assetID)
+        }
+    }
+
     private var dependencies = AppEnvironment.shared.dependencies
     private let rootBackgroundView = UIView()
     private var providerStore: LLMsProviderStore {
@@ -93,6 +116,7 @@ final class ChatViewController: UIViewController {
     private let moduleSelectionPillButton = ChatViewController.makeHeaderPill(
         title: HeaderLayout.defaultModuleSelectionTitle
     )
+    private let editModeTitleLabel = UILabel()
     private let rightHeaderButton = ChatViewController.makeHeaderButton(
         systemName: HeaderLayout.emptyConversationButtonSystemName,
         accessibilityLabel: String(localized: .chatPrivateChat)
@@ -137,6 +161,8 @@ final class ChatViewController: UIViewController {
     private var privateModeAttachmentReferences: [ChatAttachment] = []
     private let attachmentStore = ChatAttachmentStore.shared
     private var attachmentPreviewItem: AttachmentPreviewItem?
+    private var activeEditSession: MessageEditSession?
+    private var savedComposerDraftBeforeEditing: ComposerDraft?
 
     func configure(dependencies: AppDependencyContainer) {
         self.dependencies = dependencies
@@ -321,6 +347,7 @@ final class ChatViewController: UIViewController {
         leftHeaderButton.addTarget(self, action: #selector(toggleSideMenu), for: .touchUpInside)
         moduleSelectionPillButton.addTarget(self, action: #selector(presentModelSelection), for: .touchUpInside)
         rightHeaderButton.addTarget(self, action: #selector(rightHeaderButtonPressed), for: .touchUpInside)
+        configureEditModeTitleLabel()
         updateRightHeaderButtonState(animated: false)
 
         NSLayoutConstraint.activate([
@@ -372,14 +399,41 @@ final class ChatViewController: UIViewController {
                 constant: -HeaderLayout.horizontalInset
             ),
             rightHeaderButton.widthAnchor.constraint(equalToConstant: HeaderLayout.buttonSize),
-            rightHeaderButton.heightAnchor.constraint(equalToConstant: HeaderLayout.buttonSize)
+            rightHeaderButton.heightAnchor.constraint(equalToConstant: HeaderLayout.buttonSize),
+
+            editModeTitleLabel.centerXAnchor.constraint(equalTo: mainPageView.safeAreaLayoutGuide.centerXAnchor),
+            editModeTitleLabel.centerYAnchor.constraint(equalTo: headerGlassContainerView.centerYAnchor),
+            editModeTitleLabel.leadingAnchor.constraint(
+                greaterThanOrEqualTo: leftHeaderGlassView.trailingAnchor,
+                constant: HeaderLayout.itemSpacing
+            ),
+            editModeTitleLabel.trailingAnchor.constraint(
+                lessThanOrEqualTo: rightHeaderButton.leadingAnchor,
+                constant: -HeaderLayout.itemSpacing
+            )
         ])
+    }
+
+    private func configureEditModeTitleLabel() {
+        editModeTitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        editModeTitleLabel.text = String(localized: .chatEditMessage)
+        editModeTitleLabel.font = .preferredFont(forTextStyle: .headline)
+        editModeTitleLabel.adjustsFontForContentSizeCategory = true
+        editModeTitleLabel.textColor = .label
+        editModeTitleLabel.textAlignment = .center
+        editModeTitleLabel.lineBreakMode = .byTruncatingTail
+        editModeTitleLabel.numberOfLines = 1
+        editModeTitleLabel.alpha = 0.0
+        editModeTitleLabel.isHidden = true
+        editModeTitleLabel.isAccessibilityElement = true
+        editModeTitleLabel.accessibilityTraits = .header
+        mainPageView.addSubview(editModeTitleLabel)
     }
 
     private func configureComposerView() {
         composerView.translatesAutoresizingMaskIntoConstraints = false
         composerView.onSend = { [weak self] transition in
-            self?.appendSentMessage(using: transition)
+            self?.handleComposerSend(transition)
         }
         composerView.onStop = { [weak self] in
             self?.cancelAssistantResponseStream()
@@ -504,6 +558,7 @@ final class ChatViewController: UIViewController {
         ])
 
         mainPageView.bringSubviewToFront(headerGlassContainerView)
+        mainPageView.bringSubviewToFront(editModeTitleLabel)
         mainPageView.bringSubviewToFront(rightHeaderButton)
         mainPageView.bringSubviewToFront(composerView)
         configureTopScrollEdgeAnchor()
@@ -595,6 +650,10 @@ final class ChatViewController: UIViewController {
         isKeyboardVisible ? -ComposerLayout.keyboardBottomSpacing : 0.0
     }
 
+    private var isEditingMessage: Bool {
+        activeEditSession != nil
+    }
+
     private func installKeyboardObserver() {
         keyboardObservation = NotificationCenter.default.addObserver(
             of: UIScreen.self,
@@ -653,6 +712,11 @@ final class ChatViewController: UIViewController {
     }
 
     @objc private func toggleSideMenu() {
+        if isEditingMessage {
+            cancelMessageEditing()
+            return
+        }
+
         setSideMenuOpen(!isSideMenuOpen, animated: true)
     }
 
@@ -661,7 +725,8 @@ final class ChatViewController: UIViewController {
     }
 
     @objc private func presentModelSelection() {
-        guard presentedViewController == nil else {
+        guard !isEditingMessage,
+              presentedViewController == nil else {
             return
         }
 
@@ -698,6 +763,10 @@ final class ChatViewController: UIViewController {
     }
 
     @objc private func rightHeaderButtonPressed() {
+        guard !isEditingMessage else {
+            return
+        }
+
         if hasChatContent {
             startNewConversation()
         } else {
@@ -707,6 +776,7 @@ final class ChatViewController: UIViewController {
 
     private func startNewConversation() {
         guard activeResponseTask == nil,
+              !isEditingMessage,
               hasChatContent else {
             return
         }
@@ -726,6 +796,7 @@ final class ChatViewController: UIViewController {
 
     private func togglePrivacyMode() {
         guard activeResponseTask == nil,
+              !isEditingMessage,
               !hasChatContent else {
             return
         }
@@ -747,6 +818,10 @@ final class ChatViewController: UIViewController {
     }
 
     private func setSideMenuOpen(_ isOpen: Bool, animated: Bool) {
+        guard !isEditingMessage else {
+            return
+        }
+
         guard isSideMenuOpen != isOpen else {
             return
         }
@@ -851,15 +926,26 @@ final class ChatViewController: UIViewController {
             return
         }
 
+        let selectedSystemPromptID = isEditingMessage
+            ? activeEditSession?.systemPrompt?.id
+            : chatRuntime.selectedSystemPromptID
         let promptsViewController = SystemPromptsViewController(
             dependencies: dependencies,
             mode: .select(
-                selectedID: chatRuntime.selectedSystemPromptID,
+                selectedID: selectedSystemPromptID,
                 onSelect: { [weak self] prompt in
-                    self?.selectSystemPrompt(prompt)
+                    if self?.isEditingMessage == true {
+                        self?.selectEditSystemPrompt(prompt)
+                    } else {
+                        self?.selectSystemPrompt(prompt)
+                    }
                 },
                 onClear: { [weak self] in
-                    self?.clearSelectedSystemPrompt()
+                    if self?.isEditingMessage == true {
+                        self?.clearEditSystemPrompt()
+                    } else {
+                        self?.clearSelectedSystemPrompt()
+                    }
                 }
             )
         )
@@ -912,11 +998,24 @@ final class ChatViewController: UIViewController {
     private func appendPendingAttachments(_ attachments: [ChatAttachment]) {
         guard !attachments.isEmpty else { return }
         recordPrivateModeAttachments(attachments)
+        if var editSession = activeEditSession {
+            editSession.attachments.append(contentsOf: attachments)
+            editSession.transientAttachmentAssetIDs.formUnion(attachments.map(\.assetID))
+            activeEditSession = editSession
+            refreshComposerAttachmentPreview()
+            return
+        }
+
         pendingAttachments.append(contentsOf: attachments)
         refreshComposerAttachmentPreview()
     }
 
     private func removePendingAttachment(id: UUID) {
+        if isEditingMessage {
+            removeEditAttachment(id: id)
+            return
+        }
+
         guard let index = pendingAttachments.firstIndex(where: { $0.id == id }) else {
             return
         }
@@ -932,7 +1031,9 @@ final class ChatViewController: UIViewController {
         if deleteFiles {
             deletePendingAttachments(attachments)
         }
-        composerView.setPendingAttachments([])
+        if !isEditingMessage {
+            composerView.setPendingAttachments([])
+        }
     }
 
     private func recordPrivateModeAttachments(_ attachments: [ChatAttachment]) {
@@ -953,7 +1054,9 @@ final class ChatViewController: UIViewController {
         }
         try? attachmentStore.deleteUnreferencedAttachments(
             removing: attachments,
-            referencedBy: chatRuntime.currentConversationAttachments + pendingAttachments
+            referencedBy: chatRuntime.currentConversationAttachments
+                + pendingAttachments
+                + (activeEditSession?.attachments ?? [])
         )
     }
 
@@ -981,6 +1084,11 @@ final class ChatViewController: UIViewController {
     }
 
     private func previewPendingAttachment(id: UUID) {
+        if let editAttachment = activeEditSession?.attachments.first(where: { $0.id == id }) {
+            presentAttachmentPreview(for: editAttachment)
+            return
+        }
+
         guard let attachment = pendingAttachments.first(where: { $0.id == id }) else {
             return
         }
@@ -1014,48 +1122,149 @@ final class ChatViewController: UIViewController {
         present(previewController, animated: true)
     }
 
-    private func presentMessageEditor(
-        messageID: UUID,
-        text: String,
-        attachments: [ChatAttachment]
-    ) {
+    private func beginMessageEditing(messageID: UUID) {
         guard activeResponseTask == nil else {
             presentAttachmentError(String(localized: .chatResponseInProgress))
             return
         }
 
-        guard presentedViewController == nil else {
+        guard !isEditingMessage,
+              presentedViewController == nil else {
             return
         }
 
-        guard containsSentMessage(withID: messageID) else {
+        guard containsSentMessage(withID: messageID),
+              let snapshot = chatRuntime.userMessageSnapshot(for: messageID) else {
             presentAttachmentError(String(localized: .chatMessageUnavailable))
             return
         }
 
-        view.endEditing(true)
-
-        let editorViewController = MessageEditViewController(
-            text: text,
-            allowsEmptyText: !attachments.isEmpty
+        savedComposerDraftBeforeEditing = ComposerDraft(
+            text: composerView.currentDraftText(),
+            attachments: pendingAttachments
         )
-        editorViewController.onSubmit = { [weak self, weak editorViewController] editedText in
-            editorViewController?.dismiss(animated: true) {
-                self?.resendEditedMessage(
-                    messageID: messageID,
-                    text: editedText,
-                    attachments: attachments
-                )
-            }
+        activeEditSession = MessageEditSession(snapshot: snapshot)
+        composerView.setDraftText(snapshot.text, animated: false)
+        refreshComposerAttachmentPreview()
+        refreshComposerSystemPromptPreview()
+        setMessageEditingModeActive(true, animated: true)
+        composerView.focusInput()
+    }
+
+    private func cancelMessageEditing() {
+        guard let editSession = activeEditSession else {
+            return
         }
 
-        let navigationController = UINavigationController(rootViewController: editorViewController)
-        navigationController.modalPresentationStyle = .pageSheet
-        if let sheet = navigationController.sheetPresentationController {
-            sheet.detents = [.medium(), .large()]
-            sheet.prefersGrabberVisible = true
+        let transientAttachments = editSession.attachments.filter(editSession.isTransientAttachment)
+        restoreComposerAfterMessageEditing()
+        deletePendingAttachments(transientAttachments)
+        setMessageEditingModeActive(false, animated: true)
+        view.endEditing(true)
+    }
+
+    private func selectEditSystemPrompt(_ prompt: SystemPromptRecord) {
+        guard var editSession = activeEditSession else {
+            return
         }
-        present(navigationController, animated: true)
+
+        editSession.systemPrompt = prompt
+        activeEditSession = editSession
+        refreshComposerSystemPromptPreview()
+    }
+
+    private func clearEditSystemPrompt() {
+        guard var editSession = activeEditSession else {
+            return
+        }
+
+        editSession.systemPrompt = nil
+        activeEditSession = editSession
+        refreshComposerSystemPromptPreview()
+    }
+
+    private func removeEditAttachment(id: UUID) {
+        guard var editSession = activeEditSession,
+              let index = editSession.attachments.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+
+        let attachment = editSession.attachments.remove(at: index)
+        activeEditSession = editSession
+        if editSession.isTransientAttachment(attachment) {
+            deletePendingAttachments([attachment])
+        }
+        refreshComposerAttachmentPreview()
+    }
+
+    private func submitEditedMessage(using transition: GlassComposerBarView.SendTransition) {
+        guard let editSession = activeEditSession else {
+            appendSentMessage(using: transition)
+            return
+        }
+
+        let attachments = editSession.attachments
+        let systemPrompt = editSession.systemPrompt
+        let messageID = editSession.messageID
+        let didStartResend = resendMessage(
+            messageID: messageID,
+            text: transition.text,
+            attachments: attachments,
+            systemPromptSelection: .snapshot(systemPrompt)
+        )
+        if didStartResend {
+            restoreComposerAfterMessageEditing()
+            setMessageEditingModeActive(false, animated: true)
+        } else {
+            composerView.setDraftText(transition.text, animated: false)
+            refreshComposerAttachmentPreview()
+            refreshComposerSystemPromptPreview()
+        }
+    }
+
+    private func restoreComposerAfterMessageEditing() {
+        let draft = savedComposerDraftBeforeEditing ?? ComposerDraft(text: "", attachments: [])
+        activeEditSession = nil
+        savedComposerDraftBeforeEditing = nil
+        pendingAttachments = draft.attachments
+        composerView.setDraftText(draft.text, animated: false)
+        refreshComposerAttachmentPreview()
+        refreshComposerSystemPromptPreview()
+    }
+
+    private func setMessageEditingModeActive(_ isActive: Bool, animated: Bool) {
+        let applyState = {
+            self.messagesScrollView.alpha = isActive ? 0.0 : 1.0
+            self.messagesScrollView.isUserInteractionEnabled = !isActive
+            self.updateLeftHeaderButtonState()
+            self.updateHeaderEditingState()
+            self.updateRightHeaderButtonState(animated: false)
+            self.updateMessagesContentInsets()
+            self.view.layoutIfNeeded()
+        }
+
+        if !isActive {
+            messagesScrollView.isHidden = false
+        }
+
+        guard animated,
+              view.window != nil,
+              !UIAccessibility.isReduceMotionEnabled else {
+            applyState()
+            messagesScrollView.isHidden = isActive
+            editModeTitleLabel.isHidden = !isActive
+            return
+        }
+
+        UIView.animate(
+            withDuration: HeaderLayout.moduleSelectionTextAnimationDuration,
+            delay: 0.0,
+            options: [.beginFromCurrentState, .curveEaseOut],
+            animations: applyState
+        ) { _ in
+            self.messagesScrollView.isHidden = isActive
+            self.editModeTitleLabel.isHidden = !isActive
+        }
     }
 
     private func presentMessageRevisionHistory(messageID: UUID) {
@@ -1116,31 +1325,20 @@ final class ChatViewController: UIViewController {
         }
     }
 
-    private func resendEditedMessage(
-        messageID: UUID,
-        text: String,
-        attachments: [ChatAttachment]
-    ) {
-        let editedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        resendMessage(
-            messageID: messageID,
-            text: editedText,
-            attachments: attachments
-        )
-    }
-
+    @discardableResult
     private func resendMessage(
         messageID: UUID,
         text: String,
-        attachments: [ChatAttachment]
-    ) {
+        attachments: [ChatAttachment],
+        systemPromptSelection: ChatTurnSystemPromptSelection = .current
+    ) -> Bool {
         guard activeResponseTask == nil else {
             presentAttachmentError(String(localized: .chatResponseInProgress))
-            return
+            return false
         }
 
         guard !text.isEmpty || !attachments.isEmpty else {
-            return
+            return false
         }
 
         mainPageView.layoutIfNeeded()
@@ -1148,7 +1346,7 @@ final class ChatViewController: UIViewController {
 
         guard let firstRemovedIndex = indexOfSentMessage(withID: messageID) else {
             presentAttachmentError(String(localized: .chatMessageUnavailable))
-            return
+            return false
         }
 
         let continuationTask: ChatContinuationTask?
@@ -1156,10 +1354,10 @@ final class ChatViewController: UIViewController {
             continuationTask = try beginResponseContinuationTaskIfNeeded()
         } catch {
             presentAttachmentError(error.localizedDescription)
-            return
+            return false
         }
 
-        let systemPromptTitle = selectedSystemPromptTitleForOutgoingMessage()
+        let systemPromptTitle = systemPromptTitle(for: systemPromptSelection)
         let responseStream: AsyncThrowingStream<ChatResponseDelta, Error>
         do {
             responseStream = try chatRuntime.startTurn(
@@ -1167,12 +1365,13 @@ final class ChatViewController: UIViewController {
                 attachments: attachments,
                 userMessageID: messageID,
                 replacingUserMessageID: messageID,
+                systemPromptSelection: systemPromptSelection,
                 reasoningEffort: resolvedReasoningEffortForCurrentModel()
             )
         } catch {
             continuationTask?.finish(success: false)
             presentAttachmentError(error.localizedDescription)
-            return
+            return false
         }
 
         removeMessagesStarting(at: firstRemovedIndex)
@@ -1195,6 +1394,7 @@ final class ChatViewController: UIViewController {
         refreshEditHistory(for: bubbleView)
         animateExistingMessages(from: existingMessageFrames)
         showAssistantLoadingIfNeeded(in: responseView)
+        return true
     }
 
     private func refreshEditHistory(for bubbleView: SentMessageBubbleView) {
@@ -1220,7 +1420,8 @@ final class ChatViewController: UIViewController {
     }
 
     private func refreshComposerAttachmentPreview() {
-        let displays = pendingAttachments.map { attachment in
+        let attachments = activeEditSession?.attachments ?? pendingAttachments
+        let displays = attachments.map { attachment in
             GlassComposerBarView.PendingAttachmentDisplay(
                 id: attachment.id,
                 image: loadAttachmentImage(for: attachment),
@@ -1241,9 +1442,16 @@ final class ChatViewController: UIViewController {
     }
 
     private func refreshComposerSystemPromptPreview() {
+        if let activeEditSession {
+            let display = activeEditSession.systemPrompt.map {
+                GlassComposerBarView.SelectedSystemPromptDisplay(title: $0.displayTitle)
+            }
+            composerView.setSelectedSystemPrompt(display)
+            return
+        }
+
         let display = chatRuntime.selectedSystemPrompt().map {
             GlassComposerBarView.SelectedSystemPromptDisplay(
-                id: $0.id,
                 title: $0.displayTitle
             )
         }
@@ -1270,6 +1478,15 @@ final class ChatViewController: UIViewController {
 
     private func selectedSystemPromptTitleForOutgoingMessage() -> String? {
         chatRuntime.selectedSystemPrompt()?.displayTitle
+    }
+
+    private func systemPromptTitle(for selection: ChatTurnSystemPromptSelection) -> String? {
+        switch selection {
+        case .current:
+            return selectedSystemPromptTitleForOutgoingMessage()
+        case let .snapshot(prompt):
+            return prompt?.displayTitle
+        }
     }
 
     private func appendOutgoingMessageViews(
@@ -1309,6 +1526,14 @@ final class ChatViewController: UIViewController {
         ).isActive = true
 
         return (bubbleView, responseView)
+    }
+
+    private func handleComposerSend(_ transition: GlassComposerBarView.SendTransition) {
+        if isEditingMessage {
+            submitEditedMessage(using: transition)
+        } else {
+            appendSentMessage(using: transition)
+        }
     }
 
     private func appendSentMessage(using transition: GlassComposerBarView.SendTransition) {
@@ -2068,12 +2293,8 @@ final class ChatViewController: UIViewController {
                 attachments: attachments
             )
         }
-        bubbleView.onEditAndResend = { [weak self, messageID] text, attachments in
-            self?.presentMessageEditor(
-                messageID: messageID,
-                text: text,
-                attachments: attachments
-            )
+        bubbleView.onEdit = { [weak self, messageID] in
+            self?.beginMessageEditing(messageID: messageID)
         }
         bubbleView.onShowHistory = { [weak self, messageID] in
             self?.presentMessageRevisionHistory(messageID: messageID)
@@ -2107,10 +2328,37 @@ final class ChatViewController: UIViewController {
         scrollMessagesToBottom(animated: false)
     }
 
+    private func updateLeftHeaderButtonState() {
+        let systemName = isEditingMessage ? "xmark" : "list.bullet"
+        let accessibilityLabel = isEditingMessage
+            ? String(localized: .generalCancel)
+            : String(localized: .chatMenu)
+        var configuration = leftHeaderButton.configuration
+        configuration?.image = UIImage(
+            systemName: systemName,
+            withConfiguration: UIImage.SymbolConfiguration(
+                pointSize: HeaderLayout.iconPointSize,
+                weight: .semibold
+            )
+        )
+        leftHeaderButton.configuration = configuration
+        leftHeaderButton.accessibilityLabel = accessibilityLabel
+    }
+
+    private func updateHeaderEditingState() {
+        let isEditing = isEditingMessage
+        moduleSelectionPillGlassView.isHidden = isEditing
+        moduleSelectionPillButton.isUserInteractionEnabled = !isEditing
+        editModeTitleLabel.isHidden = false
+        editModeTitleLabel.alpha = isEditing ? 1.0 : 0.0
+        editModeTitleLabel.accessibilityElementsHidden = !isEditing
+    }
+
     private func updateRightHeaderButtonState(animated: Bool) {
         let isGeneratingResponse = activeResponseTask != nil
         let isPrivateModeEnabled = chatRuntime.isPrivacyModeEnabled
         let hasContent = hasChatContent
+        let isEditing = self.isEditingMessage
         let systemName: String
         if hasContent {
             systemName = HeaderLayout.newConversationButtonSystemName
@@ -2152,7 +2400,9 @@ final class ChatViewController: UIViewController {
             self.rightHeaderButton.accessibilityLabel = accessibilityLabel
             self.rightHeaderButton.accessibilityHint = accessibilityHint
             self.rightHeaderButton.isSelected = isPrivateModeEnabled && !hasContent
-            self.rightHeaderButton.isEnabled = true
+            self.rightHeaderButton.isEnabled = !isEditing
+            self.rightHeaderButton.isUserInteractionEnabled = !isEditing
+            self.rightHeaderButton.alpha = isEditing ? 0.0 : 1.0
         }
 
         guard animated,
@@ -2682,135 +2932,6 @@ extension ChatViewController: UIDocumentPickerDelegate {
             }
         }
         appendPendingAttachments(attachments)
-    }
-}
-
-private final class MessageEditViewController: UIViewController, UITextViewDelegate {
-    private enum Metrics {
-        static let horizontalInset: CGFloat = 16.0
-        static let topInset: CGFloat = 16.0
-        static let bottomInset: CGFloat = 16.0
-        static let textInset: CGFloat = 12.0
-        static let cornerRadius: CGFloat = 14.0
-        static let minimumTextHeight: CGFloat = 180.0
-    }
-
-    private let initialText: String
-    private let allowsEmptyText: Bool
-    private let textView = UITextView()
-    private var sendButtonItem: UIBarButtonItem?
-
-    var onSubmit: ((String) -> Void)?
-
-    init(text: String, allowsEmptyText: Bool) {
-        initialText = text
-        self.allowsEmptyText = allowsEmptyText
-        super.init(nibName: nil, bundle: nil)
-    }
-
-    required init?(coder: NSCoder) {
-        initialText = ""
-        allowsEmptyText = false
-        super.init(coder: coder)
-    }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-
-        configureNavigationItem()
-        configureTextView()
-    }
-
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-
-        textView.becomeFirstResponder()
-    }
-
-    func textViewDidChange(_ textView: UITextView) {
-        updateSendAvailability()
-    }
-
-    private func configureNavigationItem() {
-        title = String(localized: .chatEditMessage)
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            barButtonSystemItem: .cancel,
-            target: self,
-            action: #selector(cancelButtonPressed)
-        )
-        let sendItem = UIBarButtonItem(
-            title: String(localized: .generalSend),
-            style: .prominent,
-            target: self,
-            action: #selector(sendButtonPressed)
-        )
-        navigationItem.rightBarButtonItem = sendItem
-        sendButtonItem = sendItem
-        updateSendAvailability()
-    }
-
-    private func configureTextView() {
-        view.backgroundColor = .clear
-
-        textView.translatesAutoresizingMaskIntoConstraints = false
-        textView.backgroundColor = .secondarySystemBackground
-        textView.delegate = self
-        textView.font = .preferredFont(forTextStyle: .body)
-        textView.adjustsFontForContentSizeCategory = true
-        textView.textColor = .label
-        textView.tintColor = .systemBlue
-        textView.text = initialText
-        textView.textContainerInset = UIEdgeInsets(
-            top: Metrics.textInset,
-            left: Metrics.textInset,
-            bottom: Metrics.textInset,
-            right: Metrics.textInset
-        )
-        textView.textContainer.lineFragmentPadding = 0.0
-        textView.layer.cornerRadius = Metrics.cornerRadius
-        textView.layer.cornerCurve = .continuous
-        textView.isScrollEnabled = true
-        textView.alwaysBounceVertical = true
-        view.addSubview(textView)
-
-        NSLayoutConstraint.activate([
-            textView.topAnchor.constraint(
-                equalTo: view.safeAreaLayoutGuide.topAnchor,
-                constant: Metrics.topInset
-            ),
-            textView.leadingAnchor.constraint(
-                equalTo: view.safeAreaLayoutGuide.leadingAnchor,
-                constant: Metrics.horizontalInset
-            ),
-            textView.trailingAnchor.constraint(
-                equalTo: view.safeAreaLayoutGuide.trailingAnchor,
-                constant: -Metrics.horizontalInset
-            ),
-            textView.bottomAnchor.constraint(
-                equalTo: view.keyboardLayoutGuide.topAnchor,
-                constant: -Metrics.bottomInset
-            ),
-            textView.heightAnchor.constraint(greaterThanOrEqualToConstant: Metrics.minimumTextHeight)
-        ])
-        updateSendAvailability()
-    }
-
-    private func updateSendAvailability() {
-        let trimmedText = textView.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        sendButtonItem?.isEnabled = allowsEmptyText || !trimmedText.isEmpty
-    }
-
-    @objc private func cancelButtonPressed() {
-        dismiss(animated: true)
-    }
-
-    @objc private func sendButtonPressed() {
-        let trimmedText = textView.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard allowsEmptyText || !trimmedText.isEmpty else {
-            return
-        }
-
-        onSubmit?(trimmedText)
     }
 }
 

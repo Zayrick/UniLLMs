@@ -233,6 +233,30 @@ nonisolated struct ChatAttachment: Codable, Equatable, Identifiable {
     }
 }
 
+nonisolated struct ChatUserMessageSnapshot: Equatable, Identifiable {
+    var id: UUID
+    var text: String
+    var attachments: [ChatAttachment]
+    var systemPrompt: SystemPromptRecord?
+
+    init(
+        id: UUID,
+        text: String,
+        attachments: [ChatAttachment],
+        systemPrompt: SystemPromptRecord?
+    ) {
+        self.id = id
+        self.text = text
+        self.attachments = attachments
+        self.systemPrompt = systemPrompt
+    }
+}
+
+nonisolated enum ChatTurnSystemPromptSelection: Equatable {
+    case current
+    case snapshot(SystemPromptRecord?)
+}
+
 nonisolated struct ChatSession: Codable, Equatable, Identifiable {
     var id: UUID
     var title: String

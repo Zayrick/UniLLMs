@@ -22,7 +22,6 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     }
 
     struct SelectedSystemPromptDisplay: Equatable {
-        let id: UUID
         let title: String
     }
 
@@ -160,6 +159,22 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
 
         isStreamingResponse = isActive
         updateInputMode(animated: animated)
+    }
+
+    func currentDraftText() -> String {
+        textView.text
+    }
+
+    func setDraftText(_ text: String, animated: Bool) {
+        textView.text = text
+        placeholderLabel.isHidden = !text.isEmpty
+        updateInputMode(animated: animated)
+        updateTextHeight(animated: animated)
+        onLayoutChange?()
+    }
+
+    func focusInput() {
+        textView.becomeFirstResponder()
     }
 
     func setPendingAttachments(_ items: [PendingAttachmentDisplay]) {

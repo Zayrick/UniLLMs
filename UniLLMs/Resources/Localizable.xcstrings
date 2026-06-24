@@ -495,26 +495,8 @@
         }
       }
     },
-    "chat.edit_and_resend" : {
-      "comment" : "Edits and resends a chat message.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Edit & Resend"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "编辑并重发"
-          }
-        }
-      }
-    },
     "chat.edit_message" : {
-      "comment" : "Title for the message editing sheet.",
+      "comment" : "Title and menu action for editing a chat message in the composer.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {

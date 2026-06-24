@@ -45,7 +45,7 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
 
     var onPreviewAttachment: ((ChatAttachment) -> Void)?
     var onResend: ((String, [ChatAttachment]) -> Void)?
-    var onEditAndResend: ((String, [ChatAttachment]) -> Void)?
+    var onEdit: (() -> Void)?
     var onShowHistory: (() -> Void)?
     var editHistoryCount = 0 {
         didSet {
@@ -481,10 +481,10 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
             actions.append(resendAction)
 
             let editAction = UIAction(
-                title: String(localized: .chatEditAndResend),
+                title: String(localized: .chatEditMessage),
                 image: UIImage(systemName: "square.and.pencil")
             ) { _ in
-                self?.onEditAndResend?(messageText, attachments)
+                self?.onEdit?()
             }
             actions.append(editAction)
 

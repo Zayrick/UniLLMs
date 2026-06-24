@@ -94,11 +94,12 @@ final class ChatHistoryStoreTests: XCTestCase {
         XCTAssertEqual(secondEvents, [otherEvent])
     }
 
-    func testSaveEventsPersistsUserMessageSystemPromptTitle() async throws {
+    func testSaveEventsPersistsUserMessageSystemPromptSnapshot() async throws {
         let session = ChatSession(title: "Prompted")
+        let prompt = SystemPromptRecord(title: "Translator", content: "Always answer in Chinese.")
         let event = ChatTimelineEvent(
             kind: .userMessage(text: "Translate this"),
-            userMessageSystemPromptTitle: "Translator"
+            userMessageSystemPrompt: prompt
         )
 
         try await store.saveSession(session)
@@ -107,13 +108,15 @@ final class ChatHistoryStoreTests: XCTestCase {
         let events = try await store.fetchEvents(sessionID: session.id)
         let storedEvent = try XCTUnwrap(events.first)
         XCTAssertEqual(storedEvent.userMessageSystemPromptTitle, "Translator")
+        XCTAssertEqual(storedEvent.userMessageSystemPrompt, prompt)
         XCTAssertEqual(ChatTimelineEvent.messages(from: events).map(\.content), ["Translate this"])
     }
 
-    func testMessageRevisionRestoresUserMessageSystemPromptTitle() throws {
+    func testMessageRevisionRestoresUserMessageSystemPromptSnapshot() throws {
+        let prompt = SystemPromptRecord(title: "Translator", content: "Always answer in Chinese.")
         let userMessage = ChatTimelineEvent(
             kind: .userMessage(text: "Hello"),
-            userMessageSystemPromptTitle: "Translator"
+            userMessageSystemPrompt: prompt
         )
         let revisionEvent = try XCTUnwrap(
             ChatTimelineRevisionEvent(
@@ -122,6 +125,7 @@ final class ChatHistoryStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(revisionEvent.timelineEvent.userMessageSystemPromptTitle, "Translator")
+        XCTAssertEqual(revisionEvent.timelineEvent.userMessageSystemPrompt, prompt)
     }
 
     func testToolTimelineEventsPersistArgumentsAndResults() async throws {
