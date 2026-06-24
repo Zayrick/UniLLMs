@@ -230,6 +230,7 @@ final class StreamingContentView: UIView {
         setContentHuggingPriority(.required, for: .vertical)
 
         webView.navigationDelegate = self
+        webView.uiDelegate = self
         webView.backgroundColor = .clear
         webView.isOpaque = false
         webView.scrollView.backgroundColor = .clear
@@ -331,6 +332,15 @@ final class StreamingContentView: UIView {
         )
     }
 
+    private func openExternallyIfNeeded(_ url: URL) -> Bool {
+        guard Self.shouldOpenExternally(url) else {
+            return false
+        }
+
+        UIApplication.shared.open(url, options: [:], completionHandler: nil)
+        return true
+    }
+
     private var styleConfigurationJavaScriptObject: String {
         let font = UIFont.preferredFont(forTextStyle: .body)
         return """
@@ -364,6 +374,20 @@ final class StreamingContentView: UIView {
 
     private static let supportedRendererLanguageIdentifiers = ["en", "zh-Hans"]
     private static let heightMessageHandlerName = "heightUpdate"
+
+    private static func shouldOpenExternally(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(),
+              !scheme.isEmpty else {
+            return false
+        }
+
+        switch scheme {
+        case "about", "blob", "data", "file", "javascript", "streamdown":
+            return false
+        default:
+            return true
+        }
+    }
 
     private static func javaScriptStringLiteral(_ string: String) -> String {
         let encoded = javaScriptValueLiteral(string)
@@ -529,14 +553,36 @@ extension StreamingContentView: WKNavigationDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
     ) {
-        guard navigationAction.navigationType == .linkActivated,
-              let url = navigationAction.request.url else {
+        guard let url = navigationAction.request.url else {
             decisionHandler(.allow)
             return
         }
 
-        UIApplication.shared.open(url, options: [:], completionHandler: nil)
-        decisionHandler(.cancel)
+        if openExternallyIfNeeded(url) {
+            decisionHandler(.cancel)
+        } else {
+            decisionHandler(.allow)
+        }
+    }
+}
+
+extension StreamingContentView: WKUIDelegate {
+    func webView(
+        _ webView: WKWebView,
+        createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        guard navigationAction.targetFrame == nil,
+              let url = navigationAction.request.url else {
+            return nil
+        }
+
+        if !openExternallyIfNeeded(url) {
+            webView.load(navigationAction.request)
+        }
+
+        return nil
     }
 }
 

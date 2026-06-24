@@ -15,7 +15,13 @@ import {
   type ReactNode,
 } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Streamdown, type PluginConfig, type StreamdownTranslations } from 'streamdown'
+import {
+  Streamdown,
+  type ControlsConfig,
+  type LinkSafetyConfig,
+  type PluginConfig,
+  type StreamdownTranslations,
+} from 'streamdown'
 import { attachStreamingRendererController, detachStreamingRendererController } from './renderer/bridge'
 import {
   applyRendererConfiguration,
@@ -54,6 +60,28 @@ const streamdownPlugins: PluginConfig = {
     singleDollarTextMath: true,
   }),
   mermaid,
+}
+
+const streamdownLinkSafety: LinkSafetyConfig = {
+  enabled: false,
+}
+
+const streamdownControls: ControlsConfig = {
+  code: {
+    copy: true,
+    download: false,
+  },
+  mermaid: {
+    copy: true,
+    download: false,
+    fullscreen: false,
+    panZoom: false,
+  },
+  table: {
+    copy: false,
+    download: false,
+    fullscreen: false,
+  },
 }
 
 const emptyTimelineState: TimelineState = {
@@ -485,11 +513,12 @@ function MarkdownContent({
       ref={contentRef}
     >
       <Streamdown
-        controls
+        controls={streamdownControls}
         dir="auto"
         isAnimating={isStreaming}
         mode="streaming"
         normalizeHtmlIndentation
+        linkSafety={streamdownLinkSafety}
         plugins={streamdownPlugins}
         translations={translations}
       >

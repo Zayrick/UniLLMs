@@ -85,6 +85,11 @@ body {
     user-select: text;
 }
 
+.streamdown-content [data-streamdown="mermaid"] > div {
+    pointer-events: none;
+    touch-action: pan-y !important;
+}
+
 #content > :first-child {
     margin-top: 0;
 }
