@@ -46,10 +46,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
 
     private enum Metrics {
         static let controlHeight: CGFloat = 44.0
-        static let spacing: CGFloat = 8.0
-        static let fusionSpacing: CGFloat = 24.0
         static let capsuleHorizontalInset: CGFloat = 7.0
-        static let inputTextLeadingInset: CGFloat = 5.0
         static let capsulePreviewTopInset: CGFloat = 7.0
         static let capsuleVerticalInset: CGFloat = 5.0
         static let capsulePreviewGap: CGFloat = 7.0
@@ -57,7 +54,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         static let textMinHeight: CGFloat = 32.0
         static let textMaxHeight: CGFloat = 118.0
         static let sendButtonSize: CGFloat = 34.0
-        static let iconPointSize: CGFloat = 18.0
+        static let plusIconPointSize: CGFloat = 16.0
         static let transitionDuration: TimeInterval = 0.24
         static let attachmentChipSize: CGFloat = 110.0
         static let attachmentChipSpacing: CGFloat = 10.0
@@ -69,9 +66,6 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         static let systemPromptRemoveIconSpacing: CGFloat = 4.0
     }
 
-    private let stackView = UIStackView()
-    private let plusGlassView = UIVisualEffectView(effect: GlassComposerBarView.makeGlassEffect())
-    private let capsuleGlassView = UIVisualEffectView(effect: GlassComposerBarView.makeGlassEffect())
     private let capsuleLayoutStackView = UIStackView()
     private let inputRowContainerView = UIView()
     private let capsuleContentStackView = UIStackView()
@@ -88,12 +82,10 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     private let attachmentPreviewStackView = UIStackView()
 
     private var capsuleLayoutTopConstraint: NSLayoutConstraint!
-    private var capsuleContentLeadingConstraint: NSLayoutConstraint!
-    private var capsuleContentTrailingConstraint: NSLayoutConstraint!
     private var textHeightConstraint: NSLayoutConstraint!
     private var attachmentPreviewHeightConstraint: NSLayoutConstraint!
     private var lastMeasuredTextWidth: CGFloat = 0.0
-    private var isShowingActionControl = false
+    private var hasSendableContent = false
     private var isShowingStopControl = false
     private var isStreamingResponse = false
     private var pendingAttachments: [PendingAttachmentDisplay] = []
@@ -117,21 +109,17 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
 
     /// Source view used as the morph anchor for presentations triggered by the plus button.
     var plusSourceView: UIView {
-        plusGlassView
-    }
-
-    private var containerGlassEffect: UIGlassContainerEffect? {
-        effect as? UIGlassContainerEffect
+        self
     }
 
     init() {
-        super.init(effect: GlassComposerBarView.makeContainerEffect())
+        super.init(effect: GlassComposerBarView.makeGlassEffect())
         configure()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        effect = GlassComposerBarView.makeContainerEffect()
+        effect = GlassComposerBarView.makeGlassEffect()
         configure()
     }
 
@@ -225,8 +213,10 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     private func configure() {
         isOpaque = false
         backgroundColor = .clear
+        cornerConfiguration = .corners(
+            radius: .fixed(Double(Metrics.controlHeight * 0.5))
+        )
 
-        configureStackView()
         configurePlusButton()
         configureCapsule()
         configureTraitObservation()
@@ -243,62 +233,20 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         }
     }
 
-    private func configureStackView() {
-        stackView.axis = .horizontal
-        stackView.alignment = .bottom
-        stackView.spacing = Metrics.spacing
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(stackView)
-
-        NSLayoutConstraint.activate([
-            stackView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            stackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            stackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            stackView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
-        ])
-
-        stackView.addArrangedSubview(plusGlassView)
-        stackView.addArrangedSubview(capsuleGlassView)
-
-        plusGlassView.translatesAutoresizingMaskIntoConstraints = false
-        plusGlassView.cornerConfiguration = .capsule()
-        plusGlassView.setContentHuggingPriority(.required, for: .horizontal)
-        plusGlassView.setContentCompressionResistancePriority(.required, for: .horizontal)
-
-        capsuleGlassView.translatesAutoresizingMaskIntoConstraints = false
-        capsuleGlassView.cornerConfiguration = .corners(
-            radius: .fixed(Double(Metrics.controlHeight * 0.5))
-        )
-        capsuleGlassView.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        capsuleGlassView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        NSLayoutConstraint.activate([
-            plusGlassView.widthAnchor.constraint(equalToConstant: Metrics.controlHeight),
-            plusGlassView.heightAnchor.constraint(equalToConstant: Metrics.controlHeight),
-            capsuleGlassView.heightAnchor.constraint(greaterThanOrEqualToConstant: Metrics.controlHeight)
-        ])
-    }
-
     private func configurePlusButton() {
-        plusButton.tintColor = .label
-        plusButton.setImage(
-            UIImage(
-                systemName: "plus",
-                withConfiguration: UIImage.SymbolConfiguration(pointSize: Metrics.iconPointSize, weight: .semibold)
-            ),
-            for: .normal
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = UIImage(
+            systemName: "plus",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: Metrics.plusIconPointSize, weight: .regular)
         )
+        configuration.baseForegroundColor = .label
+        configuration.contentInsets = .zero
+        plusButton.configuration = configuration
         plusButton.accessibilityLabel = String(localized: .generalAdd)
         plusButton.translatesAutoresizingMaskIntoConstraints = false
+        plusButton.setContentHuggingPriority(.required, for: .horizontal)
+        plusButton.setContentCompressionResistancePriority(.required, for: .horizontal)
         plusButton.addTarget(self, action: #selector(plusButtonPressed), for: .touchUpInside)
-        plusGlassView.contentView.addSubview(plusButton)
-
-        NSLayoutConstraint.activate([
-            plusButton.topAnchor.constraint(equalTo: plusGlassView.contentView.topAnchor),
-            plusButton.leadingAnchor.constraint(equalTo: plusGlassView.contentView.leadingAnchor),
-            plusButton.trailingAnchor.constraint(equalTo: plusGlassView.contentView.trailingAnchor),
-            plusButton.bottomAnchor.constraint(equalTo: plusGlassView.contentView.bottomAnchor)
-        ])
     }
 
     private func configureCapsule() {
@@ -323,62 +271,52 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         textView.translatesAutoresizingMaskIntoConstraints = false
         sendButton.translatesAutoresizingMaskIntoConstraints = false
 
-        capsuleGlassView.contentView.addSubview(capsuleLayoutStackView)
+        contentView.addSubview(capsuleLayoutStackView)
         capsuleLayoutStackView.addArrangedSubview(systemPromptContainerView)
         capsuleLayoutStackView.addArrangedSubview(attachmentPreviewContainerView)
         capsuleLayoutStackView.addArrangedSubview(inputRowContainerView)
 
         inputRowContainerView.addSubview(capsuleContentStackView)
+        capsuleContentStackView.addArrangedSubview(plusButton)
         capsuleContentStackView.addArrangedSubview(textView)
-        inputRowContainerView.addSubview(sendButton)
+        capsuleContentStackView.addArrangedSubview(sendButton)
 
         sendButton.setContentHuggingPriority(.required, for: .horizontal)
         sendButton.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         textHeightConstraint = textView.heightAnchor.constraint(equalToConstant: Metrics.textMinHeight)
         capsuleLayoutTopConstraint = capsuleLayoutStackView.topAnchor.constraint(
-            equalTo: capsuleGlassView.contentView.topAnchor,
+            equalTo: contentView.topAnchor,
             constant: Metrics.capsuleVerticalInset
-        )
-        capsuleContentLeadingConstraint = capsuleContentStackView.leadingAnchor.constraint(
-            equalTo: inputRowContainerView.leadingAnchor,
-            constant: Metrics.inputTextLeadingInset
-        )
-        capsuleContentTrailingConstraint = capsuleContentStackView.trailingAnchor.constraint(
-            equalTo: inputRowContainerView.trailingAnchor
         )
 
         NSLayoutConstraint.activate([
             capsuleLayoutTopConstraint,
             capsuleLayoutStackView.leadingAnchor.constraint(
-                equalTo: capsuleGlassView.contentView.leadingAnchor,
+                equalTo: contentView.leadingAnchor,
                 constant: Metrics.capsuleHorizontalInset
             ),
             capsuleLayoutStackView.trailingAnchor.constraint(
-                equalTo: capsuleGlassView.contentView.trailingAnchor,
+                equalTo: contentView.trailingAnchor,
                 constant: -Metrics.capsuleHorizontalInset
             ),
             capsuleLayoutStackView.bottomAnchor.constraint(
-                equalTo: capsuleGlassView.contentView.bottomAnchor,
+                equalTo: contentView.bottomAnchor,
                 constant: -Metrics.capsuleVerticalInset
             ),
 
             inputRowContainerView.heightAnchor.constraint(greaterThanOrEqualToConstant: Metrics.sendButtonSize),
 
             capsuleContentStackView.topAnchor.constraint(equalTo: inputRowContainerView.topAnchor),
-            capsuleContentLeadingConstraint,
-            capsuleContentTrailingConstraint,
+            capsuleContentStackView.leadingAnchor.constraint(equalTo: inputRowContainerView.leadingAnchor),
+            capsuleContentStackView.trailingAnchor.constraint(equalTo: inputRowContainerView.trailingAnchor),
             capsuleContentStackView.bottomAnchor.constraint(
                 equalTo: inputRowContainerView.bottomAnchor
             ),
             textHeightConstraint,
 
-            sendButton.trailingAnchor.constraint(
-                equalTo: inputRowContainerView.trailingAnchor
-            ),
-            sendButton.bottomAnchor.constraint(
-                equalTo: inputRowContainerView.bottomAnchor
-            ),
+            plusButton.widthAnchor.constraint(equalToConstant: Metrics.sendButtonSize),
+            plusButton.heightAnchor.constraint(equalToConstant: Metrics.sendButtonSize),
             sendButton.widthAnchor.constraint(equalToConstant: Metrics.sendButtonSize),
             sendButton.heightAnchor.constraint(equalToConstant: Metrics.sendButtonSize)
         ])
@@ -568,7 +506,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
 
         let transition = SendTransition(
             text: messageText,
-            backgroundGlobalFrame: capsuleGlassView.convert(capsuleGlassView.bounds, to: nil)
+            backgroundGlobalFrame: convert(bounds, to: nil)
         )
 
         textView.text = ""
@@ -636,10 +574,9 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         let hasText = !textView.text.isEmpty
         let hasContent = hasText || !pendingAttachments.isEmpty
         let shouldShowStopControl = isStreamingResponse
-        let shouldShowActionControl = hasContent || shouldShowStopControl
-        let stateChanged = shouldShowActionControl != isShowingActionControl
+        let stateChanged = hasContent != hasSendableContent
             || shouldShowStopControl != isShowingStopControl
-        isShowingActionControl = shouldShowActionControl
+        hasSendableContent = hasContent
         isShowingStopControl = shouldShowStopControl
 
         guard stateChanged || !animated else {
@@ -650,11 +587,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         updateSendControlAvailability()
 
         let applyTargetState = { [self] in
-            self.capsuleContentLeadingConstraint.constant = Metrics.inputTextLeadingInset
-            self.capsuleContentTrailingConstraint.constant = shouldShowActionControl
-                ? -(Metrics.sendButtonSize + Metrics.capsuleContentSpacing)
-                : 0.0
-            self.sendButton.alpha = shouldShowActionControl ? 1.0 : 0.0
+            self.sendButton.alpha = hasContent || shouldShowStopControl ? 1.0 : 0.52
             self.superview?.layoutIfNeeded()
             self.layoutIfNeeded()
         }
@@ -676,7 +609,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     private func updateSendControlAvailability() {
         let canUseActionControl = isShowingStopControl || isSendingEnabled
         sendButton.isEnabled = canUseActionControl
-        sendButton.isUserInteractionEnabled = isShowingActionControl && canUseActionControl
+        sendButton.isUserInteractionEnabled = canUseActionControl
     }
 
     private func updateSendButtonStyle() {
@@ -719,12 +652,6 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
 
         textHeightConstraint.constant = targetHeight
         onLayoutChange?()
-    }
-
-    private static func makeContainerEffect() -> UIGlassContainerEffect {
-        let effect = UIGlassContainerEffect()
-        effect.spacing = Metrics.spacing
-        return effect
     }
 
     private static func makeGlassEffect() -> UIGlassEffect {
