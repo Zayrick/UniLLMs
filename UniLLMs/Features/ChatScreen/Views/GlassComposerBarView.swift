@@ -45,13 +45,13 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     }
 
     private enum Metrics {
-        static let controlHeight: CGFloat = 44.0
+        static let controlHeight: CGFloat = 50.0
         static let capsuleHorizontalInset: CGFloat = 7.0
         static let capsulePreviewTopInset: CGFloat = 7.0
         static let capsuleVerticalInset: CGFloat = 5.0
         static let capsulePreviewGap: CGFloat = 7.0
         static let capsuleContentSpacing: CGFloat = 6.0
-        static let textMinHeight: CGFloat = 32.0
+        static let textContainerInset = UIEdgeInsets(top: 6, left: 0.0, bottom: 4, right: 0.0)
         static let textMaxHeight: CGFloat = 118.0
         static let sendButtonSize: CGFloat = 34.0
         static let plusIconPointSize: CGFloat = 16.0
@@ -64,11 +64,20 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         static let systemPromptHorizontalInset: CGFloat = 10.0
         static let systemPromptSpacing: CGFloat = 6.0
         static let systemPromptRemoveIconSpacing: CGFloat = 4.0
+
+        static var capsuleRadius: CGFloat { controlHeight * 0.5 }
+        static var sideButtonRadius: CGFloat { sendButtonSize * 0.5 }
+        static var inputRowMinHeight: CGFloat { controlHeight - capsuleVerticalInset * 2.0 }
+        static var inputRowHorizontalInset: CGFloat {
+            max(0.0, capsuleRadius - sideButtonRadius - capsuleHorizontalInset)
+        }
+        static var sideButtonBottomInset: CGFloat {
+            max(0.0, capsuleRadius - sideButtonRadius - capsuleVerticalInset)
+        }
     }
 
     private let capsuleLayoutStackView = UIStackView()
     private let inputRowContainerView = UIView()
-    private let capsuleContentStackView = UIStackView()
     private let plusButton = UIButton(type: .system)
     private let textView = UITextView()
     private let placeholderLabel = UILabel()
@@ -110,6 +119,14 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
     /// Source view used as the morph anchor for presentations triggered by the plus button.
     var plusSourceView: UIView {
         self
+    }
+
+    private var currentTextLineHeight: CGFloat {
+        ceil((textView.font ?? .preferredFont(forTextStyle: .body)).lineHeight)
+    }
+
+    private var minimumTextHeight: CGFloat {
+        ceil(currentTextLineHeight + Metrics.textContainerInset.top + Metrics.textContainerInset.bottom)
     }
 
     init() {
@@ -214,7 +231,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         isOpaque = false
         backgroundColor = .clear
         cornerConfiguration = .corners(
-            radius: .fixed(Double(Metrics.controlHeight * 0.5))
+            radius: .fixed(Double(Metrics.capsuleRadius))
         )
 
         configurePlusButton()
@@ -263,11 +280,6 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         inputRowContainerView.translatesAutoresizingMaskIntoConstraints = false
         inputRowContainerView.clipsToBounds = false
 
-        capsuleContentStackView.axis = .horizontal
-        capsuleContentStackView.alignment = .bottom
-        capsuleContentStackView.spacing = Metrics.capsuleContentSpacing
-        capsuleContentStackView.translatesAutoresizingMaskIntoConstraints = false
-
         textView.translatesAutoresizingMaskIntoConstraints = false
         sendButton.translatesAutoresizingMaskIntoConstraints = false
 
@@ -276,15 +288,14 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         capsuleLayoutStackView.addArrangedSubview(attachmentPreviewContainerView)
         capsuleLayoutStackView.addArrangedSubview(inputRowContainerView)
 
-        inputRowContainerView.addSubview(capsuleContentStackView)
-        capsuleContentStackView.addArrangedSubview(plusButton)
-        capsuleContentStackView.addArrangedSubview(textView)
-        capsuleContentStackView.addArrangedSubview(sendButton)
+        inputRowContainerView.addSubview(plusButton)
+        inputRowContainerView.addSubview(textView)
+        inputRowContainerView.addSubview(sendButton)
 
         sendButton.setContentHuggingPriority(.required, for: .horizontal)
         sendButton.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-        textHeightConstraint = textView.heightAnchor.constraint(equalToConstant: Metrics.textMinHeight)
+        textHeightConstraint = textView.heightAnchor.constraint(equalToConstant: minimumTextHeight)
         capsuleLayoutTopConstraint = capsuleLayoutStackView.topAnchor.constraint(
             equalTo: contentView.topAnchor,
             constant: Metrics.capsuleVerticalInset
@@ -305,15 +316,37 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
                 constant: -Metrics.capsuleVerticalInset
             ),
 
-            inputRowContainerView.heightAnchor.constraint(greaterThanOrEqualToConstant: Metrics.sendButtonSize),
+            inputRowContainerView.heightAnchor.constraint(greaterThanOrEqualToConstant: Metrics.inputRowMinHeight),
+            inputRowContainerView.heightAnchor.constraint(greaterThanOrEqualTo: textView.heightAnchor),
 
-            capsuleContentStackView.topAnchor.constraint(equalTo: inputRowContainerView.topAnchor),
-            capsuleContentStackView.leadingAnchor.constraint(equalTo: inputRowContainerView.leadingAnchor),
-            capsuleContentStackView.trailingAnchor.constraint(equalTo: inputRowContainerView.trailingAnchor),
-            capsuleContentStackView.bottomAnchor.constraint(
-                equalTo: inputRowContainerView.bottomAnchor
+            plusButton.leadingAnchor.constraint(
+                equalTo: inputRowContainerView.leadingAnchor,
+                constant: Metrics.inputRowHorizontalInset
+            ),
+            plusButton.bottomAnchor.constraint(
+                equalTo: inputRowContainerView.bottomAnchor,
+                constant: -Metrics.sideButtonBottomInset
+            ),
+
+            textView.centerYAnchor.constraint(equalTo: inputRowContainerView.centerYAnchor),
+            textView.leadingAnchor.constraint(
+                equalTo: plusButton.trailingAnchor,
+                constant: Metrics.capsuleContentSpacing
+            ),
+            textView.trailingAnchor.constraint(
+                equalTo: sendButton.leadingAnchor,
+                constant: -Metrics.capsuleContentSpacing
             ),
             textHeightConstraint,
+
+            sendButton.trailingAnchor.constraint(
+                equalTo: inputRowContainerView.trailingAnchor,
+                constant: -Metrics.inputRowHorizontalInset
+            ),
+            sendButton.bottomAnchor.constraint(
+                equalTo: inputRowContainerView.bottomAnchor,
+                constant: -Metrics.sideButtonBottomInset
+            ),
 
             plusButton.widthAnchor.constraint(equalToConstant: Metrics.sendButtonSize),
             plusButton.heightAnchor.constraint(equalToConstant: Metrics.sendButtonSize),
@@ -448,7 +481,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         textView.tintColor = .systemBlue
         textView.returnKeyType = .default
         textView.isScrollEnabled = false
-        textView.textContainerInset = UIEdgeInsets(top: 5.5, left: 0.0, bottom: 4.5, right: 0.0)
+        textView.textContainerInset = Metrics.textContainerInset
         textView.textContainer.lineFragmentPadding = 0.0
         textView.setContentHuggingPriority(.defaultLow, for: .horizontal)
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -463,7 +496,10 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
 
         NSLayoutConstraint.activate([
             placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor),
-            placeholderLabel.topAnchor.constraint(equalTo: textView.topAnchor, constant: textView.textContainerInset.top)
+            placeholderLabel.topAnchor.constraint(
+                equalTo: textView.topAnchor,
+                constant: Metrics.textContainerInset.top
+            )
         ])
     }
 
@@ -642,7 +678,7 @@ final class GlassComposerBarView: UIVisualEffectView, UITextViewDelegate {
         let fittingSize = textView.sizeThatFits(
             CGSize(width: fittingWidth, height: CGFloat.greatestFiniteMagnitude)
         )
-        let targetHeight = min(max(ceil(fittingSize.height), Metrics.textMinHeight), Metrics.textMaxHeight)
+        let targetHeight = min(max(ceil(fittingSize.height), minimumTextHeight), Metrics.textMaxHeight)
 
         textView.isScrollEnabled = fittingSize.height > Metrics.textMaxHeight
 
