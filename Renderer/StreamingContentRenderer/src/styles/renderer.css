@@ -90,6 +90,20 @@ body {
     touch-action: pan-y !important;
 }
 
+.streamdown-content [data-streamdown="image-wrapper"] {
+    vertical-align: middle;
+}
+
+.streamdown-content p [data-streamdown="image-wrapper"],
+.streamdown-content li [data-streamdown="image-wrapper"],
+.streamdown-content [data-streamdown="link"] [data-streamdown="image-wrapper"] {
+    margin-block: 0;
+}
+
+.streamdown-content p > [data-streamdown="link"]:only-child > [data-streamdown="image-wrapper"]:only-child {
+    margin-block: 1rem;
+}
+
 #content > :first-child {
     margin-top: 0;
 }
