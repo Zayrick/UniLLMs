@@ -94,6 +94,11 @@ body {
     vertical-align: middle;
 }
 
+.streamdown-content [data-footnote-ref],
+.streamdown-content [data-footnotes] {
+    display: none;
+}
+
 .streamdown-content p [data-streamdown="image-wrapper"],
 .streamdown-content li [data-streamdown="image-wrapper"],
 .streamdown-content [data-streamdown="link"] [data-streamdown="image-wrapper"] {
