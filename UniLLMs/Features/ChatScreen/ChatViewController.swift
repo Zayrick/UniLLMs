@@ -139,6 +139,8 @@ final class ChatViewController: UIViewController {
     private let messagesStackView = UIStackView()
     private var messagesContentMinimumHeightConstraint: NSLayoutConstraint!
     private let composerView = GlassComposerBarView()
+    private let historyLoadingOverlayView = UIView()
+    private let historyLoadingIndicatorView = UIActivityIndicatorView(style: .medium)
     private var composerLeadingConstraint: NSLayoutConstraint!
     private var composerTrailingConstraint: NSLayoutConstraint!
     private var composerKeyboardBottomConstraint: NSLayoutConstraint!
@@ -149,6 +151,9 @@ final class ChatViewController: UIViewController {
     private var systemPromptObservation: NSObjectProtocol?
     private var historyReloadTask: Task<Void, Never>?
     private var historySelectionTask: Task<Void, Never>?
+    private var historyRenderReadinessToken = UUID()
+    private var pendingHistoryRenderViewIdentifiers: Set<ObjectIdentifier> = []
+    private var isHistoryContentLoading = false
     private var isKeyboardVisible = false
     private var isSideMenuOpen = false
     private var selectedModelSelection: ChatModelSelection?
@@ -560,9 +565,38 @@ final class ChatViewController: UIViewController {
         mainPageView.bringSubviewToFront(headerGlassContainerView)
         mainPageView.bringSubviewToFront(editModeTitleLabel)
         mainPageView.bringSubviewToFront(rightHeaderButton)
+        configureHistoryLoadingOverlay()
         mainPageView.bringSubviewToFront(composerView)
         configureTopScrollEdgeAnchor()
         addScrollEdgeInteraction(to: composerView, edge: .bottom)
+    }
+
+    private func configureHistoryLoadingOverlay() {
+        historyLoadingOverlayView.translatesAutoresizingMaskIntoConstraints = false
+        historyLoadingOverlayView.backgroundColor = .clear
+        historyLoadingOverlayView.alpha = 0.0
+        historyLoadingOverlayView.isHidden = true
+        historyLoadingOverlayView.isUserInteractionEnabled = true
+        historyLoadingOverlayView.isAccessibilityElement = true
+        historyLoadingOverlayView.accessibilityLabel = String(localized: .chatLoadingHistory)
+        historyLoadingOverlayView.accessibilityTraits = .updatesFrequently
+        mainPageView.insertSubview(historyLoadingOverlayView, aboveSubview: messagesScrollView)
+
+        historyLoadingIndicatorView.translatesAutoresizingMaskIntoConstraints = false
+        historyLoadingIndicatorView.color = .secondaryLabel
+        historyLoadingIndicatorView.hidesWhenStopped = true
+        historyLoadingIndicatorView.isAccessibilityElement = false
+        historyLoadingOverlayView.addSubview(historyLoadingIndicatorView)
+
+        NSLayoutConstraint.activate([
+            historyLoadingOverlayView.topAnchor.constraint(equalTo: messagesScrollView.topAnchor),
+            historyLoadingOverlayView.leadingAnchor.constraint(equalTo: messagesScrollView.leadingAnchor),
+            historyLoadingOverlayView.trailingAnchor.constraint(equalTo: messagesScrollView.trailingAnchor),
+            historyLoadingOverlayView.bottomAnchor.constraint(equalTo: messagesScrollView.bottomAnchor),
+
+            historyLoadingIndicatorView.centerXAnchor.constraint(equalTo: historyLoadingOverlayView.centerXAnchor),
+            historyLoadingIndicatorView.centerYAnchor.constraint(equalTo: historyLoadingOverlayView.centerYAnchor)
+        ])
     }
 
     /// Add an empty title label across the chat header band, sitting in front
@@ -785,6 +819,7 @@ final class ChatViewController: UIViewController {
         if chatRuntime.isPrivacyModeEnabled {
             clearPendingAttachments(deleteFiles: true)
         }
+        cancelHistoryContentLoading()
         let discardedAttachments = chatRuntime.resetConversation(privacyMode: shouldKeepPrivacyMode)
         discardPrivateModeAttachments(including: discardedAttachments)
         removeChatContent()
@@ -810,6 +845,7 @@ final class ChatViewController: UIViewController {
             chatRuntime.resetConversation(privacyMode: true)
         }
 
+        cancelHistoryContentLoading()
         removeChatContent()
         reloadSelectedSystemPrompt()
         messagesScrollCoordinator.lockToBottom()
@@ -1316,10 +1352,12 @@ final class ChatViewController: UIViewController {
                 anchorUserMessageID: messageID,
                 revisionID: revisionID
             )
-            renderConversationTimeline(events)
+            let loadingToken = beginHistoryContentLoading()
+            let responseViews = renderConversationTimeline(events)
             messagesScrollCoordinator.lockToBottom()
             updateRightHeaderButtonState(animated: true)
             reloadHistorySessions(selectedSessionID: chatRuntime.currentSessionID)
+            waitForStoredConversationRendering(responseViews: responseViews, token: loadingToken)
         } catch {
             presentAttachmentError(error.localizedDescription)
         }
@@ -2007,12 +2045,111 @@ final class ChatViewController: UIViewController {
         }
     }
 
+    private func beginHistoryContentLoading() -> UUID {
+        historyRenderReadinessToken = UUID()
+        pendingHistoryRenderViewIdentifiers.removeAll()
+        setHistoryContentLoading(true)
+        return historyRenderReadinessToken
+    }
+
+    private func cancelHistoryContentLoading() {
+        historyRenderReadinessToken = UUID()
+        pendingHistoryRenderViewIdentifiers.removeAll()
+        setHistoryContentLoading(false)
+    }
+
+    private func finishHistoryContentLoading(token: UUID) {
+        guard token == historyRenderReadinessToken else {
+            return
+        }
+
+        pendingHistoryRenderViewIdentifiers.removeAll()
+        setHistoryContentLoading(false)
+        flushMessagesLayoutAfterContentChange()
+    }
+
+    private func setHistoryContentLoading(_ isLoading: Bool) {
+        guard isHistoryContentLoading != isLoading else {
+            return
+        }
+
+        isHistoryContentLoading = isLoading
+        historyLoadingOverlayView.isHidden = !isLoading
+        historyLoadingOverlayView.alpha = isLoading ? 1.0 : 0.0
+        messagesScrollView.isHidden = false
+        messagesScrollView.alpha = isLoading ? 0.0 : (isEditingMessage ? 0.0 : 1.0)
+        messagesScrollView.isUserInteractionEnabled = !isLoading && !isEditingMessage
+
+        if isLoading {
+            historyLoadingIndicatorView.startAnimating()
+        } else {
+            historyLoadingIndicatorView.stopAnimating()
+            messagesScrollView.isHidden = isEditingMessage
+        }
+    }
+
+    private func waitForStoredConversationRendering(
+        responseViews: [AssistantResponseTextView],
+        token: UUID
+    ) {
+        guard token == historyRenderReadinessToken else {
+            return
+        }
+
+        responseViews.forEach {
+            $0.onReadyForDisplay = nil
+        }
+
+        let pendingViews = responseViews.filter { !$0.isReadyForDisplay }
+        guard !pendingViews.isEmpty else {
+            finishHistoryContentLoading(token: token)
+            return
+        }
+
+        pendingHistoryRenderViewIdentifiers = Set(pendingViews.map { ObjectIdentifier($0) })
+        pendingViews.forEach { responseView in
+            responseView.onReadyForDisplay = { [weak self, weak responseView] in
+                guard let self,
+                      let responseView else {
+                    return
+                }
+
+                self.markStoredResponseReadyForDisplay(responseView, token: token)
+            }
+        }
+
+        pendingViews
+            .filter(\.isReadyForDisplay)
+            .forEach { markStoredResponseReadyForDisplay($0, token: token) }
+    }
+
+    private func markStoredResponseReadyForDisplay(
+        _ responseView: AssistantResponseTextView,
+        token: UUID
+    ) {
+        guard token == historyRenderReadinessToken else {
+            responseView.onReadyForDisplay = nil
+            return
+        }
+
+        guard responseView.isReadyForDisplay else {
+            return
+        }
+
+        responseView.onReadyForDisplay = nil
+        pendingHistoryRenderViewIdentifiers.remove(ObjectIdentifier(responseView))
+        if pendingHistoryRenderViewIdentifiers.isEmpty {
+            finishHistoryContentLoading(token: token)
+        }
+    }
+
     private func selectHistorySession(_ session: ChatSession) {
         guard activeResponseTask == nil else {
             return
         }
 
         historySelectionTask?.cancel()
+        let loadingToken = beginHistoryContentLoading()
         historySelectionTask = Task { [weak self] in
             guard let self else {
                 return
@@ -2020,6 +2157,7 @@ final class ChatViewController: UIViewController {
 
             let events = (try? await self.chatHistoryStore.fetchEvents(sessionID: session.id)) ?? []
             guard !Task.isCancelled else {
+                self.finishHistoryContentLoading(token: loadingToken)
                 return
             }
 
@@ -2028,12 +2166,13 @@ final class ChatViewController: UIViewController {
             }
             let discardedAttachments = self.chatRuntime.loadConversation(session: session, events: events)
             self.discardPrivateModeAttachments(including: discardedAttachments)
-            self.renderConversationTimeline(events)
+            let responseViews = self.renderConversationTimeline(events)
             self.reloadSelectedSystemPrompt()
             self.messagesScrollCoordinator.lockToBottom()
             self.updateRightHeaderButtonState(animated: true)
             self.reloadHistorySessions(selectedSessionID: session.id)
             self.setSideMenuOpen(false, animated: true)
+            self.waitForStoredConversationRendering(responseViews: responseViews, token: loadingToken)
         }
     }
 
@@ -2043,6 +2182,7 @@ final class ChatViewController: UIViewController {
         }
 
         historySelectionTask?.cancel()
+        cancelHistoryContentLoading()
         historySelectionTask = Task { [weak self] in
             guard let self else {
                 return
@@ -2195,10 +2335,12 @@ final class ChatViewController: UIViewController {
         !messagesStackView.arrangedSubviews.isEmpty
     }
 
-    private func renderConversationTimeline(_ events: [ChatTimelineEvent]) {
+    @discardableResult
+    private func renderConversationTimeline(_ events: [ChatTimelineEvent]) -> [AssistantResponseTextView] {
         removeChatContent()
 
         var currentAssistantView: AssistantResponseTextView?
+        var responseViews: [AssistantResponseTextView] = []
 
         func finishCurrentAssistantView() {
             currentAssistantView?.finishStreamingContent()
@@ -2212,6 +2354,7 @@ final class ChatViewController: UIViewController {
 
             let responseView = makeStoredAssistantResponseView()
             currentAssistantView = responseView
+            responseViews.append(responseView)
             return responseView
         }
 
@@ -2254,6 +2397,7 @@ final class ChatViewController: UIViewController {
         finishCurrentAssistantView()
         mainPageView.layoutIfNeeded()
         scrollMessagesToBottom(animated: false)
+        return responseViews
     }
 
     private func appendStoredUserMessage(

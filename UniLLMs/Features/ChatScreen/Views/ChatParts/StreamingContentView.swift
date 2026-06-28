@@ -36,8 +36,6 @@ final class StreamingContentView: UIView {
         var detail: String?
     }
 
-    fileprivate var onContentHeightChanged: (() -> Void)?
-
     private let webView: WKWebView
     private var timelineItems: [TimelineItem] = []
     private var timelineItemSerial = 0
@@ -45,9 +43,17 @@ final class StreamingContentView: UIView {
     private var hasPreparedTimeline = false
     private var isLoaded = false
     private var isRenderScheduled = false
+    private var hasMeasuredRenderableContent = false
     private var contentHeight: CGFloat = 0.0
     private var lastMeasuredWidth: CGFloat = 0.0
     private var traitChangeRegistration: (any UITraitChangeRegistration)?
+
+    fileprivate var isReadyForDisplay: Bool {
+        !hasRenderableTimelineContent || hasMeasuredRenderableContent
+    }
+
+    fileprivate var onReadyForDisplay: (() -> Void)?
+    fileprivate var onContentHeightChanged: (() -> Void)?
 
     override init(frame: CGRect) {
         let userContentController = WKUserContentController()
@@ -105,6 +111,7 @@ final class StreamingContentView: UIView {
         timelineItemSerial = 0
         isTimelineStreaming = true
         hasPreparedTimeline = true
+        hasMeasuredRenderableContent = false
         scheduleRender()
     }
 
@@ -125,6 +132,7 @@ final class StreamingContentView: UIView {
                 )
             )
         }
+        markTimelineContentChanged()
         scheduleRender()
     }
 
@@ -145,6 +153,7 @@ final class StreamingContentView: UIView {
                 )
             )
         }
+        markTimelineContentChanged()
         scheduleRender()
     }
 
@@ -186,6 +195,7 @@ final class StreamingContentView: UIView {
                 )
             )
         }
+        markTimelineContentChanged()
         scheduleRender()
     }
 
@@ -195,6 +205,7 @@ final class StreamingContentView: UIView {
         }
 
         isTimelineStreaming = false
+        markTimelineContentChanged()
         renderNow()
         requestHeightUpdate()
     }
@@ -221,6 +232,25 @@ final class StreamingContentView: UIView {
     private func nextTimelineItemID(prefix: String) -> String {
         timelineItemSerial += 1
         return "\(prefix)-\(timelineItemSerial)"
+    }
+
+    private var hasRenderableTimelineContent: Bool {
+        timelineItems.contains { item in
+            switch item.kind {
+            case .reasoning, .rawText:
+                return !(item.text ?? "").isEmpty
+            case .tool:
+                return true
+            }
+        }
+    }
+
+    private func markTimelineContentChanged() {
+        guard hasRenderableTimelineContent else {
+            return
+        }
+
+        hasMeasuredRenderableContent = false
     }
 
     private func configure() {
@@ -309,8 +339,17 @@ final class StreamingContentView: UIView {
 
     private func applyHeight(_ height: CGFloat) {
         let newHeight = ceil(max(0.0, height))
+        let wasReadyForDisplay = isReadyForDisplay
 
+        if hasRenderableTimelineContent && newHeight > 0.0 {
+            hasMeasuredRenderableContent = true
+        }
+
+        let didBecomeReadyForDisplay = !wasReadyForDisplay && isReadyForDisplay
         guard abs(newHeight - contentHeight) > 0.5 else {
+            if didBecomeReadyForDisplay {
+                onReadyForDisplay?()
+            }
             return
         }
 
@@ -318,6 +357,9 @@ final class StreamingContentView: UIView {
         invalidateIntrinsicContentSize()
         setNeedsLayout()
         onContentHeightChanged?()
+        if didBecomeReadyForDisplay {
+            onReadyForDisplay?()
+        }
     }
 
     private func loadRenderer() {
@@ -408,6 +450,11 @@ final class StreamingContentHostView: UIView {
     private var contentHeightConstraint: NSLayoutConstraint!
     private var lastMeasuredWidth: CGFloat = 0.0
 
+    var isReadyForDisplay: Bool {
+        contentView.isReadyForDisplay
+    }
+
+    var onReadyForDisplay: (() -> Void)?
     var onLayoutInvalidated: (() -> Void)?
 
     override init(frame: CGRect) {
@@ -486,6 +533,9 @@ final class StreamingContentHostView: UIView {
         setContentHuggingPriority(.required, for: .vertical)
 
         contentView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.onReadyForDisplay = { [weak self] in
+            self?.onReadyForDisplay?()
+        }
         contentView.onContentHeightChanged = { [weak self] in
             self?.updateContentHeight()
         }

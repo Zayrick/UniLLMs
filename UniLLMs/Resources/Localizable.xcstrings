@@ -567,6 +567,24 @@
         }
       }
     },
+    "chat.loading_history" : {
+      "comment" : "Accessibility label for the spinner shown while a selected chat history is preparing for display.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading conversation"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在加载对话"
+          }
+        }
+      }
+    },
     "chat.history_count_format" : {
       "comment" : "History menu item with edit count.",
       "extractionState" : "manual",

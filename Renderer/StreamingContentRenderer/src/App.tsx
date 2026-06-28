@@ -488,6 +488,7 @@ function MarkdownContent({
   translations: Partial<StreamdownTranslations>
 }) {
   const contentRef = useRef<HTMLDivElement>(null)
+  const renderMode = isStreaming ? 'streaming' : 'static'
 
   useLayoutEffect(() => {
     const contentElement = contentRef.current
@@ -516,7 +517,7 @@ function MarkdownContent({
         controls={streamdownControls}
         dir="auto"
         isAnimating={isStreaming}
-        mode="streaming"
+        mode={renderMode}
         normalizeHtmlIndentation
         linkSafety={streamdownLinkSafety}
         plugins={streamdownPlugins}

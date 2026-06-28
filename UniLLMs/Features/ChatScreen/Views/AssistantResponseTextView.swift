@@ -38,6 +38,11 @@ final class AssistantResponseTextView: UIView {
     private var isResponseFinished = false
     private var isLoading = false
     var onLayoutInvalidated: (() -> Void)?
+    var onReadyForDisplay: (() -> Void)?
+
+    var isReadyForDisplay: Bool {
+        !isLoading && timelineView.isReadyForDisplay
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -178,6 +183,9 @@ final class AssistantResponseTextView: UIView {
     }
 
     private func configureTimelineView() {
+        timelineView.onReadyForDisplay = { [weak self] in
+            self?.onReadyForDisplay?()
+        }
         timelineView.onLayoutInvalidated = { [weak self] in
             self?.invalidateResponseLayout()
         }
@@ -431,12 +439,17 @@ private final class AssistantResponseTimelineView: UIView {
     private let hostView = StreamingContentHostView()
     private var hasContent = false
 
+    var onReadyForDisplay: (() -> Void)?
     var onLayoutInvalidated: (() -> Void)?
 
     private(set) var rawText = ""
 
     var isEmpty: Bool {
         !hasContent
+    }
+
+    var isReadyForDisplay: Bool {
+        !hasContent || hostView.isReadyForDisplay
     }
 
     override init(frame: CGRect) {
@@ -492,6 +505,9 @@ private final class AssistantResponseTimelineView: UIView {
         setContentHuggingPriority(.required, for: .vertical)
 
         hostView.translatesAutoresizingMaskIntoConstraints = false
+        hostView.onReadyForDisplay = { [weak self] in
+            self?.onReadyForDisplay?()
+        }
         hostView.onLayoutInvalidated = { [weak self] in
             self?.invalidateTimelineLayout()
         }
