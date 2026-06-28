@@ -493,7 +493,8 @@ final class SentMessageBubbleView: UIView, UIContextMenuInteractionDelegate {
                     ? String(localized: .generalHistory)
                     : String(localized: .chatHistoryCountFormat(editHistoryCount))
                 let historyAction = UIAction(
-                    title: historyTitle
+                    title: historyTitle,
+                    image: UIImage(systemName: "clock")
                 ) { _ in
                     self?.onShowHistory?()
                 }
