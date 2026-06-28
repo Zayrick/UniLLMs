@@ -6,18 +6,6 @@
 	<array>
 		<string>Zayrick.UniLLMs.chatTurn.*</string>
 	</array>
-	<key>NSCameraUsageDescription</key>
-	<string>Take photos to attach to your chat messages.</string>
-	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>Read or manage calendar events when you ask a tool to inspect or change your schedule.</string>
-	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
-	<string>Create calendar events when you ask a tool to add them.</string>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Save photos captured in chat to your library.</string>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>processing</string>
-	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -37,5 +25,9 @@
 			</array>
 		</dict>
 	</dict>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>processing</string>
+	</array>
 </dict>
 </plist>
