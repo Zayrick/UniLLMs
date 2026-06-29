@@ -15,6 +15,7 @@ final class ToolCatalogTests: XCTestCase {
         )
 
         XCTAssertNotNil(registry.tool(id: "current_datetime"))
+        XCTAssertNotNil(registry.tool(id: "http_request"))
         XCTAssertNotNil(registry.tool(id: "calendar_create"))
         XCTAssertNotNil(registry.tool(id: "calendar_read"))
         XCTAssertNotNil(registry.tool(id: "calendar_update"))

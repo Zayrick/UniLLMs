@@ -35,6 +35,7 @@ enum BuiltInToolCatalog {
         ToolRegistry(
             tools: [
                 DateTimeTool(),
+                NetworkRequestTool(),
                 CalendarCreateTool(),
                 CalendarReadTool(),
                 CalendarUpdateTool(),
@@ -53,7 +54,8 @@ enum BuiltInToolCatalog {
     ) -> [any ToolApprovalRequestProviding] {
         [
             CalendarToolApprovalRequestProvider(contextProvider: calendarContextProvider),
-            MemoryToolApprovalRequestProvider()
+            MemoryToolApprovalRequestProvider(),
+            NetworkToolApprovalRequestProvider()
         ]
     }
 
@@ -96,6 +98,18 @@ enum BuiltInToolCatalog {
                         )
                     }
                 )
+            ),
+            BuiltInToolGroupDescriptor(
+                id: "network",
+                toolIDs: NetworkToolCatalog.toolIDs,
+                title: String(localized: "tools.network_tools"),
+                sectionTitle: String(localized: "tools.section.network"),
+                listTitle: String(localized: "tools.network_tools.list"),
+                detailText: String(localized: "tools.network_tools.detail"),
+                symbolName: "network",
+                listSymbolName: "network",
+                approvalSkipDetail: String(localized: "tools.approval.network_skip_detail"),
+                presentationOverridesByToolID: [:]
             )
         ]
     }

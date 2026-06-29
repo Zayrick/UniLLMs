@@ -5002,6 +5002,24 @@
         }
       }
     },
+    "tools.approval.allow_request" : {
+      "comment" : "Primary approval button for network request tool calls.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allow Request"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "允许请求"
+          }
+        }
+      }
+    },
     "tools.approval.calendar_skip_detail" : {
       "comment" : "Subtitle for skipping approval on calendar tools.",
       "extractionState" : "manual",
@@ -5038,6 +5056,24 @@
         }
       }
     },
+    "tools.approval.detail.body" : {
+      "comment" : "Approval detail label for an HTTP request body.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请求体"
+          }
+        }
+      }
+    },
     "tools.approval.detail.calendar" : {
       "comment" : "Approval detail label for a calendar name.",
       "extractionState" : "manual",
@@ -5052,6 +5088,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "日历"
+          }
+        }
+      }
+    },
+    "tools.approval.detail.headers" : {
+      "comment" : "Approval detail label for HTTP request headers.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Headers"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请求头"
           }
         }
       }
@@ -5164,6 +5218,24 @@
         }
       }
     },
+    "tools.approval.detail.method" : {
+      "comment" : "Approval detail label for an HTTP method.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Method"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "方法"
+          }
+        }
+      }
+    },
     "tools.approval.detail.notes" : {
       "comment" : "Approval detail label for calendar notes.",
       "extractionState" : "manual",
@@ -5254,6 +5326,24 @@
         }
       }
     },
+    "tools.approval.detail.timeout" : {
+      "comment" : "Approval detail label for an HTTP request timeout.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Timeout"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "超时"
+          }
+        }
+      }
+    },
     "tools.approval.detail.title" : {
       "comment" : "Approval detail label for an item title.",
       "extractionState" : "manual",
@@ -5322,6 +5412,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "记忆工具每次调用时不再询问。"
+          }
+        }
+      }
+    },
+    "tools.approval.network_skip_detail" : {
+      "comment" : "Subtitle for skipping approval on network request tools.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Network requests run without asking each time."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "网络请求每次调用时不再询问。"
           }
         }
       }
@@ -6424,6 +6532,312 @@
         }
       }
     },
+    "tools.network.error.body_too_large_format" : {
+      "comment" : "Network request tool error when the request body is too large. The placeholder is the maximum byte count.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "body must be %ld bytes or smaller."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "body 不能超过 %ld 字节。"
+          }
+        }
+      }
+    },
+    "tools.network.error.empty_argument_format" : {
+      "comment" : "Network request tool error when a required argument is empty. The placeholder is the argument name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ cannot be empty."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 不能为空。"
+          }
+        }
+      }
+    },
+    "tools.network.error.invalid_body" : {
+      "comment" : "Network request tool error when the request body cannot be encoded.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "body cannot be encoded."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法编码 body。"
+          }
+        }
+      }
+    },
+    "tools.network.error.invalid_header_format" : {
+      "comment" : "Network request tool error when a header name or value is invalid. The placeholder is the header name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "headers contains an invalid header: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "headers 包含无效请求头：%@"
+          }
+        }
+      }
+    },
+    "tools.network.error.invalid_method" : {
+      "comment" : "Network request tool error when the HTTP method is unsupported.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "method must be GET, POST, PUT, PATCH, DELETE, HEAD, or OPTIONS."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "method 必须是 GET、POST、PUT、PATCH、DELETE、HEAD 或 OPTIONS。"
+          }
+        }
+      }
+    },
+    "tools.network.error.invalid_object_format" : {
+      "comment" : "Network request tool error when an argument must be an object. The placeholder is the argument name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ must be an object."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 必须是对象。"
+          }
+        }
+      }
+    },
+    "tools.network.error.invalid_timeout" : {
+      "comment" : "Network request tool error when timeout_seconds is invalid.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "timeout_seconds must be from 1 to 120."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "timeout_seconds 必须是 1 到 120。"
+          }
+        }
+      }
+    },
+    "tools.network.error.invalid_url" : {
+      "comment" : "Network request tool error when url is invalid.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "url must be a valid absolute URL."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "url 必须是有效的绝对 URL。"
+          }
+        }
+      }
+    },
+    "tools.network.error.missing_argument_format" : {
+      "comment" : "Network request tool error when a required argument is missing. The placeholder is the argument name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ is required."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "缺少 %@。"
+          }
+        }
+      }
+    },
+    "tools.network.error.non_http_response" : {
+      "comment" : "Network request tool error when URLSession returns a non-HTTP response.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Response was not HTTP."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "响应不是 HTTP。"
+          }
+        }
+      }
+    },
+    "tools.network.error.request_failed_format" : {
+      "comment" : "Network request tool error when URLSession fails. The placeholder is the underlying error.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Request failed: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请求失败：%@"
+          }
+        }
+      }
+    },
+    "tools.network.error.unsupported_scheme_format" : {
+      "comment" : "Network request tool error when URL scheme is not http or https. The placeholder is the scheme.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ URLs are not supported. Use http or https."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不支持 %@ URL。请使用 http 或 https。"
+          }
+        }
+      }
+    },
+    "tools.network_request.name" : {
+      "comment" : "Built-in network request tool display name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HTTP Request"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HTTP 请求"
+          }
+        }
+      }
+    },
+    "tools.network_request.summary" : {
+      "comment" : "Built-in network request tool summary.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send an HTTP request to a URL when the user asks."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按用户要求向 URL 发送 HTTP 请求。"
+          }
+        }
+      }
+    },
+    "tools.network_tools" : {
+      "comment" : "Grouped network tools title.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Network Tools"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "网络工具"
+          }
+        }
+      }
+    },
+    "tools.network_tools.detail" : {
+      "comment" : "Detail text for entering network tool action settings.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose which network actions are available."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择可用的网络操作。"
+          }
+        }
+      }
+    },
+    "tools.network_tools.list" : {
+      "comment" : "Network tools list entry and title.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Network Tools List"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "网络工具列表"
+          }
+        }
+      }
+    },
     "tools.section.built_in" : {
       "comment" : "Built-in tools section header.",
       "extractionState" : "manual",
@@ -6474,6 +6888,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "记忆"
+          }
+        }
+      }
+    },
+    "tools.section.network" : {
+      "comment" : "Network tools section header.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Network"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "网络"
           }
         }
       }
